@@ -39,12 +39,11 @@ import javax.swing.*;
 import java.awt.event.ActionEvent;
 import java.io.InputStream;
 import java.io.InputStreamReader;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutionException;
 import java.util.function.Function;
 
 import static org.foxesworld.engine.utils.FontUtils.hexToColor;
@@ -63,8 +62,8 @@ public class ComponentFactory extends JComponent {
     private final Engine engine;
     private final LanguageProvider langProvider;
     private final IconUtils iconUtils;
-    private final Map<String, Map<String, StyleAttributes>> componentStyles = new HashMap<>();
-    private final Map<String, Function<ComponentAttributes, JComponent>> componentRegistry = new HashMap<>();
+    private final Map<String, Map<String, StyleAttributes>> componentStyles = new ConcurrentHashMap<>();
+    private final Map<String, Function<ComponentAttributes, JComponent>> componentRegistry = new ConcurrentHashMap<>();
     private StyleAttributes style;
     private ComponentAttributes componentAttribute;
     private ComponentFactoryListener componentFactoryListener;
@@ -108,7 +107,10 @@ public class ComponentFactory extends JComponent {
      * @param creator function that receives {@link ComponentAttributes} and returns the created {@link JComponent}.
      */
     public void registerComponent(String type, Function<ComponentAttributes, JComponent> creator) {
-        componentRegistry.put(type, creator);
+        if (type == null || type.isBlank()) {
+            throw new IllegalArgumentException("Component type must not be blank");
+        }
+        componentRegistry.put(type, Objects.requireNonNull(creator, "creator"));
         Engine.LOGGER.info("    - Registered component: {}", type);
     }
 
@@ -131,7 +133,7 @@ public class ComponentFactory extends JComponent {
                 Engine.LOGGER.error("Error creating component: {}", attributes.getComponentType(), e);
                 return null;
             }
-        });
+        }, engine.getExecutorServiceProvider().getExecutorService());
     }
 
     /**
@@ -163,12 +165,7 @@ public class ComponentFactory extends JComponent {
             }
             Engine.LOGGER.info("Creating child component: {}", comp.getComponentType());
 
-            JComponent child;
-            try {
-                child = this.createComponentAsync(comp).get();
-            } catch (InterruptedException | ExecutionException e) {
-                throw new RuntimeException(e);
-            }
+            JComponent child = this.createComponent(comp);
 
             if (child == null) {
                 Engine.LOGGER.error("Error: createComponent returned null!");
@@ -197,20 +194,23 @@ public class ComponentFactory extends JComponent {
      * @throws IllegalArgumentException if the {@code componentType} is not registered / supported.
      */
     public JComponent createComponent(ComponentAttributes attributes) {
+        Objects.requireNonNull(attributes, "attributes");
         this.componentAttribute = attributes;
-        this.bounds = attributes.getBounds().getBounds();
+        this.bounds = attributes.getBounds();
         loadStyle(attributes);
-        String componentType = attributes.getComponentType();
-        if(componentFactoryListener!= null) {
-            componentFactoryListener.onComponentCreation(attributes);
-        }
-        Function<ComponentAttributes, JComponent> creator = componentRegistry.get(componentType);
 
+        String componentType = attributes.getComponentType();
+        Function<ComponentAttributes, JComponent> creator = componentRegistry.get(componentType);
         if (creator == null) {
             throw new IllegalArgumentException("Unsupported component type: " + componentType);
         }
 
-        JComponent component = creator.apply(attributes);
+        if (componentFactoryListener != null) {
+            componentFactoryListener.onComponentCreation(attributes);
+        }
+
+        JComponent component = Objects.requireNonNull(creator.apply(attributes),
+                "Component creator returned null for type: " + componentType);
         component.setName(attributes.getComponentId());
         component.setBounds(attributes.getBounds());
         component.setOpaque(style != null && style.isOpaque());
@@ -218,7 +218,6 @@ public class ComponentFactory extends JComponent {
         if (attributes.getToolTip() != null) {
             initializeTooltip(component, attributes);
         }
-
 
         return component;
     }
@@ -254,12 +253,22 @@ public class ComponentFactory extends JComponent {
      * @param attributes attributes containing type and style name.
      */
     private void loadStyle(ComponentAttributes attributes) {
+        this.style = null;
         String componentType = attributes.getComponentType();
         String componentStyle = attributes.getComponentStyle();
+        if (componentType == null || componentStyle == null) {
+            return;
+        }
 
-        if (componentStyle != null) {
-            componentStyles.putIfAbsent(componentType, engine.getStyleProvider().getElementStyles().get(componentType));
-            this.style = componentStyles.get(componentType).get(componentStyle);
+        Map<String, StyleAttributes> stylesByType = componentStyles.computeIfAbsent(componentType,
+                key -> engine.getStyleProvider().getElementStyles().get(key));
+        if (stylesByType == null) {
+            Engine.LOGGER.warn("No styles registered for component type: {}", componentType);
+            return;
+        }
+        this.style = stylesByType.get(componentStyle);
+        if (this.style == null) {
+            Engine.LOGGER.warn("No style '{}' registered for component type: {}", componentStyle, componentType);
         }
     }
 
@@ -285,11 +294,21 @@ public class ComponentFactory extends JComponent {
         Label label = new Label(this);
         labelStyle.apply(label);
         label.setIcon(iconUtils.getIcon(componentAttributes));
-        String initial = (componentAttributes.getInitialValue() != null) ? String.valueOf(componentAttributes.getInitialValue()) : "";
-        label.setText(this.getEngine().getLANG().getString(componentAttributes.getLocaleKey()) + " " + initial);
+        label.setText(localizedTextWithInitial(componentAttributes));
         label.setForeground(hexToColor(componentAttributes.getColor()));
-        label.setFont(engine.getFONTUTILS().getFont(style.getFont(), componentAttributes.getFontSize()));
+        if (style != null) {
+            label.setFont(engine.getFONTUTILS().getFont(style.getFont(), componentAttributes.getFontSize()));
+        }
         return label;
+    }
+
+    private String localizedTextWithInitial(ComponentAttributes componentAttributes) {
+        String localized = this.getEngine().getLANG().getString(componentAttributes.getLocaleKey());
+        Object initialValue = componentAttributes.getInitialValue();
+        if (initialValue == null || String.valueOf(initialValue).isBlank()) {
+            return localized;
+        }
+        return localized + " " + initialValue;
     }
 
     private JComponent createProgressBar(ComponentAttributes componentAttributes) {
@@ -332,11 +351,12 @@ public class ComponentFactory extends JComponent {
         TextArea textArea = new TextArea(this);
         textArea.setLineWrap(componentAttributes.isLineWrap());
         areaStyle.apply(textArea);
-        String initial = (componentAttributes.getInitialValue() != null) ? String.valueOf(componentAttributes.getInitialValue()) : "";
-        textArea.setText(this.getEngine().getLANG().getString(componentAttributes.getLocaleKey()) + " " + initial);
+        textArea.setText(localizedTextWithInitial(componentAttributes));
         textArea.setForeground(hexToColor(componentAttributes.getColor()));
         textArea.setEditable(componentAttributes.isEnabled());
-        textArea.setFont(engine.getFONTUTILS().getFont(style.getFont(), componentAttributes.getFontSize()));
+        if (style != null) {
+            textArea.setFont(engine.getFONTUTILS().getFont(style.getFont(), componentAttributes.getFontSize()));
+        }
         return textArea;
     }
 
@@ -421,14 +441,12 @@ public class ComponentFactory extends JComponent {
         slider.setValue(Integer.parseInt((String) componentAttributes.getInitialValue()));
         return slider;
     }
-    @Deprecated
     private JComponent createCompositeSlider(ComponentAttributes componentAttributes) {
         CompositeSlider compositeSlider = new CompositeSlider(this);
         compositeSlider.setValue(Integer.parseInt((String) componentAttributes.getInitialValue()));
         return compositeSlider;
     }
 
-    @Deprecated
     private JComponent createFileSelector(ComponentAttributes componentAttributes) {
         FileSelector fileSelector = new FileSelector(this, SelectionMode.valueOf(componentAttributes.getSelectionMode()));
         fileSelector.setValue((String) componentAttributes.getInitialValue());

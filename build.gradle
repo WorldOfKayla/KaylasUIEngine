@@ -1,48 +1,45 @@
-buildscript {
-    repositories {
-        maven {
-            url "https://plugins.gradle.org/m2/"
-        }
-        maven {
-            url "https://oss.sonatype.org/content/repositories/snapshots"
-        }
-        maven {
-            url "https://jcenter.bintray.com/"
-        }
-        maven {
-            url "https://jitpack.io/"
-        }
-        mavenCentral()
-    }
-    dependencies {
-        classpath "com.github.johnrengelman:shadow:8.1.0"
-    }
-}
-
 plugins {
     id 'java'
     id 'application'
     id 'maven-publish'
-    id "com.github.johnrengelman.shadow" version "8.1.0"
+    id 'com.gradleup.shadow' version '9.5.1'
 }
 
-archivesBaseName = project.archivesBaseName
+Properties localProperties = new Properties()
+def localPropertiesFile = project.rootProject.file('local.properties')
+if (localPropertiesFile.exists()) {
+    localPropertiesFile.withInputStream { localProperties.load(it) }
+}
 
-Properties properties = new Properties()
-properties.load(project.rootProject.file('local.properties').newDataInputStream())
-    def pass = properties.getProperty('github.package.password')
-    def user = properties.getProperty('github.package.username')
-    version = properties.getProperty("project.version")
-    group = properties.getProperty("project.group")
-    archivesBaseName = properties.getProperty("project.archivesBaseName")
-    if (pass != null && user != null) {
-        println("Login and password valid!")
-    } else {
-        println("Please, check you username or password!")
-    }
+def readSetting = { String key, String envKey, String fallback ->
+    def gradleValue = findProperty(key)
+    def envValue = System.getenv(envKey)
+    def localValue = localProperties.getProperty(key)
+    return (gradleValue ?: envValue ?: localValue ?: fallback).toString()
+}
+
+def packageUser = readSetting('github.package.username', 'GITHUB_ACTOR', '')
+def packagePassword = readSetting('github.package.password', 'GITHUB_TOKEN', '')
+def projectVersion = readSetting('project.version', 'PROJECT_VERSION', '1.16.0-NEXUS')
+def projectGroup = readSetting('project.group', 'PROJECT_GROUP', 'org.foxesworld')
+def projectArchivesBaseName = readSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'fox-engine')
+def diagnosticsProjectDir = layout.projectDirectory.asFile.absolutePath
+
+version = projectVersion
+group = projectGroup
+
+base {
+    archivesName = projectArchivesBaseName
+}
+
+if (packageUser && packagePassword) {
+    logger.lifecycle('GitHub Packages credentials configured.')
+} else {
+    logger.lifecycle('GitHub Packages credentials are not configured; publish requires credentials.')
+}
 
 application {
-    mainClass = 'org.foxesworld.engine.Engine'
+    mainClass = 'org.foxesworld.engine.Test'
 }
 
 repositories {
@@ -50,30 +47,67 @@ repositories {
 }
 
 java {
-    withSourcesJar()
-}
-
-task copyDll(type: Copy) {
-    from configurations.runtimeClasspath
-    into project.buildDir
-    include "*.dll"
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
-}
-
-task javadocJar(type: Jar) {
-    dependsOn javadoc
-    archiveClassifier.set('javadoc')
-    from javadoc.destinationDir
-}
-
-java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
     withSourcesJar()
     withJavadocJar()
 }
 
+tasks.register('copyDll', Copy) {
+    from configurations.runtimeClasspath
+    into layout.buildDirectory
+    include '*.dll'
+    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Javadoc).configureEach {
+    options.encoding = 'UTF-8'
+}
+
+tasks.withType(Test).configureEach {
+    failOnNoDiscoveredTests = false
+}
 
 run {
     systemProperty 'java.library.path', 'lib'
+    systemProperty 'foxengine.test.exitAfterInit', System.getProperty('foxengine.test.exitAfterInit', 'false')
+}
+
+tasks.register('ideRun', JavaExec) {
+    group = 'application'
+    description = 'Runs FoxEngine Test with IDE-friendly JVM arguments.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.foxesworld.engine.Test'
+    systemProperty 'java.library.path', 'lib'
+    systemProperty 'file.encoding', 'UTF-8'
+}
+
+tasks.register('smokeRun', JavaExec) {
+    group = 'verification'
+    description = 'Runs FoxEngine Test and exits after successful GUI initialization.'
+    classpath = sourceSets.main.runtimeClasspath
+    mainClass = 'org.foxesworld.engine.Test'
+    systemProperty 'java.library.path', 'lib'
+    systemProperty 'file.encoding', 'UTF-8'
+    systemProperty 'foxengine.test.exitAfterInit', 'true'
+    args '--smoke'
+}
+
+tasks.register('runtimeEnvironment') {
+    group = 'help'
+    description = 'Prints runtime information useful for IDE diagnostics.'
+    doLast {
+        println "Gradle: ${gradle.gradleVersion}"
+        println "Java: ${System.getProperty('java.version')} (${System.getProperty('java.vendor')})"
+        println "OS: ${System.getProperty('os.name')} ${System.getProperty('os.version')} ${System.getProperty('os.arch')}"
+        println "CWD: ${diagnosticsProjectDir}"
+        println "Idea active: ${System.getProperty('idea.active') ?: 'false'}"
+    }
 }
 
 dependencies {
@@ -86,36 +120,31 @@ dependencies {
     implementation files('lib/emoji-java-6.0i.jar')
 
     implementation 'com.github.stephengold:j-ogg-vorbis:1.0.4'
-    implementation group: 'com.google.code.gson', name: 'gson', version: '2.11.0'
+    implementation 'com.google.code.gson:gson:2.11.0'
     implementation 'org.fusesource.jansi:jansi:2.4.0'
     implementation 'org.slf4j:slf4j-api:2.0.9'
     implementation 'org.apache.logging.log4j:log4j-slf4j2-impl:2.20.0'
     implementation 'org.apache.logging.log4j:log4j-core:2.20.0'
 }
 
-
-
-apply plugin: "com.github.johnrengelman.shadow"
-
 publishing {
     repositories {
         maven {
-            name 'GitHubPackages'
-            url = 'https://maven.pkg.github.com/FoxesWorld/FoxesEngine'
+            name = 'GitHubPackages'
+            url = uri('https://maven.pkg.github.com/FoxesWorld/FoxesEngine')
             credentials {
-                username = user
-                password = pass
+                username = packageUser
+                password = packagePassword
             }
         }
     }
 
     publications {
         gpr(MavenPublication) {
-            groupId = group
-            artifactId = archivesBaseName
-            version = version
+            groupId = projectGroup
+            artifactId = projectArchivesBaseName
+            version = projectVersion
             from components.java
         }
     }
 }
-

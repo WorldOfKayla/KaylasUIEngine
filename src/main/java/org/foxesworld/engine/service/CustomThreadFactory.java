@@ -1,35 +1,38 @@
 package org.foxesworld.engine.service;
 
 import org.apache.logging.log4j.ThreadContext;
+import org.foxesworld.engine.Engine;
 
 import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Custom thread factory to create threads with a specific name prefix and MDC support.
+ * Creates named engine worker threads and attaches Log4j2 thread context for diagnostics.
  */
 class CustomThreadFactory implements ThreadFactory {
     private final String prefix;
-    private int count = 0;
+    private final AtomicInteger count = new AtomicInteger(1);
 
     CustomThreadFactory(String prefix) {
-        this.prefix = prefix;
+        this.prefix = (prefix == null || prefix.isBlank()) ? "engine-worker" : prefix.trim();
     }
 
     @Override
-    public Thread newThread(Runnable r) {
-        int threadNumber = count++;
-        String threadName = prefix + '-'+ threadNumber;
-
-        return new Thread(() -> {
+    public Thread newThread(Runnable runnable) {
+        String threadName = prefix + '-' + count.getAndIncrement();
+        Thread thread = new Thread(() -> {
             try {
                 ThreadContext.put("workerName", threadName);
-
-                r.run();
+                runnable.run();
             } finally {
-                // Clear MDC context to avoid leaking data between threads
                 ThreadContext.clearAll();
             }
         }, threadName);
+        thread.setUncaughtExceptionHandler((failedThread, throwable) -> {
+            if (Engine.LOGGER != null) {
+                Engine.LOGGER.error("Uncaught exception in {}", failedThread.getName(), throwable);
+            }
+        });
+        return thread;
     }
 }
-

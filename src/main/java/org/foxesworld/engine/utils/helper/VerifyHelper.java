@@ -8,7 +8,6 @@ import java.util.function.LongPredicate;
 import java.util.function.Predicate;
 import java.util.regex.Pattern;
 
-@Deprecated
 public final class VerifyHelper {
     public static final IntPredicate POSITIVE = i -> i > 0;
     public static final IntPredicate NOT_NEGATIVE = i -> i >= 0;

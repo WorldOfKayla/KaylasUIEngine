@@ -1,0 +1,83 @@
+{
+  "panels": {
+    "mainFrame": {
+      "panelOptions": {
+        "opaque": false,
+        "visible": true,
+        "focusable": false,
+        "doubleBuffered": true,
+        "cornerRadius": 0,
+        "zIndex": 0,
+        "background": "#00000000",
+        "layout": null,
+        "bounds": {
+          "x": 0,
+          "y": 0,
+          "size": {
+            "width": 900,
+            "height": 520
+          }
+        }
+      },
+      "childComponents": [
+        {
+          "type": "label",
+          "style": "titleBold",
+          "id": "titleLabel",
+          "localeKey": "demo.title",
+          "color": "#ffffff",
+          "fontSize": 24,
+          "opaque": false,
+          "visible": true,
+          "bounds": {
+            "x": 32,
+            "y": 32,
+            "size": {
+              "width": 820,
+              "height": 42
+            }
+          }
+        },
+        {
+          "type": "label",
+          "style": "title",
+          "id": "versionLabel",
+          "localeKey": "demo.version",
+          "initialValue": "version",
+          "color": "#ffffff",
+          "fontSize": 16,
+          "opaque": false,
+          "visible": true,
+          "bounds": {
+            "x": 32,
+            "y": 88,
+            "size": {
+              "width": 820,
+              "height": 32
+            }
+          }
+        },
+        {
+          "type": "label",
+          "style": "promptLabel",
+          "id": "statusLabel",
+          "localeKey": "demo.ready",
+          "initialValue": "java",
+          "color": "#ffffff",
+          "fontSize": 14,
+          "opaque": false,
+          "visible": true,
+          "bounds": {
+            "x": 32,
+            "y": 132,
+            "size": {
+              "width": 820,
+              "height": 32
+            }
+          }
+        }
+      ],
+      "panels": {}
+    }
+  }
+}

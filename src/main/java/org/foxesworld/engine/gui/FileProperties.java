@@ -2,37 +2,55 @@ package org.foxesworld.engine.gui;
 
 import org.foxesworld.engine.Engine;
 
-import java.lang.reflect.Field;
+import java.util.Collections;
 import java.util.Map;
 
-@SuppressWarnings("unused")
+/**
+ * Resolved engine resource paths used by GUI, locale and sound bootstrap.
+ */
 public class FileProperties {
-    private String frameTpl, mainFrame,localeFile,soundsFile;
+    private static final String DEFAULT_FRAME_TEMPLATE = "assets/demo/test-frame.json";
+    private static final String DEFAULT_MAIN_FRAME = "assets/demo/test-main.json";
+    private static final String DEFAULT_LOCALE_FILE = "assets/demo/test-locale.json";
+    private static final String DEFAULT_SOUNDS_FILE = "assets/demo/test-sounds.json";
 
-    public FileProperties(Engine engine){
-        Map<String, Object> guiList = engine.getEngineData().getFiles();
-        for (Map.Entry<String, Object> guiEl : guiList.entrySet()) {
-            try {
-                Field field = FileProperties.class.getDeclaredField(guiEl.getKey());
-                if(field.hashCode()!= 0) {
-                    field.set(this, guiEl.getValue());
-                }
-            } catch (NoSuchFieldException | IllegalAccessException ignored) {}
-        }
+    private final String frameTpl;
+    private final String mainFrame;
+    private final String localeFile;
+    private final String soundsFile;
+
+    public FileProperties(Engine engine) {
+        Map<String, Object> files = engine.getEngineData() != null && engine.getEngineData().getFiles() != null
+                ? engine.getEngineData().getFiles()
+                : Collections.emptyMap();
+
+        this.frameTpl = readString(files, "frameTpl", DEFAULT_FRAME_TEMPLATE);
+        this.mainFrame = readString(files, "mainFrame", DEFAULT_MAIN_FRAME);
+        this.localeFile = readString(files, "localeFile", DEFAULT_LOCALE_FILE);
+        this.soundsFile = readString(files, "soundsFile", DEFAULT_SOUNDS_FILE);
     }
-    @SuppressWarnings("unused")
+
+    private String readString(Map<String, Object> files, String key, String fallback) {
+        Object value = files.get(key);
+        if (value == null) {
+            return fallback;
+        }
+        String resolved = String.valueOf(value).trim();
+        return resolved.isEmpty() ? fallback : resolved;
+    }
+
     public String getFrameTpl() {
         return frameTpl;
     }
-    @SuppressWarnings("unused")
+
     public String getMainFrame() {
         return mainFrame;
     }
-    @SuppressWarnings("unused")
+
     public String getLocaleFile() {
         return localeFile;
     }
-    @SuppressWarnings("unused")
+
     public String getSoundsFile() {
         return soundsFile;
     }

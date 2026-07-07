@@ -11,25 +11,23 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.*;
 
+import org.foxesworld.engine.utils.request.RequestOptions;
+import org.foxesworld.engine.utils.request.RequestProviderType;
+
 /**
  * A utility class for performing asynchronous HTTP requests.
  * <p>
  * This class uses reflection to collect HTTP parameters and headers from annotated fields,
  * sends requests asynchronously, and supports both callback-based and CompletableFuture-based approaches.
  * </p>
- * <p>
- * Note: The {@link #sendAsync(Map, OnSuccess, OnFailure)} method is deprecated. Please use {@link #sendAsyncCF(Map)}
- * instead.
- * </p>
  */
 public class HTTPrequest {
     private final String requestMethod;
     private final Engine engine;
-    private final ExecutorService executorService;
     private static final int RETRY_INTERVAL = 50; // in milliseconds
 
     private volatile RequestState requestState;
-    private HttpURLConnection httpURLConnection; // Last used connection reference
+    private volatile HttpURLConnection httpURLConnection; // Last used connection reference
 
     // Shared Random instance for generating boundary strings
     private static final Random RANDOM = new Random();
@@ -43,7 +41,6 @@ public class HTTPrequest {
     public HTTPrequest(Engine engine, String requestMethod) {
         this.engine = engine;
         this.requestMethod = requestMethod;
-        this.executorService = Executors.newCachedThreadPool();
         this.requestState = RequestState.PENDING;
         Engine.LOGGER.info("HTTP {} initialized", requestMethod);
     }
@@ -57,29 +54,6 @@ public class HTTPrequest {
         return requestState;
     }
 
-    /**
-     * Sends an asynchronous HTTP request with additional parameters.
-     * <p>
-     * This method is deprecated. Use {@link #sendAsyncCF(Map)} for a CompletableFuture-based approach.
-     * </p>
-     *
-     * @param extraParams additional request parameters
-     * @param onSuccess   callback to be executed on a successful response
-     * @param onFailure   callback to be executed on failure
-     * @deprecated Use {@link #sendAsyncCF(Map)} instead.
-     */
-    @Deprecated
-    public void sendAsync(Map<String, Object> extraParams, OnSuccess onSuccess, OnFailure onFailure) {
-        sendAsyncCF(extraParams).whenComplete((response, throwable) -> {
-            if (throwable != null) {
-                if (onFailure != null) {
-                    onFailure.onFailure((Exception) throwable);
-                }
-            } else {
-                onSuccess.onSuccess(response);
-            }
-        });
-    }
 
     /**
      * Sends an asynchronous HTTP request with additional parameters.
@@ -91,19 +65,35 @@ public class HTTPrequest {
      * @return CompletableFuture containing the server response, or an exception if the request fails
      */
     public CompletableFuture<String> sendAsyncCF(Map<String, Object> extraParams) {
-        CompletableFuture<String> future = new CompletableFuture<>();
-        executorService.submit(() -> {
-            try {
-                String response = executeRequest(extraParams);
-                requestState = RequestState.SUCCESS;
-                future.complete(response);
-            } catch (Exception e) {
-                requestState = RequestState.FAILED;
-                future.completeExceptionally(e);
-                Engine.LOGGER.error("Request failed {}", e);
+        requestState = RequestState.PENDING;
+        try {
+            Map<String, Object> allParams = new HashMap<>(collectParams());
+            if (extraParams != null && !extraParams.isEmpty()) {
+                allParams.putAll(extraParams);
             }
-        });
-        return future;
+            return engine.getRequestClient()
+                    .send(RequestOptions.builder()
+                            .providerType(RequestProviderType.HTTP)
+                            .uri(engine.getEngineData().getBindUrl())
+                            .method(this.requestMethod)
+                            .parameters(allParams)
+                            .headers(collectHeaders())
+                            .build())
+                    .thenApply(response -> {
+                        requestState = response.isSuccessful() ? RequestState.SUCCESS : RequestState.FAILED;
+                        return response.body();
+                    })
+                    .exceptionally(throwable -> {
+                        requestState = RequestState.FAILED;
+                        Engine.LOGGER.error("Request failed", throwable);
+                        throw new CompletionException(throwable);
+                    });
+        } catch (Exception e) {
+            requestState = RequestState.FAILED;
+            CompletableFuture<String> failed = new CompletableFuture<>();
+            failed.completeExceptionally(e);
+            return failed;
+        }
     }
 
     /**
@@ -122,7 +112,9 @@ public class HTTPrequest {
             configureConnection(connection);
             // Merge parameters from annotations and extra parameters
             Map<String, Object> allParams = new HashMap<>(collectParams());
-            allParams.putAll(extraParams);
+            if (extraParams != null && !extraParams.isEmpty()) {
+                allParams.putAll(extraParams);
+            }
             sendRequest(allParams, connection);
             return getResponse(connection);
         } finally {
@@ -215,6 +207,43 @@ public class HTTPrequest {
         }
     }
 
+    private Map<String, String> collectHeaders() {
+        Map<String, String> headers = new HashMap<>();
+        HTTPconf httpConf = engine.getEngineData().getHttPconf();
+        if (httpConf != null && httpConf.getRequestProperties() != null) {
+            for (RequestProperty requestProperty : httpConf.getRequestProperties()) {
+                String value = requestProperty.getPropertyValue();
+                if (value != null && value.contains("{$boundary}")) {
+                    value = value.replace("{$boundary}", getBoundary(3, 3));
+                }
+                if (requestProperty.getPropertyKey() != null && value != null) {
+                    headers.put(requestProperty.getPropertyKey(), value);
+                }
+            }
+        }
+
+        Class<?> clazz = this.getClass();
+        for (Field field : clazz.getDeclaredFields()) {
+            if (field.isAnnotationPresent(HttpHeader.class)) {
+                field.setAccessible(true);
+                try {
+                    HttpHeader header = field.getAnnotation(HttpHeader.class);
+                    HttpParam param = field.getAnnotation(HttpParam.class);
+                    String key = !header.key().isBlank()
+                            ? header.key()
+                            : param != null && !param.value().isBlank() ? param.value() : field.getName();
+                    Object value = field.get(this);
+                    if (value != null) {
+                        headers.put(key, String.valueOf(value));
+                    }
+                } catch (IllegalAccessException e) {
+                    Engine.LOGGER.error("Error reading HTTP header {}: {}", field.getName(), e.getMessage());
+                }
+            }
+        }
+        return headers;
+    }
+
     /**
      * Collects parameters annotated with {@code @HttpParam} from the current instance.
      *
@@ -281,10 +310,10 @@ public class HTTPrequest {
     }
 
     /**
-     * Shuts down the executor service used for asynchronous requests.
+     * Kept for source compatibility. HTTP tasks are executed by the engine-managed executor.
      */
     public void shutdown() {
-        executorService.shutdown();
+        Engine.LOGGER.debug("HTTPrequest shutdown ignored: executor is owned by Engine");
     }
 
     /**
@@ -344,9 +373,9 @@ public class HTTPrequest {
         speedConnection.setConnectTimeout(5000);
         speedConnection.setReadTimeout(5000);
         long startTime = System.nanoTime();
-        int totalBytes = 0;
+        long totalBytes = 0L;
         try (InputStream is = speedConnection.getInputStream()) {
-            byte[] buffer = new byte[4096];
+            byte[] buffer = new byte[64 * 1024];
             int bytesRead;
             while ((bytesRead = is.read(buffer)) != -1) {
                 totalBytes += bytesRead;
@@ -357,7 +386,7 @@ public class HTTPrequest {
         long endTime = System.nanoTime();
         double elapsedTimeSec = (endTime - startTime) / 1_000_000_000.0;
         // Вычисление скорости (байт/сек)
-        return totalBytes / elapsedTimeSec;
+        return elapsedTimeSec <= 0.0 ? 0.0 : totalBytes / elapsedTimeSec;
     }
 
     /**
@@ -378,7 +407,7 @@ public class HTTPrequest {
             return String.format("%.2f MB/s", speedBytesPerSec / (1024 * 1024));
         }
         } catch (Exception e) {
-        throw new RuntimeException(e);
+        throw new CompletionException(e);
     }
     }
 

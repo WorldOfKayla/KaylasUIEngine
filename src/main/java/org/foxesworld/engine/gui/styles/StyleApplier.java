@@ -16,7 +16,6 @@ import java.util.function.BiConsumer;
  * invoked when {@link #applyStyle(JComponent, StyleAttributes)} is called.
  * </p>
  */
-@Deprecated
 public class StyleApplier {
     private String[] components;
 

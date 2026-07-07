@@ -1,0 +1,28 @@
+{
+  "app": {
+    "title": {
+      "en": "FoxEngine Test"
+    }
+  },
+  "demo": {
+    "title": {
+      "en": "FoxEngine bootstrap is alive"
+    },
+    "version": {
+      "en": "Engine version:"
+    },
+    "ready": {
+      "en": "Runtime Java:"
+    }
+  },
+  "error": {
+    "file": {
+      "en": "File operation failed"
+    }
+  },
+  "other": {
+    "error.file": {
+      "en": "Error"
+    }
+  }
+}

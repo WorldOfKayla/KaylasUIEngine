@@ -17,34 +17,39 @@ import java.nio.file.Path;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 @SuppressWarnings("unused")
 public class ImageUtils {
     private static final int CACHE_SIZE = 100;
-    private static final Map<String, BufferedImage> imgCache = new HashMap<>();
-    private static final Map<String, BufferedImage> MEMORY_CACHE = new LruCache<>(CACHE_SIZE);
+    private static final Map<String, BufferedImage> imgCache = new ConcurrentHashMap<>();
+    private static final Map<String, BufferedImage> MEMORY_CACHE = Collections.synchronizedMap(new LruCache<>(CACHE_SIZE));
 
     public  ImageUtils() {}
 
     public BufferedImage getLocalImage(String name) {
-        if (imgCache.containsKey(name)) {
-            return imgCache.get(name);
+        if (name == null || name.isBlank()) {
+            return missingImage();
         }
+        return imgCache.computeIfAbsent(name, this::loadLocalImage);
+    }
 
-        try {
-            InputStream inputStream = this.getClass().getClassLoader().getResourceAsStream(name);
-            if (inputStream != null) {
-                BufferedImage img = ImageIO.read(inputStream);
-                imgCache.put(name, img);
-                return img;
-            } else {
+    private BufferedImage loadLocalImage(String name) {
+        try (InputStream inputStream = this.getClass().getClassLoader().getResourceAsStream(name)) {
+            if (inputStream == null) {
                 Engine.LOGGER.error("Failed to open local image: {}", name);
-                return new BufferedImage(9, 9, BufferedImage.TYPE_INT_ARGB);
+                return missingImage();
             }
+            BufferedImage img = ImageIO.read(inputStream);
+            return img != null ? img : missingImage();
         } catch (IOException e) {
             Engine.LOGGER.error("Failed to open local image: {}", name, e);
-            return new BufferedImage(9, 9, BufferedImage.TYPE_INT_ARGB);
+            return missingImage();
         }
+    }
+
+    private BufferedImage missingImage() {
+        return new BufferedImage(9, 9, BufferedImage.TYPE_INT_ARGB);
     }
 
     public BufferedImage getTexture(BufferedImage source, int borderRadius, int startX, int startY, int subWidth, int subHeight) {
@@ -55,7 +60,6 @@ public class ImageUtils {
         return subImage;
     }
 /*
-@Deprecated
 public BufferedImage base64ToBufferedImage(String base64Image) {
     if (base64Image == null || base64Image.isEmpty()) return null;
 
@@ -107,8 +111,7 @@ public BufferedImage base64ToBufferedImage(String base64Image) {
 
 
     /*
-    @Deprecated
-    public BufferedImage loadImageFromUrl(String imageUrl) {
+        public BufferedImage loadImageFromUrl(String imageUrl) {
         try {
             if (!isValidUrl(imageUrl)) {
                 return null;
@@ -122,8 +125,7 @@ public BufferedImage base64ToBufferedImage(String base64Image) {
         }
     }
 
-    @Deprecated
-    public BufferedImage getCachedUrlImg(String imageUrl, String cachePath, BufferedImage ifNotFound) {
+        public BufferedImage getCachedUrlImg(String imageUrl, String cachePath, BufferedImage ifNotFound) {
         try {
             String cacheKey = sha1(imageUrl);
 
@@ -320,17 +322,22 @@ public BufferedImage base64ToBufferedImage(String base64Image) {
             }
             return hashBuilder.toString();
         } catch (NoSuchAlgorithmException | IOException e) {
-            e.printStackTrace();
+            Engine.LOGGER.error("Failed to calculate image hash", e);
+            return null;
         }
-        return null;
     }
 
 
     public BufferedImage fillHoriz(BufferedImage texture, int w, int h) {
         int sizex = texture.getWidth();
-        BufferedImage img = new BufferedImage(w, h, 2);
-        for (int x2 = 0; x2 <= w / sizex; ++x2) {
-            img.getGraphics().drawImage(texture, x2 * sizex, 0, sizex, texture.getHeight(), null);
+        BufferedImage img = new BufferedImage(w, h, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = img.createGraphics();
+        try {
+            for (int x2 = 0; x2 <= w / sizex; ++x2) {
+                graphics.drawImage(texture, x2 * sizex, 0, sizex, texture.getHeight(), null);
+            }
+        } finally {
+            graphics.dispose();
         }
         return img;
     }

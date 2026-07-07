@@ -8,7 +8,6 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 
-@Deprecated
 public abstract class AbstractTextField extends JComponent {
     protected BufferedImage texture;
     protected String placeholder;

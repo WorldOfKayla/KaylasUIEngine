@@ -63,7 +63,7 @@ public class LibraryReader {
                                 libraries.add(library);
                             } else if (!this.checkHash) {
                                 size += library.getArtifact().getSize() / (1024 * 1024);
-                                Engine.LOGGER.debug("Adding {} for {} ENV (hash skipped) Damn you legacy lover", library.getName(), currentOS);
+                                Engine.LOGGER.debug("Adding {} for {} ENV (hash skipped by rule)", library.getName(), currentOS);
                                 libraries.add(library);
                             } else {
                                 Engine.LOGGER.warn("Invalid hash for {} library skipped", libraryFullPath);

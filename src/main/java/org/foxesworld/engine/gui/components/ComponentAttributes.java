@@ -118,7 +118,10 @@ public class ComponentAttributes extends Attributes {
         return new Bounds(x, y, width, height);
     }
     public Rectangle getBounds() {
-        return new Rectangle(bounds.getX(), bounds.getY(), bounds.getSize().getWidth(), bounds.getSize().getHeight());
+        if (bounds == null) {
+            return new Rectangle(0, 0, 0, 0);
+        }
+        return bounds.getBounds();
     }
     public String getLoadPanel() {
         return loadPanel;

@@ -1,16 +1,19 @@
 package org.foxesworld.engine.gui.components;
 
-import java.awt.*;
+import java.awt.Rectangle;
 
 public class Bounds {
-    private int x, y;
-    private Size size;
+    private int x;
+    private int y;
+    private Size size = new Size();
+
+    public Bounds() {
+    }
 
     public Bounds(int x, int y, int width, int height) {
         this.x = x;
         this.y = y;
-        this.size.width = width;
-        this.size.height = height;
+        this.size = new Size(width, height);
     }
 
     public int getX() {
@@ -30,17 +33,32 @@ public class Bounds {
     }
 
     public Size getSize() {
+        if (size == null) {
+            size = new Size();
+        }
         return size;
     }
 
     public void setSize(Size size) {
-        this.size = size;
+        this.size = size == null ? new Size() : size;
+    }
+
+    public Rectangle getBounds() {
+        Size safeSize = getSize();
+        return new Rectangle(this.x, this.y, safeSize.width, safeSize.height);
     }
 
     public static class Size {
-        private int width, height;
+        private int width;
+        private int height;
 
-        public Size() {}
+        public Size() {
+        }
+
+        public Size(int width, int height) {
+            this.width = width;
+            this.height = height;
+        }
 
         public int getWidth() {
             return width;
@@ -57,9 +75,5 @@ public class Bounds {
         public void setHeight(int height) {
             this.height = height;
         }
-    }
-
-    public Rectangle getBounds(){
-        return new Rectangle(this.x, this.y, this.getSize().width, this.getSize().height);
     }
 }

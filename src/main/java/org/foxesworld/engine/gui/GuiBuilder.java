@@ -108,7 +108,10 @@ public class GuiBuilder {
             Engine.getLOGGER().error("Parent panel is null");
             return;
         }
-        currentBuildFuture = CompletableFuture.supplyAsync(() -> loadFrameAttributes(framePath))
+        currentBuildFuture = CompletableFuture.supplyAsync(
+                        () -> loadFrameAttributes(framePath),
+                        engine.getExecutorServiceProvider().getExecutorService()
+                )
                 .thenAccept(attributes -> {
                     if (attributes == null) {
                         Engine.getLOGGER().error("Frame attributes are null for path: {}", framePath);
@@ -326,7 +329,7 @@ public class GuiBuilder {
         } else {
             parentPanel.add(component);
         }
-        componentsMap.computeIfAbsent(parentPanel.getName(), k -> new ArrayList<>()).add(component);
+        componentsMap.computeIfAbsent(parentPanel.getName(), k -> Collections.synchronizedList(new ArrayList<>())).add(component);
     }
 
     /**

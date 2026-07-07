@@ -1,0 +1,30 @@
+{
+  "logLevel": "INFO",
+  "bindUrl": "http://localhost/",
+  "launcherBrand": "FoxEngine",
+  "launcherVersion": "1.16.0-NEXUS",
+  "launcherBuild": "NEXUS",
+  "programRuntime": "java",
+  "groupDomain": "foxesworld",
+  "vkAPIversion": "5.199",
+  "styles": ["label", "button", "multiButton", "textField", "passField", "progressBar", "spinner", "slider", "checkBox", "dropBox", "fileSelector", "compositeSlider"],
+  "loadAdapters": ["json", "json5", "xml"],
+  "downloadManager": {
+    "downloadThreads": 4,
+    "replaceMasks": []
+  },
+  "loadManager": [],
+  "httpConf": {
+    "requestProperties": [],
+    "useCaches": false,
+    "doInput": true,
+    "doOutput": true
+  },
+  "tweakClasses": [],
+  "files": {
+    "frameTpl": "assets/demo/test-frame.json",
+    "mainFrame": "assets/demo/test-main.json",
+    "localeFile": "assets/demo/test-locale.json",
+    "soundsFile": "assets/demo/test-sounds.json"
+  }
+}

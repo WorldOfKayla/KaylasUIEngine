@@ -6,102 +6,133 @@ import com.google.gson.JsonObject;
 import org.foxesworld.engine.Engine;
 
 import java.io.BufferedReader;
-import java.io.IOException;
+import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Set;
 
 @SuppressWarnings("unused")
 public class LanguageProvider {
-    private final Map<String, Map<String, String>> localizationData = new HashMap<>();
+    private static final String DEFAULT_LOCALE = "en";
+
+    private final Map<String, Map<String, String>> localizationData = new LinkedHashMap<>();
     private final Engine engine;
     private final String langFilePath;
-    private final Set<String> sectionsSet = new HashSet<>();
-    private final Set<String> localesSet = new HashSet<>();
+    private final Set<String> sectionsSet = new LinkedHashSet<>();
+    private final List<String> locales = new ArrayList<>();
     private int localeIndex = 0;
 
     public LanguageProvider(Engine engine, String langFilePath, int localeIndex) {
-        this.localeIndex = localeIndex;
+        this.localeIndex = Math.max(0, localeIndex);
         this.engine = engine;
         this.langFilePath = langFilePath;
         loadLocalizationData(engine, langFilePath);
     }
 
     private void loadLocalizationData(Engine engine, String langFilePath) {
-        try {
-            Gson gson = new Gson();
-            InputStreamReader reader = new InputStreamReader(Objects.requireNonNull(engine.getClass().getClassLoader().getResourceAsStream(langFilePath)), StandardCharsets.UTF_8);
-            BufferedReader bufferedReader = new BufferedReader(reader);
-            StringBuilder jsonStringBuilder = new StringBuilder();
-            String line;
+        if (langFilePath == null || langFilePath.isBlank()) {
+            Engine.getLOGGER().warn("Localization file path is empty; localization fallback mode is active.");
+            return;
+        }
 
-            while ((line = bufferedReader.readLine()) != null) {
-                jsonStringBuilder.append(line);
+        try (InputStream stream = engine.getClass().getClassLoader().getResourceAsStream(langFilePath)) {
+            if (stream == null) {
+                Engine.getLOGGER().warn("Localization file not found: {}", langFilePath);
+                return;
             }
 
-            JsonElement jsonElement = gson.fromJson(jsonStringBuilder.toString(), JsonElement.class);
-            JsonObject jsonObject = jsonElement.getAsJsonObject();
-
-            for (Map.Entry<String, JsonElement> categoryEntry : jsonObject.entrySet()) {
-                String langKey = categoryEntry.getKey();
-                sectionsSet.add(langKey);
-
-                JsonObject categoryData = categoryEntry.getValue().getAsJsonObject();
-                Map<String, String> categoryMap = new HashMap<>();
-
-                for (Map.Entry<String, JsonElement> localizedData : categoryData.entrySet()) {
-                    String localizedKey = localizedData.getKey();
-                    JsonObject localizedValues = localizedData.getValue().getAsJsonObject();
-                    analyzeSection(localizedValues);
-                    String localeKey = getLocaleKeyByIndex(localeIndex);
-                    if (localizedValues.has(localeKey)) {
-                        String localizedValue = localizedValues.get(localeKey).getAsString();
-                        categoryMap.put(localizedKey, localizedValue);
-                    }
+            try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
+                 BufferedReader bufferedReader = new BufferedReader(reader)) {
+                JsonObject jsonObject = new Gson().fromJson(bufferedReader, JsonObject.class);
+                if (jsonObject == null) {
+                    Engine.getLOGGER().warn("Localization file is empty: {}", langFilePath);
+                    return;
                 }
-
-                localizationData.put(langKey, categoryMap);
+                parseLocalization(jsonObject);
             }
-            bufferedReader.close();
-        } catch (IOException e) {
-            e.printStackTrace();
+        } catch (Exception ex) {
+            Engine.getLOGGER().error("Failed to load localization from {}", langFilePath, ex);
         }
     }
 
-    private void analyzeSection(JsonObject localizedValues) {
-        for (Map.Entry<String, JsonElement> langSet : localizedValues.entrySet()) {
-            localesSet.add(langSet.getKey());
+    private void parseLocalization(JsonObject jsonObject) {
+        for (Map.Entry<String, JsonElement> categoryEntry : jsonObject.entrySet()) {
+            String section = categoryEntry.getKey();
+            sectionsSet.add(section);
+
+            JsonObject categoryData = categoryEntry.getValue().getAsJsonObject();
+            Map<String, String> categoryMap = new LinkedHashMap<>();
+
+            for (Map.Entry<String, JsonElement> localizedData : categoryData.entrySet()) {
+                String localizedKey = localizedData.getKey();
+                JsonObject localizedValues = localizedData.getValue().getAsJsonObject();
+                registerLocales(localizedValues);
+                categoryMap.put(localizedKey, resolveLocalizedValue(localizedValues));
+            }
+            localizationData.put(section, categoryMap);
         }
+    }
+
+    private void registerLocales(JsonObject localizedValues) {
+        for (Map.Entry<String, JsonElement> langSet : localizedValues.entrySet()) {
+            if (!locales.contains(langSet.getKey())) {
+                locales.add(langSet.getKey());
+            }
+        }
+    }
+
+    private String resolveLocalizedValue(JsonObject localizedValues) {
+        String localeKey = getLocaleKeyByIndex(localeIndex);
+        if (localizedValues.has(localeKey)) {
+            return localizedValues.get(localeKey).getAsString();
+        }
+        if (localizedValues.has(DEFAULT_LOCALE)) {
+            return localizedValues.get(DEFAULT_LOCALE).getAsString();
+        }
+        return localizedValues.entrySet().stream()
+                .findFirst()
+                .map(entry -> entry.getValue().getAsString())
+                .orElse("");
     }
 
     private String getLocaleKeyByIndex(int index) {
-        return localesSet.toArray(new String[0])[index];
+        if (locales.isEmpty()) {
+            return DEFAULT_LOCALE;
+        }
+        int safeIndex = Math.max(0, Math.min(index, locales.size() - 1));
+        return locales.get(safeIndex);
     }
 
     public void setLocaleIndex(int index) {
-        if (index >= 0 && index < localesSet.size()) {
+        if (index >= 0 && index < locales.size()) {
             this.localeIndex = index;
             reloadLocalizationData();
-        } else {
-            throw new IndexOutOfBoundsException("Invalid locale index: " + index);
+            return;
         }
+        throw new IndexOutOfBoundsException("Invalid locale index: " + index);
     }
 
     private void reloadLocalizationData() {
         localizationData.clear();
+        sectionsSet.clear();
+        locales.clear();
         loadLocalizationData(this.engine, this.langFilePath);
     }
 
     public String getString(String key) {
         if (key != null && key.contains(".")) {
-            String[] parts = key.split("\\.");
-            if (parts.length == 2) {
-                String category = parts[0];
-                String localizedKey = parts[1];
-                Map<String, String> categoryMap = localizationData.get(category);
-                if (categoryMap != null) {
-                    return categoryMap.getOrDefault(localizedKey, key);
-                }
+            String[] parts = key.split("\\.", 2);
+            String category = parts[0];
+            String localizedKey = parts[1];
+            Map<String, String> categoryMap = localizationData.get(category);
+            if (categoryMap != null) {
+                return categoryMap.getOrDefault(localizedKey, key);
             }
         }
         return key;
@@ -122,7 +153,11 @@ public class LanguageProvider {
     }
 
     public String[] getLocalesSet() {
-        return localesSet.toArray(new String[0]);
+        return locales.toArray(new String[0]);
+    }
+
+    public List<String> getLocales() {
+        return Collections.unmodifiableList(locales);
     }
 
     public int getLocaleIndex() {

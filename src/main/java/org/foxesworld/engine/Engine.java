@@ -23,6 +23,7 @@ import org.foxesworld.engine.utils.*;
 import org.foxesworld.engine.utils.Crypt.CryptUtils;
 import org.foxesworld.engine.gui.loadingManager.LoadingManager;
 import org.foxesworld.engine.utils.hook.BiHookSet;
+import org.foxesworld.engine.utils.request.RequestClient;
 import org.fusesource.jansi.AnsiConsole;
 
 import javax.swing.*;
@@ -34,13 +35,10 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
-import java.lang.management.ThreadInfo;
-import java.lang.management.ThreadMXBean;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.List;
-import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @SuppressWarnings("unused")
@@ -67,6 +65,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public abstract class Engine implements ActionListener, GuiBuilderListener, FocusStatusListener {
     /** Background task provider. */
     private final ExecutorServiceProvider executorServiceProvider;
+
+    /** Unified HTTP/WS/WSS request dispatcher. */
+    private final RequestClient requestClient;
 
     /** File properties and path helpers. */
     protected final FileProperties fileProperties;
@@ -162,7 +163,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         LOGGER = LogManager.getLogger(this.getClass());
         AnsiConsole.systemInstall();
 
-        Runtime.getRuntime().addShutdownHook(new Thread(AnsiConsole::systemUninstall));
+        Runtime.getRuntime().addShutdownHook(new Thread(AnsiConsole::systemUninstall, "ansi-console-shutdown"));
         appTitle = engineData.getLauncherBrand() + '-' + engineData.getLauncherVersion();
         this.panelVisibility = new PanelVisibility(this);
 
@@ -181,6 +182,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         this.FONTUTILS = new FontUtils(this);
         setLogLevel(Level.valueOf(engineData.getLogLevel()));
         executorServiceProvider = new ExecutorServiceProvider(poolSize, worker);
+        requestClient = new RequestClient(this);
 
         this.imageUtils = new ImageUtils();
         FlatIntelliJLaf.setup();
@@ -252,12 +254,12 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
 
         // Box drawing
         String top    = "╔" + "═".repeat(innerWidth) + "╗\n";
-        String middle = "";
+        StringBuilder middle = new StringBuilder(lines.size() * (innerWidth + 4));
         String bottom = "╚" + "═".repeat(innerWidth) + "╝";
 
         for (String l : lines) {
             String padded = " ".repeat(padding) + l + " ".repeat(innerWidth - padding - l.length());
-            middle += "║" + padded + "║\n";
+            middle.append("\u2551").append(padded).append("\u2551\n");
         }
         String box = top + middle + bottom;
         LOGGER.info("\n" + box + "\n" + header );
@@ -324,7 +326,6 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      * @param jvmDir JVM directory relative to runtime (used to compose the path).
      */
     public void restartApplication(int xmx, String jvmDir) {
-        System.gc();
         String path = this.config.getFullPath();
         List<String> params = new LinkedList<>();
         params.add(path + "/runtime/"+ jvmDir + "/bin/java");
@@ -338,45 +339,10 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         try {
             builder.start();
             shutdownExecutorService();
-            terminateAllThreads();
             System.exit(0);
         } catch (IOException e) {
             JOptionPane.showMessageDialog(null, "Restart Error occurred \n PLease try again" + e, "Restart Error", JOptionPane.ERROR_MESSAGE);
         }
-    }
-
-    /**
-     * Interrupts all threads in the JVM (except the current one) by calling {@code Thread.interrupt()}.
-     * Used during restart/shutdown.
-     */
-    private void terminateAllThreads() {
-        ThreadMXBean threadMXBean = ManagementFactory.getThreadMXBean();
-        long[] threadIds = threadMXBean.getAllThreadIds();
-        ThreadInfo[] threadInfos = threadMXBean.getThreadInfo(threadIds);
-
-        for (ThreadInfo threadInfo : threadInfos) {
-            if (threadInfo != null && threadInfo.getThreadId() != Thread.currentThread().getId()) {
-                Thread thread = findThread(threadInfo.getThreadId());
-                if (thread != null && thread != Thread.currentThread()) {
-                    thread.interrupt();
-                }
-            }
-        }
-    }
-
-    /**
-     * Finds a live thread by id.
-     *
-     * @param threadId thread id.
-     * @return found thread or {@code null}.
-     */
-    private Thread findThread(long threadId) {
-        for (Thread thread : Thread.getAllStackTraces().keySet()) {
-            if (thread.getId() == threadId) {
-                return thread;
-            }
-        }
-        return null;
     }
 
     /**
@@ -428,17 +394,6 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      */
     public void shutdownExecutorService(){
         executorServiceProvider.shutdown();
-        try {
-            if (!executorServiceProvider.getExecutorService().awaitTermination(60, TimeUnit.MILLISECONDS)) {
-                executorServiceProvider.getExecutorService().shutdownNow();
-                if (!executorServiceProvider.getExecutorService().awaitTermination(60, TimeUnit.MILLISECONDS)) {
-                    LOGGER.warn("Executor service did not terminate");
-                }
-            }
-        } catch (InterruptedException ie) {
-            executorServiceProvider.getExecutorService().shutdownNow();
-            Thread.currentThread().interrupt();
-        }
     }
 
     /**
@@ -707,6 +662,15 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      */
     public ExecutorServiceProvider getExecutorServiceProvider() {
         return executorServiceProvider;
+    }
+
+    /**
+     * Returns the unified request dispatcher.
+     *
+     * @return request client with HTTP, WS and WSS providers.
+     */
+    public RequestClient getRequestClient() {
+        return requestClient;
     }
 
     /**

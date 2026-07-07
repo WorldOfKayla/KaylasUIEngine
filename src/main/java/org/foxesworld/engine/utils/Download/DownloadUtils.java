@@ -1,7 +1,6 @@
 package org.foxesworld.engine.utils.Download;
 
 import org.foxesworld.engine.Engine;
-import org.foxesworld.engine.fileLoader.FileLoader;
 import org.foxesworld.engine.gui.components.button.Button;
 import org.foxesworld.engine.utils.HTTP.HTTPrequest;
 
@@ -24,9 +23,9 @@ public class DownloadUtils extends HTTPrequest {
     private int percent;
     private long downloaded = 0;
     private long totalSize;
-    public DownloadUtils(FileLoader fileLoader) {
-        super(fileLoader.getEngine(), "GET");
-        this.engine = fileLoader.getEngine();
+    public DownloadUtils(Engine engine) {
+        super(engine, "GET");
+        this.engine = engine;
     }
 
     @SuppressWarnings({"unused", "ResultOfMethodCallIgnored"})
@@ -40,7 +39,7 @@ public class DownloadUtils extends HTTPrequest {
         }
 
         try {
-            //TODO use our HTTP class (Partly done)
+            // Direct streaming path with shared HTTP request properties.
             URL url = new URL(engine.getEngineData().getBindUrl() + downloadFile);
             HttpURLConnection httpConnection = (HttpURLConnection) url.openConnection();
             httpConnection.setDoOutput(false);

@@ -4,12 +4,13 @@ import org.foxesworld.engine.Engine;
 
 import javax.swing.*;
 import java.io.File;
-import java.util.HashSet;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Collectors;
 
 /**
  * Абстрактный базовый класс для загрузчиков файлов, реализующий общую логику.
@@ -22,20 +23,23 @@ public abstract class AbstractFileLoader {
     protected final IFileValidator fileValidator;
     protected final IDownloadUtils downloadUtils;
 
+    private static final int MAX_FILE_LIST_RETRIES = 2;
+
     protected final AtomicBoolean isCancelled = new AtomicBoolean(false);
-    protected final Set<String> filesToKeep = new HashSet<>();
-    protected Set<FileAttributes> fileAttributes = new HashSet<>();
+    protected final Set<String> filesToKeep = ConcurrentHashMap.newKeySet();
+    protected Set<FileAttributes> fileAttributes = ConcurrentHashMap.newKeySet();
 
     protected String homeDir;
     protected String client;
     protected String version;
     protected IFileLoaderListener fileLoaderListener;
 
-    protected FileAttributes currentFile;
-    protected long totalSize = -1;
-    protected String fileExtension;
+    protected volatile FileAttributes currentFile;
+    protected volatile long totalSize = -1;
+    protected volatile String fileExtension;
     protected final AtomicInteger filesDownloaded = new AtomicInteger(0);
-    protected boolean forceUpdate = false;
+    protected final AtomicInteger fileListRetries = new AtomicInteger(0);
+    protected volatile boolean forceUpdate = false;
 
     public AbstractFileLoader(Engine engine,
                               ILoadingManager loadingManager,
@@ -71,8 +75,11 @@ public abstract class AbstractFileLoader {
         loadingManager.setLoadingText("file.gettingFiles-desc", "file.gettingFiles-title");
 
         fileFetcher.fetchDownloadList(client, version, getPlatformNumber())
-                .thenAcceptAsync(attributes -> processFileAttributes(attributes, forceUpdate))
-                .thenRun(this::onFilesProcessed)
+                .thenAcceptAsync(
+                        attributes -> processFileAttributes(attributes, forceUpdate),
+                        engine.getExecutorServiceProvider().getExecutorService()
+                )
+                .thenRunAsync(this::onFilesProcessed, engine.getExecutorServiceProvider().getExecutorService())
                 .exceptionally(this::handleFileListRetrievalError);
     }
 
@@ -81,7 +88,7 @@ public abstract class AbstractFileLoader {
     }
 
     protected void processFileAttributes(FileAttributes[] attributes, boolean forceUpdate) {
-        // Уведомляем слушателя для каждого файла
+        fileListRetries.set(0);
         for (FileAttributes attribute : attributes) {
             fileLoaderListener.onFileAdd(attribute);
         }
@@ -89,20 +96,24 @@ public abstract class AbstractFileLoader {
         Engine.LOGGER.info("Keeping {} files", filesToKeep.size());
         loadingManager.setLoadingText("file.listBuilt-desc", "file.listBuilt-title");
 
+        Set<FileAttributes> nextAttributes = ConcurrentHashMap.newKeySet();
         if (forceUpdate) {
-            this.fileAttributes = new HashSet<>(java.util.Arrays.asList(attributes));
+            nextAttributes.addAll(Arrays.asList(attributes));
         } else {
-            this.fileAttributes = filterFileAttributes(attributes);
+            nextAttributes.addAll(filterFileAttributes(attributes));
         }
+        this.fileAttributes = nextAttributes;
 
         fileLoaderListener.onFilesRead();
     }
 
-    protected HashSet<FileAttributes> filterFileAttributes(FileAttributes[] attributes) {
-        return java.util.Arrays.stream(attributes)
+    protected Set<FileAttributes> filterFileAttributes(FileAttributes[] attributes) {
+        Set<FileAttributes> filtered = ConcurrentHashMap.newKeySet();
+        Arrays.stream(attributes)
                 .filter(attr -> !filesToKeep.contains(attr.getFilename()))
                 .filter(this::shouldDownloadFile)
-                .collect(Collectors.toCollection(HashSet::new));
+                .forEach(filtered::add);
+        return filtered;
     }
 
     public boolean shouldDownloadFile(FileAttributes attribute) {
@@ -117,18 +128,31 @@ public abstract class AbstractFileLoader {
     public void downloadFiles() {
         int totalFiles = fileAttributes.size();
         if (totalFiles == 0) {
-            fileLoaderListener.onFilesLoaded();
+            SwingUtilities.invokeLater(fileLoaderListener::onFilesLoaded);
             return;
         }
-        // Перед запуском загрузки устанавливаем общее количество байт для утилит загрузки
+
+        filesDownloaded.set(0);
         totalSize = calculateTotalSize();
         downloadUtils.setTotalSize(totalSize);
-
         fileLoaderListener.onDownloadStart();
-        // Асинхронно обрабатываем каждый файл
-        fileAttributes.forEach(attribute ->
-                CompletableFuture.runAsync(() -> downloadFile(attribute, totalFiles))
-        );
+
+        List<CompletableFuture<Void>> downloads = fileAttributes.stream()
+                .map(attribute -> CompletableFuture.runAsync(
+                        () -> downloadFile(attribute, totalFiles),
+                        engine.getExecutorServiceProvider().getExecutorService()
+                ))
+                .toList();
+
+        CompletableFuture.allOf(downloads.toArray(new CompletableFuture[0]))
+                .whenComplete((ignored, throwable) -> {
+                    if (throwable != null) {
+                        Engine.LOGGER.error("Error while downloading files", throwable);
+                    }
+                    if (!isCancelled.get()) {
+                        SwingUtilities.invokeLater(fileLoaderListener::onFilesLoaded);
+                    }
+                });
     }
 
     protected void downloadFile(FileAttributes attribute, int totalFiles) {
@@ -140,9 +164,6 @@ public abstract class AbstractFileLoader {
         fileLoaderListener.onNewFileFound(this);
 
         filesDownloaded.incrementAndGet();
-        if (filesDownloaded.get() == totalFiles) {
-            fileLoaderListener.onFilesLoaded();
-        }
     }
 
     protected int getPlatformNumber() {
@@ -218,8 +239,9 @@ public abstract class AbstractFileLoader {
     protected Void handleFileListRetrievalError(Throwable e) {
         Engine.LOGGER.error("Error retrieving file list: {}", e.getMessage(), e);
         SwingUtilities.invokeLater(() -> loadingManager.setLoadingText(e.getMessage(), "error.file"));
-        // Можно реализовать повторную попытку или иной механизм обработки
-        getFilesToDownload(forceUpdate);
+        if (fileListRetries.incrementAndGet() <= MAX_FILE_LIST_RETRIES && !isCancelled.get()) {
+            getFilesToDownload(forceUpdate);
+        }
         return null;
     }
 
