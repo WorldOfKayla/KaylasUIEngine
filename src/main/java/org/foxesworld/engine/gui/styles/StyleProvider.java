@@ -10,109 +10,66 @@ import org.foxesworld.engine.Engine;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.HashMap;
+import java.util.Collections;
+import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 @SuppressWarnings("unused")
-/**
- * Provider of style attributes for GUI components.
- *
- * <p>StyleProvider loads JSON style files from a resource directory (by default {@code assets/styles/})
- * and provides a map that associates a component name with a set of styles for that component.
- * Expected file format (example):
- * <pre>
- * {
- *   "styles": {
- *     "Button": {
- *       "default": { ... },
- *       "primary": { ... },
- *       "states": [ {...}, {...} ]
- *     }
- *   }
- * }
- * </pre>
- *
- * The structure is parsed into {@link StyleAttributes} — a POJO that contains style fields.
- *
- * <p>The class logs errors when loading individual files and continues loading other styles.</p>
- */
 public class StyleProvider {
-
-    /**
-     * Default path to the styles directory inside application resources.
-     */
     private static final String DEFAULT_STYLE_PATH = "assets/styles/";
+    private static final String DEFAULT_STYLE_NAME = "default";
 
-    /**
-     * Internal map: component name -> (style name -> style attributes).
-     */
-    private final Map<String, Map<String, StyleAttributes>> elementStyles = new HashMap<>();
-
-    /**
-     * Base path to styles (can be overridden via constructor).
-     */
+    private final Map<String, Map<String, StyleAttributes>> elementStyles = new ConcurrentHashMap<>();
     private final String stylePath;
-
-    /**
-     * Gson instance used for deserializing JSON style files.
-     */
     private final Gson gson;
 
-    /**
-     * Creates a style provider and loads the given style names from the default directory.
-     *
-     * @param styles array of style names (component names) to load (without the .json extension)
-     */
     public StyleProvider(String[] styles) {
         this(styles, DEFAULT_STYLE_PATH);
     }
 
-    /**
-     * Creates a style provider and loads the given style names from the specified resource directory.
-     *
-     * @param styles    array of style names (component names) to load (without the .json extension)
-     * @param stylePath resource path where JSON style files are located, e.g. {@code "assets/styles/"}.
-     */
     public StyleProvider(String[] styles, String stylePath) {
-        this.stylePath = stylePath;
+        this.stylePath = normalizeStylePath(stylePath);
         this.gson = new Gson();
-        Engine.LOGGER.info("Initializing StyleProvider with path: " + stylePath);
+        Engine.LOGGER.info("Initializing StyleProvider with path: {}", this.stylePath);
         loadStyles(styles);
     }
 
-    /**
-     * Loads a set of styles by name. Any errors loading a single style are logged but do not
-     * interrupt loading of the remaining styles.
-     *
-     * @param styles array of style names (component names)
-     */
+    private String normalizeStylePath(String path) {
+        if (path == null || path.isBlank()) {
+            return DEFAULT_STYLE_PATH;
+        }
+        return path.endsWith("/") ? path : path + "/";
+    }
+
     private void loadStyles(String[] styles) {
-        if (styles == null) return;
+        if (styles == null) {
+            return;
+        }
         for (String style : styles) {
-            try {
-                loadStyle(style);
-            } catch (StyleLoadingException e) {
-                Engine.getLOGGER().error("Failed to load style: " + style, e);
+            if (style == null || style.isBlank()) {
+                continue;
             }
+            loadStyleIfAbsent(style);
         }
     }
 
-    /**
-     * Loads a specific JSON style file and parses it into a map of styles for the component.
-     * If the style is already loaded, the method returns without action.
-     *
-     * @param component component name (for example, "Button").
-     * @throws StyleLoadingException if the file is missing or has an invalid format.
-     */
-    private void loadStyle(String component) throws StyleLoadingException {
-        if (component == null || component.isEmpty()) {
-            throw new StyleLoadingException("Component name is null or empty");
-        }
+    private Map<String, StyleAttributes> loadStyleIfAbsent(String component) {
+        return elementStyles.computeIfAbsent(component, key -> {
+            try {
+                return loadStyle(key);
+            } catch (StyleLoadingException e) {
+                if (e.isMissingResource()) {
+                    Engine.getLOGGER().warn("Style '{}' is not defined; using default fallback style.", key);
+                } else {
+                    Engine.getLOGGER().error("Failed to load style '{}': {}", key, e.getMessage(), e);
+                }
+                return Map.of(DEFAULT_STYLE_NAME, StyleAttributes.defaults(key));
+            }
+        });
+    }
 
-        if (elementStyles.containsKey(component)) {
-            return;
-        }
-
+    private Map<String, StyleAttributes> loadStyle(String component) throws StyleLoadingException {
         String fullPath = stylePath + component + ".json";
         JsonObject jsonRoot = loadJson(fullPath);
 
@@ -123,85 +80,110 @@ public class StyleProvider {
 
         JsonObject componentStyles = stylesObject.getAsJsonObject(component);
         if (componentStyles == null) {
+            componentStyles = findComponentStylesIgnoreCase(stylesObject, component);
+        }
+        if (componentStyles == null) {
             throw new StyleLoadingException("Missing component styles for " + component + " in " + fullPath);
         }
 
         Map<String, StyleAttributes> styleMap = parseComponentStyles(componentStyles);
-        elementStyles.put(component, styleMap);
+        if (styleMap.isEmpty()) {
+            styleMap.put(DEFAULT_STYLE_NAME, StyleAttributes.defaults(component));
+        }
+        return Collections.unmodifiableMap(styleMap);
     }
 
-    /**
-     * Loads JSON from resources at the specified path.
-     *
-     * @param path path inside the classpath, e.g. {@code "assets/styles/Button.json"}.
-     * @return root {@link JsonObject} of the parsed JSON.
-     * @throws StyleLoadingException when the file is missing or parsing fails.
-     */
+    private JsonObject findComponentStylesIgnoreCase(JsonObject stylesObject, String component) {
+        for (Map.Entry<String, JsonElement> entry : stylesObject.entrySet()) {
+            if (entry.getKey().equalsIgnoreCase(component) && entry.getValue().isJsonObject()) {
+                return entry.getValue().getAsJsonObject();
+            }
+        }
+        return null;
+    }
+
     private JsonObject loadJson(String path) throws StyleLoadingException {
         try (InputStream stream = this.getClass().getClassLoader().getResourceAsStream(path)) {
             if (stream == null) {
-                throw new StyleLoadingException("Style file not found: " + path);
+                throw new StyleLoadingException("Style file not found: " + path, true);
             }
-            InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8);
-            return gson.fromJson(reader, JsonObject.class);
+            try (InputStreamReader reader = new InputStreamReader(stream, StandardCharsets.UTF_8)) {
+                JsonObject json = gson.fromJson(reader, JsonObject.class);
+                if (json == null) {
+                    throw new StyleLoadingException("Style file is empty: " + path);
+                }
+                return json;
+            }
         } catch (JsonSyntaxException e) {
             throw new StyleLoadingException("Invalid JSON format in " + path, e);
+        } catch (StyleLoadingException e) {
+            throw e;
         } catch (Exception e) {
             throw new StyleLoadingException("Error reading JSON file: " + path, e);
         }
     }
 
-    /**
-     * Parses the styles section for a specific component and returns a map of style name -> attributes.
-     * Supports both objects and arrays (in the latter case array elements are converted
-     * to keys named {@code styleName_index} (for example, {@code states_0}, {@code states_1}).
-     *
-     * @param componentStyles {@link JsonObject} describing component styles.
-     * @return map of styleName -> {@link StyleAttributes}
-     */
     private Map<String, StyleAttributes> parseComponentStyles(JsonObject componentStyles) {
-        Map<String, StyleAttributes> styleMap = new HashMap<>();
+        Map<String, StyleAttributes> styleMap = new LinkedHashMap<>();
         for (Map.Entry<String, JsonElement> entry : componentStyles.entrySet()) {
             String styleName = entry.getKey();
             JsonElement styleData = entry.getValue();
 
             if (styleData.isJsonObject()) {
-                styleMap.put(styleName, gson.fromJson(styleData, StyleAttributes.class));
+                StyleAttributes parsed = gson.fromJson(styleData, StyleAttributes.class);
+                styleMap.put(styleName, parsed == null ? StyleAttributes.defaults(styleName) : parsed.normalized(styleName));
             } else if (styleData.isJsonArray()) {
                 parseStyleArray(styleName, styleData.getAsJsonArray(), styleMap);
             } else {
-                Engine.getLOGGER().warn("Unexpected JSON type for style: " + styleName);
+                Engine.getLOGGER().warn("Unexpected JSON type for style: {}", styleName);
             }
         }
         return styleMap;
     }
 
-    /**
-     * Parses an array of styles and adds them to the resulting map with indexed keys.
-     *
-     * @param styleName name of the style array (JSON key).
-     * @param styleArray array of JSON objects with style attributes.
-     * @param styleMap resulting map where parsed attributes are added.
-     */
     private void parseStyleArray(String styleName, JsonArray styleArray, Map<String, StyleAttributes> styleMap) {
         int index = 0;
         for (JsonElement element : styleArray) {
             if (element.isJsonObject()) {
-                styleMap.put(styleName + "_" + index, gson.fromJson(element, StyleAttributes.class));
+                String indexedName = styleName + "_" + index;
+                StyleAttributes parsed = gson.fromJson(element, StyleAttributes.class);
+                styleMap.put(indexedName, parsed == null ? StyleAttributes.defaults(indexedName) : parsed.normalized(indexedName));
                 index++;
             } else {
-                Engine.getLOGGER().warn("Non-object element in array for style: " + styleName);
+                Engine.getLOGGER().warn("Non-object element in array for style: {}", styleName);
             }
         }
     }
 
-    /**
-     * Returns the full map of loaded styles.
-     * Top-level key is the component name, value is a map of styles for that component.
-     *
-     * @return a (possibly empty) {@link Map} of loaded styles.
-     */
+    public StyleAttributes getStyle(String componentType, String styleName) {
+        if (componentType == null || componentType.isBlank()) {
+            return StyleAttributes.defaults(DEFAULT_STYLE_NAME);
+        }
+        Map<String, StyleAttributes> styles = loadStyleIfAbsent(componentType);
+        if (styleName != null && styles.containsKey(styleName)) {
+            return styles.get(styleName);
+        }
+        if (styles.containsKey(DEFAULT_STYLE_NAME)) {
+            return styles.get(DEFAULT_STYLE_NAME);
+        }
+        return styles.values().stream().findFirst().orElseGet(() -> StyleAttributes.defaults(componentType));
+    }
+
+    public boolean hasStyle(String componentType, String styleName) {
+        if (componentType == null || styleName == null) {
+            return false;
+        }
+        return loadStyleIfAbsent(componentType).containsKey(styleName);
+    }
+
+    public void reload(String componentType) {
+        if (componentType != null && !componentType.isBlank()) {
+            elementStyles.remove(componentType);
+            loadStyleIfAbsent(componentType);
+        }
+    }
+
     public Map<String, Map<String, StyleAttributes>> getElementStyles() {
-        return elementStyles;
+        return Collections.unmodifiableMap(elementStyles);
     }
 }

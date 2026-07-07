@@ -82,7 +82,7 @@ public class ComponentsAccessor {
             DropBox.class, c -> String.valueOf(((DropBox) c).getSelectedIndex()),
             FileSelector.class, c -> ((FileSelector)c).getValue(),
             CompositeSlider.class, c -> String.valueOf(((CompositeSlider) c).getValue()),
-            CompositeComponent.class, c -> ((CompositeComponent)c).getValue().toString()
+            CompositeComponent.class, c -> String.valueOf(((CompositeComponent) c).getValue())
     );
 
     /**

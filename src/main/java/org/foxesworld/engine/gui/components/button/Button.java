@@ -212,7 +212,7 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
         if (isEnabled()) {
             entered = true;
             startAnimation();
-            componentFactory.getEngine().getSOUND().playSound("button", "hover");
+            componentFactory.getEngine().emitSound("button", "hover");
             repaint();
         }
     }
@@ -274,14 +274,15 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
 
     public void ButtonClick() {
         String sound;
-        if (this.buttonAttributes.getComponentId().contains("back")) {
+        String componentId = this.buttonAttributes.getComponentId() == null ? "" : this.buttonAttributes.getComponentId();
+        if (componentId.contains("back")) {
             sound = "back";
-        } else if (this.buttonAttributes.getComponentId().contains("small")) {
+        } else if (componentId.contains("small")) {
             sound = "clickSmall";
         } else {
             sound = "click";
         }
-        componentFactory.getEngine().getSOUND().playSound("button", sound);
+        componentFactory.getEngine().emitSound("button", sound);
         pressed = true;
     }
 

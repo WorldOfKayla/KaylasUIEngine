@@ -220,6 +220,8 @@ public class GuiBuilder {
             return "json";
         } else if (lowerCasePath.endsWith(".json5")) {
             return "json5";
+        } else if (lowerCasePath.endsWith(".xml")) {
+            return "xml";
         } else if (lowerCasePath.endsWith(".yaml") || lowerCasePath.endsWith(".yml")) {
             return "yaml";
         } else if (lowerCasePath.endsWith(".fxml")) {

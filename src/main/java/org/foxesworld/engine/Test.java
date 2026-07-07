@@ -30,7 +30,7 @@ import java.util.function.Consumer;
  */
 public final class Test extends Engine {
     private static final int DEFAULT_POOL_SIZE = Math.max(2, Runtime.getRuntime().availableProcessors());
-    private static final String DEFAULT_WORKER_NAME = "fox-engine-test";
+    private static final String DEFAULT_WORKER_NAME = "kaylasengine-test";
     private static final String MAIN_PANEL_ID = "mainFrame";
 
     private static final LaunchEnvironment LAUNCH_ENVIRONMENT = LaunchEnvironment.detect();
@@ -41,9 +41,9 @@ public final class Test extends Engine {
     }
 
     public static void main(String[] args) {
-        Thread.currentThread().setName("fox-engine-test-main");
+        Thread.currentThread().setName("kaylasengine-test-main");
         if (Arrays.asList(args).contains("--smoke")) {
-            System.setProperty("foxengine.test.exitAfterInit", "true");
+            System.setProperty("kaylasengine.test.exitAfterInit", "true");
         }
         startSmokeWatchdogIfRequested();
         SwingUtilities.invokeLater(() -> new Test(DEFAULT_POOL_SIZE, DEFAULT_WORKER_NAME, null));
@@ -155,7 +155,7 @@ public final class Test extends Engine {
     }
 
     private static void startSmokeWatchdogIfRequested() {
-        if (Boolean.getBoolean("foxengine.test.exitAfterInit")) {
+        if (Boolean.getBoolean("kaylasengine.test.exitAfterInit")) {
             Thread watchdog = new Thread(() -> {
                 try {
                     Thread.sleep(12_000L);
@@ -163,16 +163,16 @@ public final class Test extends Engine {
                     Thread.currentThread().interrupt();
                     return;
                 }
-                System.err.println("FoxEngine smoke watchdog timeout; forcing JVM exit.");
+                System.err.println("KaylasEngine smoke watchdog timeout; forcing JVM exit.");
                 System.exit(2);
-            }, "fox-engine-smoke-watchdog");
+            }, "kaylasengine-smoke-watchdog");
             watchdog.setDaemon(true);
             watchdog.start();
         }
     }
 
     private void exitAfterSmokeTestIfRequested() {
-        if (Boolean.getBoolean("foxengine.test.exitAfterInit")) {
+        if (Boolean.getBoolean("kaylasengine.test.exitAfterInit")) {
             LOGGER.info("Smoke-test exit requested after successful GUI initialization.");
             shutdownExecutorService();
             getFrame().dispose();
@@ -189,7 +189,7 @@ public final class Test extends Engine {
         if (hasText(appData)) {
             return appData;
         }
-        return Path.of(System.getProperty("user.home", "."), ".fox-engine-test").toString();
+        return Path.of(System.getProperty("user.home", "."), ".kaylasengine-test").toString();
     }
 
     /**

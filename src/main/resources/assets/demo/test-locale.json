@@ -1,18 +1,39 @@
 {
   "app": {
     "title": {
-      "en": "FoxEngine Test"
+      "en": "KaylasUI Engine Test"
     }
   },
   "demo": {
     "title": {
-      "en": "FoxEngine bootstrap is alive"
+      "en": "KaylasUI Engine bootstrap is alive"
     },
     "version": {
       "en": "Engine version:"
     },
     "ready": {
       "en": "Runtime Java:"
+    },
+    "compositeTitle": {
+      "en": "CompositeComponent interactive demo"
+    },
+    "compositeState": {
+      "en": "Generic composite runtime:"
+    },
+    "openTaskManager": {
+      "en": "Task Manager"
+    },
+    "minimizeWindow": {
+      "en": "Minimize"
+    },
+    "toggleFeature": {
+      "en": "Enable demo feature"
+    },
+    "inputPlaceholder": {
+      "en": "Type runtime value"
+    },
+    "soundVolume": {
+      "en": "Sound Volume"
     }
   },
   "error": {

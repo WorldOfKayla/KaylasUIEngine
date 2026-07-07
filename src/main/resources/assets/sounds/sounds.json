@@ -1,0 +1,73 @@
+{
+  "button": {
+    "click": {
+      "sounds": [
+        "assets/sounds/button/submit.ogg"
+      ]
+    },
+    "clickSmall": {
+      "sounds": [
+        "assets/sounds/button/click/press0.ogg",
+        "assets/sounds/button/click/press1.ogg",
+        "assets/sounds/button/click/press2.ogg",
+        "assets/sounds/button/click/press3.ogg",
+        "assets/sounds/button/click/press4.ogg"
+      ]
+    },
+    "back": {
+      "sounds": [
+        "assets/sounds/button/back/back.ogg"
+      ]
+    },
+    "hover": {
+      "sounds": [
+        "assets/sounds/button/hover/hover0.ogg",
+        "assets/sounds/button/hover/hover1.ogg",
+        "assets/sounds/button/hover/hover2.ogg",
+        "assets/sounds/button/hover/hover3.ogg",
+        "assets/sounds/button/hover/hover4.ogg",
+        "assets/sounds/button/hover/hover5.ogg"
+      ]
+    },
+    "close": {
+      "sounds": [
+        "assets/sounds/button/close/close.ogg"
+      ]
+    }
+  },
+  "checkbox": {
+    "checkboxOn": {
+      "sounds": [
+        "assets/sounds/button/click/press0.ogg",
+        "assets/sounds/button/click/press1.ogg",
+        "assets/sounds/button/click/press2.ogg",
+        "assets/sounds/button/click/press3.ogg",
+        "assets/sounds/button/click/press4.ogg"
+      ]
+    },
+    "checkboxOff": {
+      "sounds": [
+        "assets/sounds/button/back/back.ogg"
+      ]
+    }
+  },
+  "dropBox": {
+    "dropBoxOpen": {
+      "sounds": [
+        "assets/sounds/dropBox/open1.ogg"
+      ]
+    },
+    "dropBoxClose": {
+      "sounds": [
+        "assets/sounds/dropBox/close1.ogg"
+      ]
+    }
+  },
+  "other": {
+    "pop": {
+      "sounds": [
+        "assets/sounds/pop.ogg"
+      ]
+    }
+  }
+}

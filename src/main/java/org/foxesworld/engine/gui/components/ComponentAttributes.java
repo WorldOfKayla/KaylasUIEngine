@@ -205,6 +205,20 @@ public class ComponentAttributes extends Attributes {
         public ComponentConfig getButton() {
             return button;
         }
+
+        public ComponentConfig getForType(String componentType) {
+            if (componentType == null) {
+                return null;
+            }
+            return switch (componentType) {
+                case "label" -> label;
+                case "slider" -> slider;
+                case "spinner" -> spinner;
+                case "textField" -> textField;
+                case "button" -> button;
+                default -> null;
+            };
+        }
     }
 
     public static class ComponentConfig {

@@ -20,9 +20,9 @@ def readSetting = { String key, String envKey, String fallback ->
 
 def packageUser = readSetting('github.package.username', 'GITHUB_ACTOR', '')
 def packagePassword = readSetting('github.package.password', 'GITHUB_TOKEN', '')
-def projectVersion = readSetting('project.version', 'PROJECT_VERSION', '1.16.0-NEXUS')
+def projectVersion = readSetting('project.version', 'PROJECT_VERSION', '1.17.0-AURELIA')
 def projectGroup = readSetting('project.group', 'PROJECT_GROUP', 'org.foxesworld')
-def projectArchivesBaseName = readSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'fox-engine')
+def projectArchivesBaseName = readSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'kaylas-ui-engine')
 def diagnosticsProjectDir = layout.projectDirectory.asFile.absolutePath
 
 version = projectVersion
@@ -75,26 +75,32 @@ tasks.withType(Test).configureEach {
 
 run {
     systemProperty 'java.library.path', 'lib'
-    systemProperty 'foxengine.test.exitAfterInit', System.getProperty('foxengine.test.exitAfterInit', 'false')
+    systemProperty 'kaylasengine.test.exitAfterInit', System.getProperty('kaylasengine.test.exitAfterInit', 'false')
+    systemProperty 'kaylasengine.ui.frameTpl', 'assets/demo/test-frame.xml'
+    systemProperty 'kaylasengine.ui.mainFrame', 'assets/demo/test-main.xml'
 }
 
 tasks.register('ideRun', JavaExec) {
     group = 'application'
-    description = 'Runs FoxEngine Test with IDE-friendly JVM arguments.'
+    description = 'Runs KaylasUI Engine Test with IDE-friendly JVM arguments.'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'org.foxesworld.engine.Test'
     systemProperty 'java.library.path', 'lib'
     systemProperty 'file.encoding', 'UTF-8'
+    systemProperty 'kaylasengine.ui.frameTpl', 'assets/demo/test-frame.xml'
+    systemProperty 'kaylasengine.ui.mainFrame', 'assets/demo/test-main.xml'
 }
 
 tasks.register('smokeRun', JavaExec) {
     group = 'verification'
-    description = 'Runs FoxEngine Test and exits after successful GUI initialization.'
+    description = 'Runs KaylasUI Engine Test and exits after successful GUI initialization.'
     classpath = sourceSets.main.runtimeClasspath
     mainClass = 'org.foxesworld.engine.Test'
     systemProperty 'java.library.path', 'lib'
     systemProperty 'file.encoding', 'UTF-8'
-    systemProperty 'foxengine.test.exitAfterInit', 'true'
+    systemProperty 'kaylasengine.test.exitAfterInit', 'true'
+    systemProperty 'kaylasengine.ui.frameTpl', 'assets/demo/test-frame.xml'
+    systemProperty 'kaylasengine.ui.mainFrame', 'assets/demo/test-main.xml'
     args '--smoke'
 }
 
@@ -131,7 +137,7 @@ publishing {
     repositories {
         maven {
             name = 'GitHubPackages'
-            url = uri('https://maven.pkg.github.com/FoxesWorld/FoxesEngine')
+            url = uri('https://maven.pkg.github.com/WorldOfKayla/KaylasUIEngine')
             credentials {
                 username = packageUser
                 password = packagePassword

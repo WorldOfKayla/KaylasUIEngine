@@ -30,13 +30,12 @@ public class FileSelector extends CompositeComponent {
         this.componentFactory = componentFactory;
         List<String> fileExtensions = componentFactory.getComponentAttribute().getFileExtensions();
         Map<String, String> styles = componentFactory.getComponentAttribute().getStyles();
-        //this.initComponents(styles);
 
-        filePathField = createStyledTextFieldWithTexture(styles.get("textField"));
+        filePathField = createStyledTextFieldWithTexture(styleName(styles, "textField"));
         browseButton = new Button(componentFactory,
                 componentFactory.getEngine().getIconUtils().getIcon(componentFactory.getComponentAttribute()),
                 this.componentFactory.getEngine().getLANG().getString(componentFactory.getComponentAttribute().getLocaleKey()));
-        StyleAttributes attributes = componentFactory.getEngine().getStyleProvider().getElementStyles().get("button").get(styles.get("button"));
+        StyleAttributes attributes = componentFactory.getEngine().getStyleProvider().getStyle("button", styleName(styles, "button"));
         componentFactory.setStyle(attributes);
         ButtonStyle buttonStyle = new ButtonStyle(componentFactory);
         buttonStyle.apply(browseButton);
@@ -51,8 +50,17 @@ public class FileSelector extends CompositeComponent {
         addSubComponent(container);
     }
 
+
+    private String styleName(Map<String, String> styles, String key) {
+        if (styles == null || key == null) {
+            return "default";
+        }
+        String value = styles.get(key);
+        return value == null || value.isBlank() ? "default" : value;
+    }
+
     private TextField createStyledTextFieldWithTexture(String style) {
-        StyleAttributes attributes = componentFactory.getEngine().getStyleProvider().getElementStyles().get("textField").get(style);
+        StyleAttributes attributes = componentFactory.getEngine().getStyleProvider().getStyle("textField", style);
         this.componentFactory.setStyle(attributes);
         TextFieldStyle textFieldStyle = new TextFieldStyle(this.componentFactory);
         TextField textField = new TextField(this.componentFactory);
@@ -65,6 +73,10 @@ public class FileSelector extends CompositeComponent {
     }
 
     public void setValue(String path) {
+        if (path == null || path.isBlank()) {
+            filePathField.setText("");
+            return;
+        }
         File file = new File(path);
 
         if (!file.exists()) {
@@ -110,8 +122,8 @@ public class FileSelector extends CompositeComponent {
                 SelectionMode.DIRECTORIES_ONLY, JFileChooser.DIRECTORIES_ONLY,
                 SelectionMode.FILES_ONLY, JFileChooser.FILES_ONLY
         );
-        fileChooser.setFileSelectionMode(modeMap.get(selectionMode));
-        fileChooser.setDialogTitle("FoxesChoosoooery");
+        fileChooser.setFileSelectionMode(modeMap.getOrDefault(selectionMode, JFileChooser.FILES_ONLY));
+        fileChooser.setDialogTitle("KaylasUI File Selector");
         Optional.ofNullable(fileExtensions)
                 .filter(ext -> !ext.isEmpty())
                 .ifPresent(ext -> {

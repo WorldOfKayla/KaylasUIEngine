@@ -22,6 +22,7 @@ import org.foxesworld.engine.gui.components.passfield.PassFieldStyle;
 import org.foxesworld.engine.gui.components.progressBar.HearthstoneProgressBar;
 import org.foxesworld.engine.gui.components.progressBar.ProgressBarStyle;
 import org.foxesworld.engine.gui.components.slider.Slider;
+import org.foxesworld.engine.gui.components.slider.TexturedSliderUI;
 import org.foxesworld.engine.gui.components.spinner.Spinner;
 import org.foxesworld.engine.gui.components.sprite.SpriteAnimation;
 import org.foxesworld.engine.gui.components.textArea.AreaStyle;
@@ -64,6 +65,7 @@ public class ComponentFactory extends JComponent {
     private final IconUtils iconUtils;
     private final Map<String, Map<String, StyleAttributes>> componentStyles = new ConcurrentHashMap<>();
     private final Map<String, Function<ComponentAttributes, JComponent>> componentRegistry = new ConcurrentHashMap<>();
+    private final Map<String, TooltipAttributes> tooltipCache = new ConcurrentHashMap<>();
     private StyleAttributes style;
     private ComponentAttributes componentAttribute;
     private ComponentFactoryListener componentFactoryListener;
@@ -130,7 +132,7 @@ public class ComponentFactory extends JComponent {
             try {
                 return createComponent(attributes);
             } catch (Exception e) {
-                Engine.LOGGER.error("Error creating component: {}", attributes.getComponentType(), e);
+                Engine.LOGGER.error("Error creating component: {}", attributes != null ? attributes.getComponentType() : "null", e);
                 return null;
             }
         }, engine.getExecutorServiceProvider().getExecutorService());
@@ -150,32 +152,32 @@ public class ComponentFactory extends JComponent {
      * @throws RuntimeException if child creation is interrupted or fails.
      */
     public JComponent createCompositeComponent(ComponentAttributes componentAttributes) {
-        Engine.LOGGER.warn("Using experimental CompositeComponent {} !", componentAttributes.getComponentId());
-        CompositeComponent compositeComponent = new CompositeComponent();
-
+        CompositeComponent compositeComponent = new CompositeComponent(resolveCompositeLayout(componentAttributes));
+        compositeComponent.setLayoutConfig(componentAttributes.getLayoutConfig());
+        compositeComponent.setValue(componentAttributes.getInitialValue());
         compositeComponent.setVisible(componentAttributes.isVisible());
         compositeComponent.setOpaque(componentAttributes.isOpaque());
 
         List<ComponentAttributes> children = componentAttributes.getChildComponents();
-        Engine.LOGGER.info("    - Number of child components: {}", children.size());
-
-        for (ComponentAttributes comp : children) {
-            if(comp.getInitialValue() == null) {
-                comp.setInitialValue(componentAttributes.getInitialValue());
-            }
-            Engine.LOGGER.info("Creating child component: {}", comp.getComponentType());
-
-            JComponent child = this.createComponent(comp);
-
-            if (child == null) {
-                Engine.LOGGER.error("Error: createComponent returned null!");
-            } else {
-                Engine.LOGGER.info("Adding child component: {}", child.getClass().getSimpleName());
-                compositeComponent.addSubComponent(child);
-            }
+        if (children == null || children.isEmpty()) {
+            Engine.LOGGER.info("CompositeComponent '{}' has no child components.", componentAttributes.getComponentId());
+            return compositeComponent;
         }
 
-        Engine.LOGGER.info("CompositeComponent creation completed.");
+        Engine.LOGGER.info("Creating CompositeComponent '{}' with {} child components.",
+                componentAttributes.getComponentId(), children.size());
+
+        for (ComponentAttributes childAttributes : children) {
+            if (childAttributes == null) {
+                Engine.LOGGER.warn("CompositeComponent '{}' ignored null child attributes.", componentAttributes.getComponentId());
+                continue;
+            }
+            inheritCompositeDefaults(componentAttributes, childAttributes);
+            JComponent child = this.createComponent(childAttributes);
+            compositeComponent.addSubComponent(child, compositeComponent.getLayoutConfigFor(childAttributes.getComponentType()));
+        }
+
+        Engine.LOGGER.info("CompositeComponent '{}' created successfully.", componentAttributes.getComponentId());
         return compositeComponent;
     }
 
@@ -211,14 +213,7 @@ public class ComponentFactory extends JComponent {
 
         JComponent component = Objects.requireNonNull(creator.apply(attributes),
                 "Component creator returned null for type: " + componentType);
-        component.setName(attributes.getComponentId());
-        component.setBounds(attributes.getBounds());
-        component.setOpaque(style != null && style.isOpaque());
-
-        if (attributes.getToolTip() != null) {
-            initializeTooltip(component, attributes);
-        }
-
+        applyCommonAttributes(component, attributes);
         return component;
     }
 
@@ -233,8 +228,8 @@ public class ComponentFactory extends JComponent {
      * @param attributes component attributes containing tooltip keys and style names.
      */
     private void initializeTooltip(JComponent component, ComponentAttributes attributes) {
-        String toolTipStyle = attributes.getTooltipStyle() != null ? attributes.getTooltipStyle() : "default";
-        TooltipAttributes tooltipAttributes = loadTooltipAttributes(toolTipStyle);
+        String toolTipStyle = valueOr(attributes.getTooltipStyle(), "default");
+        TooltipAttributes tooltipAttributes = tooltipCache.computeIfAbsent(toolTipStyle, this::loadTooltipAttributes);
 
         if (tooltipAttributes != null) {
             CustomTooltip tooltip = new CustomTooltip(
@@ -253,22 +248,11 @@ public class ComponentFactory extends JComponent {
      * @param attributes attributes containing type and style name.
      */
     private void loadStyle(ComponentAttributes attributes) {
-        this.style = null;
         String componentType = attributes.getComponentType();
         String componentStyle = attributes.getComponentStyle();
-        if (componentType == null || componentStyle == null) {
-            return;
-        }
-
-        Map<String, StyleAttributes> stylesByType = componentStyles.computeIfAbsent(componentType,
-                key -> engine.getStyleProvider().getElementStyles().get(key));
-        if (stylesByType == null) {
-            Engine.LOGGER.warn("No styles registered for component type: {}", componentType);
-            return;
-        }
-        this.style = stylesByType.get(componentStyle);
-        if (this.style == null) {
-            Engine.LOGGER.warn("No style '{}' registered for component type: {}", componentStyle, componentType);
+        this.style = engine.getStyleProvider().getStyle(componentType, componentStyle);
+        if (componentType != null && !componentType.isBlank()) {
+            componentStyles.computeIfAbsent(componentType, key -> engine.getStyleProvider().getElementStyles().get(key));
         }
     }
 
@@ -282,6 +266,10 @@ public class ComponentFactory extends JComponent {
         try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("assets/styles/tooltip.json");
              InputStreamReader reader = new InputStreamReader(Objects.requireNonNull(inputStream))) {
             JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
+            if (jsonObject == null || !jsonObject.has(styleName)) {
+                Engine.LOGGER.warn("Tooltip style '{}' not found", styleName);
+                return null;
+            }
             return new Gson().fromJson(jsonObject.get(styleName), TooltipAttributes.class);
         } catch (Exception e) {
             Engine.LOGGER.error("Failed to load tooltip attributes for style: {}", styleName, e);
@@ -295,10 +283,8 @@ public class ComponentFactory extends JComponent {
         labelStyle.apply(label);
         label.setIcon(iconUtils.getIcon(componentAttributes));
         label.setText(localizedTextWithInitial(componentAttributes));
-        label.setForeground(hexToColor(componentAttributes.getColor()));
-        if (style != null) {
-            label.setFont(engine.getFONTUTILS().getFont(style.getFont(), componentAttributes.getFontSize()));
-        }
+        label.setForeground(hexToColor(valueOr(componentAttributes.getColor(), style.getColor())));
+        label.setFont(engine.getFONTUTILS().getFont(style.getFont(), effectiveFontSize(componentAttributes)));
         return label;
     }
 
@@ -352,11 +338,9 @@ public class ComponentFactory extends JComponent {
         textArea.setLineWrap(componentAttributes.isLineWrap());
         areaStyle.apply(textArea);
         textArea.setText(localizedTextWithInitial(componentAttributes));
-        textArea.setForeground(hexToColor(componentAttributes.getColor()));
+        textArea.setForeground(hexToColor(valueOr(componentAttributes.getColor(), style.getColor())));
         textArea.setEditable(componentAttributes.isEnabled());
-        if (style != null) {
-            textArea.setFont(engine.getFONTUTILS().getFont(style.getFont(), componentAttributes.getFontSize()));
-        }
+        textArea.setFont(engine.getFONTUTILS().getFont(style.getFont(), effectiveFontSize(componentAttributes)));
         return textArea;
     }
 
@@ -388,6 +372,9 @@ public class ComponentFactory extends JComponent {
         TextFieldStyle textFieldStyle = new TextFieldStyle(this);
         TextField textField = new TextField(this);
         textFieldStyle.apply(textField);
+        if (componentAttributes.getInitialValue() != null) {
+            textField.setText(String.valueOf(componentAttributes.getInitialValue()));
+        }
         textField.setActionCommand(componentAttributes.getComponentId());
         textField.addActionListener(engine);
         return textField;
@@ -411,7 +398,7 @@ public class ComponentFactory extends JComponent {
     }
 
     private JComponent createSpinner(ComponentAttributes componentAttributes) {
-        Spinner spinner = new Spinner(Integer.parseInt((String) componentAttributes.getInitialValue()), componentAttributes.getMinValue(), componentAttributes.getMaxValue(), componentAttributes.getMajorSpacing());
+        Spinner spinner = new Spinner(intValue(componentAttributes.getInitialValue(), componentAttributes.getMinValue()), componentAttributes.getMinValue(), componentAttributes.getMaxValue(), componentAttributes.getMajorSpacing());
         if(spinner.getSpinnerListener() != null) {
             spinner.init();
         }
@@ -438,19 +425,96 @@ public class ComponentFactory extends JComponent {
 
     private JComponent createSlider(ComponentAttributes componentAttributes) {
         Slider slider = new Slider(this);
-        slider.setValue(Integer.parseInt((String) componentAttributes.getInitialValue()));
+        int minValue = componentAttributes.getMinValue();
+        int maxValue = componentAttributes.getMaxValue() > minValue ? componentAttributes.getMaxValue() : minValue + 100;
+        int initialValue = Math.max(minValue, Math.min(maxValue, intValue(componentAttributes.getInitialValue(), minValue)));
+
+        slider.setMinimum(minValue);
+        slider.setMaximum(maxValue);
+        slider.setValue(initialValue);
+        slider.setOpaque(false);
+        slider.setPaintTicks(true);
+        slider.setPaintLabels(true);
+        slider.setMajorTickSpacing(componentAttributes.getMajorSpacing() > 0
+                ? componentAttributes.getMajorSpacing()
+                : Math.max(1, (maxValue - minValue) / 5));
+        slider.setMinorTickSpacing(componentAttributes.getMinorSpacing() > 0
+                ? componentAttributes.getMinorSpacing()
+                : Math.max(1, (maxValue - minValue) / 10));
+
+        if (style != null && style.getTrackImage() != null && style.getThumbImage() != null) {
+            slider.setUI(new TexturedSliderUI(this, slider, style));
+        }
         return slider;
     }
     private JComponent createCompositeSlider(ComponentAttributes componentAttributes) {
         CompositeSlider compositeSlider = new CompositeSlider(this);
-        compositeSlider.setValue(Integer.parseInt((String) componentAttributes.getInitialValue()));
+        compositeSlider.setValue(intValue(componentAttributes.getInitialValue(), componentAttributes.getMinValue()));
         return compositeSlider;
     }
 
     private JComponent createFileSelector(ComponentAttributes componentAttributes) {
-        FileSelector fileSelector = new FileSelector(this, SelectionMode.valueOf(componentAttributes.getSelectionMode()));
-        fileSelector.setValue((String) componentAttributes.getInitialValue());
+        FileSelector fileSelector = new FileSelector(this, selectionMode(componentAttributes.getSelectionMode()));
+        fileSelector.setValue(String.valueOf(componentAttributes.getInitialValue()));
         return fileSelector;
+    }
+
+    private CompositeComponent.LayoutMode resolveCompositeLayout(ComponentAttributes attributes) {
+        String mode = valueOr(attributes.getAlignment(), "absolute").toLowerCase();
+        return switch (mode) {
+            case "vertical", "y", "box-y" -> CompositeComponent.LayoutMode.VERTICAL;
+            case "horizontal", "x", "box-x" -> CompositeComponent.LayoutMode.HORIZONTAL;
+            case "flow" -> CompositeComponent.LayoutMode.FLOW;
+            default -> CompositeComponent.LayoutMode.ABSOLUTE;
+        };
+    }
+
+    private void inheritCompositeDefaults(ComponentAttributes parent, ComponentAttributes child) {
+        if (child.getInitialValue() == null && parent.getInitialValue() != null) {
+            child.setInitialValue(parent.getInitialValue());
+        }
+    }
+
+    private void applyCommonAttributes(JComponent component, ComponentAttributes attributes) {
+        component.setName(attributes.getComponentId());
+        component.setBounds(attributes.getBounds());
+        component.setOpaque(style != null && style.isOpaque());
+
+        if (attributes.getToolTip() != null) {
+            initializeTooltip(component, attributes);
+        }
+    }
+
+    private int effectiveFontSize(ComponentAttributes attributes) {
+        return attributes.getFontSize() > 0 ? attributes.getFontSize() : style.getFontSize();
+    }
+
+    private int intValue(Object value, int fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ex) {
+            Engine.LOGGER.warn("Invalid numeric component value: {}", value);
+            return fallback;
+        }
+    }
+
+    private SelectionMode selectionMode(String mode) {
+        if (mode == null || mode.isBlank()) {
+            return SelectionMode.FILES_ONLY;
+        }
+        try {
+            return SelectionMode.valueOf(mode);
+        } catch (IllegalArgumentException ex) {
+            Engine.LOGGER.warn("Invalid file selection mode '{}', falling back to FILES_ONLY", mode);
+            return SelectionMode.FILES_ONLY;
+        }
+    }
+
+    private String valueOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 
     /**

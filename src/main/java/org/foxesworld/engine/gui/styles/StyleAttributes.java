@@ -4,9 +4,83 @@ import java.util.Objects;
 
 @SuppressWarnings("unused")
 public class StyleAttributes {
-    private String name,backgroundImage,background,color,hoverColor,caretColor,align,borderColor,trackImage, thumbImage,texture,font,selectionColor;
-    private int width,height,paddingX,paddingY,fontSize, borderRadius, iconWidth, iconHeight;
+    private static final String DEFAULT_COLOR = "#ffffff";
+    private static final String DEFAULT_BACKGROUND = "#00000000";
+    private static final String DEFAULT_FONT = "Primary";
+    private static final int DEFAULT_FONT_SIZE = 14;
+
+    private String name;
+    private String backgroundImage;
+    private String background;
+    private String color;
+    private String hoverColor;
+    private String caretColor;
+    private String align;
+    private String borderColor;
+    private String trackImage;
+    private String thumbImage;
+    private String texture;
+    private String font;
+    private String selectionColor;
+    private int width;
+    private int height;
+    private int paddingX;
+    private int paddingY;
+    private int fontSize;
+    private int borderRadius;
+    private int iconWidth;
+    private int iconHeight;
     private boolean opaque;
+
+    public static StyleAttributes defaults(String name) {
+        StyleAttributes defaults = new StyleAttributes();
+        defaults.name = name == null || name.isBlank() ? "default" : name;
+        defaults.background = DEFAULT_BACKGROUND;
+        defaults.color = DEFAULT_COLOR;
+        defaults.hoverColor = DEFAULT_COLOR;
+        defaults.caretColor = DEFAULT_COLOR;
+        defaults.selectionColor = DEFAULT_COLOR;
+        defaults.font = DEFAULT_FONT;
+        defaults.fontSize = DEFAULT_FONT_SIZE;
+        defaults.align = "left";
+        defaults.opaque = false;
+        return defaults;
+    }
+
+    public StyleAttributes normalized(String fallbackName) {
+        StyleAttributes normalized = new StyleAttributes();
+        normalized.name = valueOr(name, fallbackName == null ? "default" : fallbackName);
+        normalized.backgroundImage = backgroundImage;
+        normalized.background = valueOr(background, DEFAULT_BACKGROUND);
+        normalized.color = valueOr(color, DEFAULT_COLOR);
+        normalized.hoverColor = valueOr(hoverColor, normalized.color);
+        normalized.caretColor = valueOr(caretColor, normalized.color);
+        normalized.align = valueOr(align, "left");
+        normalized.borderColor = emptyToNull(borderColor);
+        normalized.trackImage = trackImage;
+        normalized.thumbImage = thumbImage;
+        normalized.texture = texture;
+        normalized.font = valueOr(font, DEFAULT_FONT);
+        normalized.selectionColor = valueOr(selectionColor, normalized.color);
+        normalized.width = Math.max(0, width);
+        normalized.height = Math.max(0, height);
+        normalized.paddingX = Math.max(0, paddingX);
+        normalized.paddingY = Math.max(0, paddingY);
+        normalized.fontSize = fontSize > 0 ? fontSize : DEFAULT_FONT_SIZE;
+        normalized.borderRadius = Math.max(0, borderRadius);
+        normalized.iconWidth = Math.max(0, iconWidth);
+        normalized.iconHeight = Math.max(0, iconHeight);
+        normalized.opaque = opaque;
+        return normalized;
+    }
+
+    private String valueOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
+    }
+
+    private String emptyToNull(String value) {
+        return value == null || value.isBlank() ? null : value;
+    }
 
     public String getName() {
         return name;
@@ -17,51 +91,55 @@ public class StyleAttributes {
     }
 
     public String getBackground() {
-        return background;
+        return valueOr(background, DEFAULT_BACKGROUND);
     }
 
     public String getColor() {
-        return color;
+        return valueOr(color, DEFAULT_COLOR);
     }
 
     public String getHoverColor() {
-        return hoverColor;
+        return valueOr(hoverColor, getColor());
     }
 
     public String getCaretColor() {
-        return caretColor;
+        return valueOr(caretColor, getColor());
     }
 
     public String getAlign() {
-        return align;
+        return valueOr(align, "left");
     }
 
     public String getSelectionColor() {
-        return selectionColor;
+        return valueOr(selectionColor, getColor());
     }
 
     public String getBorderColor() {
-        return borderColor;
+        return emptyToNull(borderColor);
+    }
+
+    public boolean hasBorderColor() {
+        return getBorderColor() != null;
     }
 
     public int getBorderRadius() {
-        return borderRadius;
+        return Math.max(0, borderRadius);
     }
 
     public int getWidth() {
-        return width;
+        return Math.max(0, width);
     }
 
     public int getHeight() {
-        return height;
+        return Math.max(0, height);
     }
 
     public String getFont() {
-        return font;
+        return valueOr(font, DEFAULT_FONT);
     }
 
     public int getFontSize() {
-        return fontSize;
+        return fontSize > 0 ? fontSize : DEFAULT_FONT_SIZE;
     }
 
     public String getTexture() {
@@ -77,11 +155,11 @@ public class StyleAttributes {
     }
 
     public int getPaddingX() {
-        return paddingX;
+        return Math.max(0, paddingX);
     }
 
     public int getPaddingY() {
-        return paddingY;
+        return Math.max(0, paddingY);
     }
 
     public String getThumbImage() {
@@ -89,23 +167,27 @@ public class StyleAttributes {
     }
 
     public boolean hasTransparentBackground() {
-        return "transparent".equalsIgnoreCase(background);
+        return "transparent".equalsIgnoreCase(background) || "#00000000".equalsIgnoreCase(background);
     }
 
     public boolean hasBackgroundImage() {
-        return backgroundImage != null && !backgroundImage.isEmpty();
+        return backgroundImage != null && !backgroundImage.isBlank();
     }
 
     public boolean isValidCSSColor(String color) {
-        return color != null && color.matches("^#([A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$|^[a-zA-Z]+$");
+        return isHexColor(color);
+    }
+
+    public boolean isHexColor(String color) {
+        return color != null && color.matches("^#([A-Fa-f0-9]{8}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$");
     }
 
     public int getIconWidth() {
-        return iconWidth;
+        return Math.max(0, iconWidth);
     }
 
     public int getIconHeight() {
-        return iconHeight;
+        return Math.max(0, iconHeight);
     }
 
     @Override

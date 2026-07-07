@@ -1,0 +1,26 @@
+{
+  "styles": {
+    "compositeComponent": {
+      "default": {
+        "opaque": false,
+        "background": "#00000000",
+        "color": "#ffffff",
+        "font": "Primary",
+        "fontSize": 14,
+        "borderRadius": 0,
+        "paddingX": 0,
+        "paddingY": 0
+      },
+      "panel": {
+        "opaque": false,
+        "background": "#00000000",
+        "color": "#ffffff",
+        "font": "Primary",
+        "fontSize": 14,
+        "borderRadius": 0,
+        "paddingX": 0,
+        "paddingY": 0
+      }
+    }
+  }
+}

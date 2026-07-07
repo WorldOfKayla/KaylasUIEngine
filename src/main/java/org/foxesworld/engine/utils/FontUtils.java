@@ -60,9 +60,15 @@ public class FontUtils {
             return Color.WHITE;
         }
 
-        String normalized = hex.trim().replace("#", "");
-        if (normalized.length() != 6 && normalized.length() != 8) {
+        String normalized = hex.trim();
+        if (!normalized.matches("^#([A-Fa-f0-9]{8}|[A-Fa-f0-9]{6}|[A-Fa-f0-9]{3})$")) {
             return Color.WHITE;
+        }
+        normalized = normalized.substring(1);
+        if (normalized.length() == 3) {
+            normalized = "" + normalized.charAt(0) + normalized.charAt(0)
+                    + normalized.charAt(1) + normalized.charAt(1)
+                    + normalized.charAt(2) + normalized.charAt(2);
         }
 
         try {

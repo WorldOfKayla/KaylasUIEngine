@@ -66,7 +66,7 @@ public class MultiButton extends JButton implements MouseListener, MouseMotionLi
     @Override
     public void mousePressed(MouseEvent e) {
         if (isEnabled() && e.getButton() == MouseEvent.BUTTON1) {
-            engine.getSOUND().playSound("button", "close");
+            engine.emitSound("button", "close");
             pressed = true;
             repaint();
             revalidate();
@@ -83,7 +83,7 @@ public class MultiButton extends JButton implements MouseListener, MouseMotionLi
 
     @Override
     public void mouseEntered(MouseEvent e) {
-        engine.getSOUND().playSound("button", "hover");
+        engine.emitSound("button", "hover");
         this.entered = true;
     }
 

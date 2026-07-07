@@ -1,4 +1,7 @@
-# FoxEngine
+# KaylasUI Engine
+
+Версия: `1.17.0-AURELIA`  
+Кодовое имя: `AURELIA`
 
 ### Как использовать?
 

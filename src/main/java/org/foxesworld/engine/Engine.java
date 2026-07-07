@@ -8,6 +8,9 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.foxesworld.engine.config.Config;
 import org.foxesworld.engine.discord.Discord;
+import org.foxesworld.engine.events.EventBus;
+import org.foxesworld.engine.events.EventDispatchResult;
+import org.foxesworld.engine.events.SoundEvent;
 import org.foxesworld.engine.gui.*;
 import org.foxesworld.engine.gui.components.ComponentFactoryListener;
 import org.foxesworld.engine.gui.components.frame.FocusStatusListener;
@@ -43,7 +46,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 @SuppressWarnings("unused")
 /**
- * Base abstract engine class for FoxEngine applications.
+ * Base abstract engine class for KaylasEngine applications.
  * <p>
  * The Engine encapsulates common application subsystems: configuration, GUI builder, sound subsystem,
  * background task provider, loading manager, localization, and more. The class is intended to be
@@ -68,6 +71,9 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
 
     /** Unified HTTP/WS/WSS request dispatcher. */
     private final RequestClient requestClient;
+
+    /** Central event bus for reliable in-process event delivery. */
+    private final EventBus eventBus;
 
     /** File properties and path helpers. */
     protected final FileProperties fileProperties;
@@ -182,6 +188,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         this.FONTUTILS = new FontUtils(this);
         setLogLevel(Level.valueOf(engineData.getLogLevel()));
         executorServiceProvider = new ExecutorServiceProvider(poolSize, worker);
+        eventBus = new EventBus(executorServiceProvider.getExecutorService(), LOGGER);
         requestClient = new RequestClient(this);
 
         this.imageUtils = new ImageUtils();
@@ -234,7 +241,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
 
         // Prepare lines
         List<String> lines = new ArrayList<>();
-        lines.add("===== FoxEngine Initialization =====");
+        lines.add("===== Kayla's Initialization =====");
         lines.add(String.format("Engine Version: %s", engineVersion));
         lines.add(String.format("Operating System: %s", currentOS));
         if (osBean != null) {
@@ -357,7 +364,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
     public void showDialog(String messageKey, String errorTitle, int warningMessage, boolean terminate) {
         SwingUtilities.invokeLater(() -> {
             String errorMessage = this.getLANG().getString(messageKey);
-            this.getSOUND().playSound("other", messageKey);
+            this.emitSound("other", messageKey);
             UIManager.put("OptionPane.messageFont", this.getFONTUTILS().getFont("mcfont", 12.0F));
             JOptionPane.showMessageDialog(this.getFrame().getRootPane(), errorMessage, errorTitle, warningMessage);
             if (terminate) {
@@ -671,6 +678,30 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      */
     public RequestClient getRequestClient() {
         return requestClient;
+    }
+
+    /**
+     * Returns the central event bus.
+     *
+     * @return event bus with delivery tracking and dead-letter diagnostics.
+     */
+    public EventBus getEventBus() {
+        return eventBus;
+    }
+
+    /**
+     * Publishes a bundled sound event through the central event bus.
+     *
+     * @param category sound category.
+     * @param subCategory sound subcategory.
+     * @return dispatch result with delivery tracking id.
+     */
+    public EventDispatchResult emitSound(String category, String subCategory) {
+        return eventBus.publish(SoundEvent.of(this, category, subCategory));
+    }
+
+    public EventDispatchResult emitSound(String category, String subCategory, boolean loop) {
+        return eventBus.publish(SoundEvent.of(this, category, subCategory, loop));
     }
 
     /**

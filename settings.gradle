@@ -1,4 +1,4 @@
-rootProject.name = 'FoxesEngine'
+rootProject.name = 'KaylasUIEngine'
 
 ['Game', 'Downloader'].each { moduleName ->
     if (file(moduleName).isDirectory()) {

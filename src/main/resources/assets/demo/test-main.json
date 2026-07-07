@@ -75,6 +75,181 @@
               "height": 32
             }
           }
+        },
+        {
+          "type": "compositeComponent",
+          "style": "default",
+          "id": "compositeDemo",
+          "alignment": "absolute",
+          "initialValue": "stable",
+          "opaque": false,
+          "visible": true,
+          "bounds": {
+            "x": 32,
+            "y": 184,
+            "size": {
+              "width": 820,
+              "height": 280
+            }
+          },
+          "childComponents": [
+            {
+              "type": "label",
+              "style": "title",
+              "id": "compositeDemoTitle",
+              "localeKey": "demo.compositeTitle",
+              "color": "#ffffff",
+              "fontSize": 16,
+              "opaque": false,
+              "visible": true,
+              "bounds": {
+                "x": 0,
+                "y": 0,
+                "size": {
+                  "width": 820,
+                  "height": 30
+                }
+              }
+            },
+            {
+              "type": "label",
+              "style": "promptLabel",
+              "id": "compositeDemoState",
+              "localeKey": "demo.compositeState",
+              "initialValue": "interactive",
+              "color": "#ffffff",
+              "fontSize": 14,
+              "opaque": false,
+              "visible": true,
+              "bounds": {
+                "x": 0,
+                "y": 34,
+                "size": {
+                  "width": 820,
+                  "height": 26
+                }
+              }
+            },
+            {
+              "type": "button",
+              "style": "buttonMain",
+              "id": "taskManager",
+              "localeKey": "demo.openTaskManager",
+              "enabled": true,
+              "opaque": false,
+              "visible": true,
+              "bounds": {
+                "x": 0,
+                "y": 74,
+                "size": {
+                  "width": 180,
+                  "height": 42
+                }
+              }
+            },
+            {
+              "type": "button",
+              "style": "altButton",
+              "id": "minimize",
+              "localeKey": "demo.minimizeWindow",
+              "enabled": true,
+              "opaque": false,
+              "visible": true,
+              "bounds": {
+                "x": 198,
+                "y": 74,
+                "size": {
+                  "width": 180,
+                  "height": 42
+                }
+              }
+            },
+            {
+              "type": "checkBox",
+              "style": "solid1",
+              "id": "demoToggle",
+              "localeKey": "demo.toggleFeature",
+              "initialValue": "true",
+              "enabled": true,
+              "opaque": false,
+              "visible": true,
+              "bounds": {
+                "x": 0,
+                "y": 132,
+                "size": {
+                  "width": 240,
+                  "height": 32
+                }
+              }
+            },
+            {
+              "type": "textField",
+              "style": "textFieldMain",
+              "id": "demoInput",
+              "localeKey": "demo.inputPlaceholder",
+              "initialValue": "AURELIA online",
+              "enabled": true,
+              "opaque": false,
+              "visible": true,
+              "bounds": {
+                "x": 260,
+                "y": 126,
+                "size": {
+                  "width": 260,
+                  "height": 44
+                }
+              }
+            },
+            {
+              "type": "compositeSlider",
+              "style": "slidingOut",
+              "id": "demoSlider",
+              "localeKey": "demo.soundVolume",
+              "fontSize": 14,
+              "initialValue": "100",
+              "minValue": 50,
+              "maxValue": 100,
+              "stepSize": 6,
+              "minorSpacing": 5,
+              "majorSpacing": 10,
+              "enabled": true,
+              "opaque": false,
+              "visible": true,
+              "styles": {
+                "label": "title",
+                "slider": "slidingOut",
+                "spinner": "textFieldMain"
+              },
+              "layoutConfig": {
+                "label": {
+                  "x": 0,
+                  "y": 0,
+                  "width": 300,
+                  "height": 25
+                },
+                "slider": {
+                  "x": 0,
+                  "y": 26,
+                  "width": 300,
+                  "height": 45
+                },
+                "spinner": {
+                  "x": 320,
+                  "y": 20,
+                  "width": 90,
+                  "height": 34
+                }
+              },
+              "bounds": {
+                "x": 0,
+                "y": 184,
+                "size": {
+                  "width": 430,
+                  "height": 72
+                }
+              }
+            }
+          ]
         }
       ],
       "panels": {}

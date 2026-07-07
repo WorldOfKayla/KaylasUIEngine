@@ -5,6 +5,9 @@ import com.google.gson.Gson;
 import org.foxesworld.engine.Engine;
 import org.foxesworld.engine.gui.components.panel.Panel;
 import org.foxesworld.engine.locale.LanguageProvider;
+import org.w3c.dom.Attr;
+import org.w3c.dom.Document;
+import org.w3c.dom.Element;
 
 import javax.swing.*;
 import java.awt.*;
@@ -13,7 +16,10 @@ import java.awt.event.WindowFocusListener;
 import java.awt.geom.RoundRectangle2D;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.lang.reflect.Field;
 import java.nio.charset.StandardCharsets;
+import javax.xml.parsers.DocumentBuilder;
+import javax.xml.parsers.DocumentBuilderFactory;
 
 /**
  * Top-level application frame constructor.
@@ -72,21 +78,77 @@ public class FrameConstructor extends JFrame {
                 Engine.LOGGER.error("FrameConstructor: resource not found at path '{}'", path);
                 return;
             }
-            try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-                FrameAttributes frameAttributes = gson.fromJson(reader, FrameAttributes.class);
-                if (frameAttributes == null) {
-                    Engine.LOGGER.error("FrameConstructor: parsed FrameAttributes is null for path '{}'", path);
-                    return;
+            FrameAttributes frameAttributes;
+            if (path.toLowerCase().endsWith(".xml")) {
+                frameAttributes = parseXmlFrame(in);
+            } else {
+                try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
+                    frameAttributes = gson.fromJson(reader, FrameAttributes.class);
                 }
-                Engine.LOGGER.debug("FrameConstructor: parsed FrameAttributes: width={}, height={}, resizable={}, undecorated={}, borderRadius={}",
-                        frameAttributes.getWidth(), frameAttributes.getHeight(),
-                        frameAttributes.isResizable(), frameAttributes.isUndecorated(), frameAttributes.getBorderRadius());
-                buildFrame(frameAttributes);
-                Engine.LOGGER.info("FrameConstructor: frame successfully built from '{}'", path);
             }
+            if (frameAttributes == null) {
+                Engine.LOGGER.error("FrameConstructor: parsed FrameAttributes is null for path '{}'", path);
+                return;
+            }
+            Engine.LOGGER.debug("FrameConstructor: parsed FrameAttributes: width={}, height={}, resizable={}, undecorated={}, borderRadius={}",
+                    frameAttributes.getWidth(), frameAttributes.getHeight(),
+                    frameAttributes.isResizable(), frameAttributes.isUndecorated(), frameAttributes.getBorderRadius());
+            buildFrame(frameAttributes);
+            Engine.LOGGER.info("FrameConstructor: frame successfully built from '{}'", path);
         } catch (Exception ex) {
             Engine.LOGGER.error("FrameConstructor: failed to build frame from '{}'", path, ex);
         }
+    }
+
+    private FrameAttributes parseXmlFrame(InputStream inputStream) throws Exception {
+        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
+        factory.setIgnoringComments(true);
+        factory.setNamespaceAware(false);
+        DocumentBuilder builder = factory.newDocumentBuilder();
+        Document document = builder.parse(inputStream);
+        Element root = document.getDocumentElement();
+        FrameAttributes frameAttributes = new FrameAttributes();
+        for (int i = 0; i < root.getAttributes().getLength(); i++) {
+            Attr attribute = (Attr) root.getAttributes().item(i);
+            Field field = findField(FrameAttributes.class, attribute.getName());
+            if (field == null) {
+                continue;
+            }
+            field.setAccessible(true);
+            field.set(frameAttributes, convertValue(field.getType(), attribute.getValue()));
+        }
+        return frameAttributes;
+    }
+
+    private Field findField(Class<?> type, String fieldName) {
+        Class<?> current = type;
+        while (current != null) {
+            try {
+                return current.getDeclaredField(fieldName);
+            } catch (NoSuchFieldException ignored) {
+                current = current.getSuperclass();
+            }
+        }
+        return null;
+    }
+
+    private Object convertValue(Class<?> type, String value) {
+        if (type == int.class || type == Integer.class) {
+            return Integer.parseInt(value);
+        }
+        if (type == boolean.class || type == Boolean.class) {
+            return Boolean.parseBoolean(value);
+        }
+        if (type == long.class || type == Long.class) {
+            return Long.parseLong(value);
+        }
+        if (type == double.class || type == Double.class) {
+            return Double.parseDouble(value);
+        }
+        if (type == float.class || type == Float.class) {
+            return Float.parseFloat(value);
+        }
+        return value;
     }
 
     /**

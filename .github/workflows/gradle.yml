@@ -49,7 +49,7 @@ jobs:
         if: matrix.os == 'ubuntu-latest'
         uses: actions/upload-artifact@v4
         with:
-          name: fox-engine-artifacts
+          name: kaylas-ui-engine-artifacts
           path: |
             build/libs/*.jar
             Game/build/libs/*.jar

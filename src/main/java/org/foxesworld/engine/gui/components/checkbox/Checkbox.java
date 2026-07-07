@@ -54,12 +54,12 @@ public class Checkbox extends JCheckBox {
                         checkBoxListener.onClick(checkbox);
                     }
                     if (isSel) {
-                        componentFactory.getEngine().getSOUND().playSound("checkbox", "checkboxOff");
+                        componentFactory.getEngine().emitSound("checkbox", "checkboxOff");
                         if (checkBoxListener != null) {
                             checkBoxListener.onActivate(checkbox);
                         }
                     } else {
-                        componentFactory.getEngine().getSOUND().playSound("checkbox", "checkboxOn");
+                        componentFactory.getEngine().emitSound("checkbox", "checkboxOn");
                         if (checkBoxListener != null) {
                             checkBoxListener.onDisable(checkbox);
                         }
@@ -92,9 +92,9 @@ public class Checkbox extends JCheckBox {
     public void toggleCheckbox() {
         boolean isSel = isSelected();
         if (isSel) {
-            componentFactory.getEngine().getSOUND().playSound("checkbox", "checkboxOff");
+            componentFactory.getEngine().emitSound("checkbox", "checkboxOff");
         } else {
-            componentFactory.getEngine().getSOUND().playSound("checkbox", "checkboxOn");
+            componentFactory.getEngine().emitSound("checkbox", "checkboxOn");
         }
     }
 

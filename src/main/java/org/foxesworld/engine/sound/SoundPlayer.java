@@ -88,17 +88,24 @@ public class SoundPlayer implements LineListener {
     }
 
     private boolean isSoundEnabled() {
+        if (engine.getConfig() == null || engine.getConfig().getConfig() == null) {
+            return true;
+        }
         Object enabled = engine.getConfig().getConfig().get("enableSound");
-        return Boolean.parseBoolean(String.valueOf(enabled));
+        return enabled == null || Boolean.parseBoolean(String.valueOf(enabled));
     }
 
     private float resolveVolume(String path) {
-        Object configuredVolume = engine.getConfig().getConfig().get("volume");
+        Object configuredVolume = engine.getConfig() != null && engine.getConfig().getConfig() != null
+                ? engine.getConfig().getConfig().get("volume")
+                : null;
         float volume = 1.0f;
         try {
             volume = Float.parseFloat(String.valueOf(configuredVolume)) / 100.0f;
         } catch (NumberFormatException ignored) {
-            Engine.LOGGER.warn("Invalid sound volume config: {}", configuredVolume);
+            if (configuredVolume != null) {
+                Engine.LOGGER.warn("Invalid sound volume config: {}", configuredVolume);
+            }
         }
         if (path.contains("mus")) {
             volume -= 0.15f;
