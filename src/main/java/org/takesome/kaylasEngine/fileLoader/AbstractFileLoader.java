@@ -13,7 +13,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Абстрактный базовый класс для загрузчиков файлов, реализующий общую логику.
+ * Abstract base class for file loaders that implements shared loading behavior.
  */
 public abstract class AbstractFileLoader {
 
@@ -60,9 +60,9 @@ public abstract class AbstractFileLoader {
     }
 
     /**
-     * Запуск процесса получения списка файлов для загрузки.
+     * Starts retrieving the list of files to download.
      *
-     * @param forceUpdate принудительное обновление списка
+     * @param forceUpdate forces the file list to be refreshed.
      */
     public void getFilesToDownload(boolean forceUpdate) {
         this.forceUpdate = forceUpdate;
@@ -123,7 +123,7 @@ public abstract class AbstractFileLoader {
     }
 
     /**
-     * Запуск процесса загрузки файлов.
+     * Starts downloading the selected files.
      */
     public void downloadFiles() {
         int totalFiles = fileAttributes.size();
@@ -212,7 +212,7 @@ public abstract class AbstractFileLoader {
         return totalSize;
     }
 
-    // Геттеры для использования в слушателях и наследниках
+    // Getters used by listeners and subclasses.
     public String getHomeDir() { return homeDir; }
     public String getClient() { return client; }
     public String getVersion() { return version; }
@@ -235,7 +235,7 @@ public abstract class AbstractFileLoader {
         this.fileLoaderListener = listener;
     }
 
-    // Обработка ошибок получения списка файлов.
+    // Handles file list retrieval errors.
     protected Void handleFileListRetrievalError(Throwable e) {
         Engine.LOGGER.error("Error retrieving file list: {}", e.getMessage(), e);
         SwingUtilities.invokeLater(() -> loadingManager.setLoadingText(e.getMessage(), "error.file"));

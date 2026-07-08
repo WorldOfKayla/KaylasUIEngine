@@ -100,6 +100,10 @@ public final class LuaUiScriptEngine {
         context.clearScriptCache();
     }
 
+    public void emitComponentEvent(String eventName, JComponent component, Object rawEvent) {
+        emit(eventName, component, rawEvent);
+    }
+
     @SuppressWarnings("unchecked")
     private Map<String, List<String>> scriptsFor(JComponent component) {
         Object scripts = component.getClientProperty(SCRIPT_MAP_KEY);
