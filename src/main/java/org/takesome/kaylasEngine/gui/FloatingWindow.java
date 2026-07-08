@@ -12,6 +12,10 @@ import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
 @SuppressWarnings("unused")
 public abstract class FloatingWindow extends JWindow implements AnimationStats {
 
+    private static final long UI_QUEUE_WARN_NANOS = 250_000_000L;
+    private static final long BACKGROUND_CREATE_WARN_NANOS = 100_000_000L;
+    private static final long BACKGROUND_SCALE_WARN_NANOS = 30_000_000L;
+
     protected Engine engine;
     protected JPanel backgroundPanel, basePanel;
     protected boolean animating;
@@ -31,15 +35,79 @@ public abstract class FloatingWindow extends JWindow implements AnimationStats {
     protected abstract void initializeLoadingFrame();
 
     protected void createBackgroundPanel(JPanel basePanel, String image, String color) {
+        long startedAt = System.nanoTime();
+        if (basePanel == null) {
+            Engine.getLOGGER().warn("[FLOATING-WINDOW] Cannot create background: base panel is null. image={}, color={}", image, color);
+            return;
+        }
+
+        Engine.getLOGGER().debug(
+                "[FLOATING-WINDOW] createBackgroundPanel start: basePanel={}, components={}, image={}, color={}, frame={}x{}",
+                basePanel.getName(),
+                basePanel.getComponentCount(),
+                image,
+                color,
+                FRAME_WIDTH,
+                FRAME_HEIGHT
+        );
+
         basePanel.setBounds(basePanel.getX(), basePanel.getY(), FRAME_WIDTH, FRAME_HEIGHT);
+        final Image sourceImage = engine.getImageUtils().getLocalImage(image);
+        final Color overlayColor = hexToColor(color);
+
         backgroundPanel = new JPanel() {
+            private Image cachedScaledImage;
+            private int cachedWidth = -1;
+            private int cachedHeight = -1;
+            private long lastPaintWarnNanos = 0L;
+
             @Override
             protected void paintComponent(Graphics g) {
+                long paintStartedAt = System.nanoTime();
                 super.paintComponent(g);
-                Image bgImg = engine.getImageUtils().getScaledImage(engine.getImageUtils().getLocalImage(image), basePanel.getWidth(), basePanel.getHeight());
-                g.drawImage(bgImg, 0, 0, basePanel.getWidth(), basePanel.getHeight(), this);
-                g.setColor(hexToColor(color));
-                g.fillRect(0, 0, basePanel.getWidth(), basePanel.getHeight());
+                int width = getWidth();
+                int height = getHeight();
+                if (width <= 0 || height <= 0) {
+                    return;
+                }
+
+                if (sourceImage != null) {
+                    if (cachedScaledImage == null || cachedWidth != width || cachedHeight != height) {
+                        long scaleStartedAt = System.nanoTime();
+                        cachedScaledImage = engine.getImageUtils().getScaledImage(sourceImage, width, height);
+                        cachedWidth = width;
+                        cachedHeight = height;
+                        long scaleElapsed = System.nanoTime() - scaleStartedAt;
+                        if (scaleElapsed >= BACKGROUND_SCALE_WARN_NANOS) {
+                            Engine.getLOGGER().warn(
+                                    "[FLOATING-WINDOW] background scale slow: panel={}, size={}x{}, elapsed={} ms",
+                                    getName(),
+                                    width,
+                                    height,
+                                    nanosToMillis(scaleElapsed)
+                            );
+                        }
+                    }
+                    g.drawImage(cachedScaledImage, 0, 0, width, height, this);
+                }
+
+                if (overlayColor != null) {
+                    g.setColor(overlayColor);
+                    g.fillRect(0, 0, width, height);
+                }
+
+                long paintElapsed = System.nanoTime() - paintStartedAt;
+                long now = System.nanoTime();
+                if (paintElapsed >= BACKGROUND_SCALE_WARN_NANOS && now - lastPaintWarnNanos > 2_000_000_000L) {
+                    lastPaintWarnNanos = now;
+                    Engine.getLOGGER().warn(
+                            "[FLOATING-WINDOW] background paint slow: panel={}, size={}x{}, elapsed={} ms",
+                            getName(),
+                            width,
+                            height,
+                            nanosToMillis(paintElapsed)
+                    );
+                }
             }
         };
         backgroundPanel.setLayout(basePanel.getLayout());
@@ -49,6 +117,23 @@ public abstract class FloatingWindow extends JWindow implements AnimationStats {
             backgroundPanel.add(component);
         }
         setContentPane(backgroundPanel);
+
+        long elapsed = System.nanoTime() - startedAt;
+        if (elapsed >= BACKGROUND_CREATE_WARN_NANOS) {
+            Engine.getLOGGER().warn(
+                    "[FLOATING-WINDOW] createBackgroundPanel slow: panel={}, components={}, elapsed={} ms",
+                    backgroundPanel.getName(),
+                    backgroundPanel.getComponentCount(),
+                    nanosToMillis(elapsed)
+            );
+        } else {
+            Engine.getLOGGER().debug(
+                    "[FLOATING-WINDOW] createBackgroundPanel done: panel={}, components={}, elapsed={} ms",
+                    backgroundPanel.getName(),
+                    backgroundPanel.getComponentCount(),
+                    nanosToMillis(elapsed)
+            );
+        }
     }
 
     protected void addFrameComponentListener() {
@@ -61,7 +146,9 @@ public abstract class FloatingWindow extends JWindow implements AnimationStats {
     }
 
     protected void updateLoadingFramePosition() {
+        long queuedAt = System.nanoTime();
         SwingUtilities.invokeLater(() -> {
+            logUiQueueDelay("updateLoadingFramePosition", queuedAt);
             Point mainFrameCenter = getCenterPoint(this.engine.getFrame());
             setLocation(mainFrameCenter.x - getWidth() / 2, mainFrameCenter.y - getHeight() / 2);
         });
@@ -74,20 +161,47 @@ public abstract class FloatingWindow extends JWindow implements AnimationStats {
     }
 
     public void animateLoadingWindow(boolean isEntry) {
-        this.engine.getExecutorServiceProvider().submitTask(() -> {
-            animationManager.animate(isEntry);
-        }, "animation-"+isEntry);
+        Engine.getLOGGER().debug("[FLOATING-WINDOW] animateLoadingWindow requested: entry={}, visible={}, animating={}", isEntry, isVisible(), isAnimating());
+        runOnEdt(() -> animationManager.animate(isEntry), "animateLoadingWindow");
     }
 
     public void toggleVisibility() {
-        this.engine.getExecutorServiceProvider().submitTask(() -> {
+        Engine.getLOGGER().debug("[FLOATING-WINDOW] toggleVisibility requested: visible={}, animating={}", isVisible(), isAnimating());
+        runOnEdt(() -> {
+            if (isAnimating()) {
+                Engine.getLOGGER().debug("[FLOATING-WINDOW] toggleVisibility skipped: already animating");
+                return;
+            }
             if (isVisible()) {
                 animateLoadingWindow(false);
             } else {
                 setSize(FRAME_WIDTH, FRAME_HEIGHT);
                 animateLoadingWindow(true);
             }
-        }, "loaderAnimation");
+        }, "toggleVisibility");
+    }
+
+    private void runOnEdt(Runnable task, String operation) {
+        if (SwingUtilities.isEventDispatchThread()) {
+            task.run();
+        } else {
+            long queuedAt = System.nanoTime();
+            SwingUtilities.invokeLater(() -> {
+                logUiQueueDelay(operation, queuedAt);
+                task.run();
+            });
+        }
+    }
+
+    private void logUiQueueDelay(String operation, long queuedAtNanos) {
+        long delay = System.nanoTime() - queuedAtNanos;
+        if (delay >= UI_QUEUE_WARN_NANOS) {
+            Engine.getLOGGER().warn("[FLOATING-WINDOW][EDT-QUEUE] {} waited {} ms", operation, nanosToMillis(delay));
+        }
+    }
+
+    private static long nanosToMillis(long nanos) {
+        return nanos / 1_000_000L;
     }
 
     public Engine getEngine() {

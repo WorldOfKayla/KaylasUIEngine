@@ -11,15 +11,21 @@ import java.util.concurrent.Callable;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Future;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.RejectedExecutionHandler;
 import java.util.concurrent.ThreadPoolExecutor;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.Consumer;
 
+/**
+ * Engine-wide tracked executor service wrapper.
+ *
+ * <p>The provider exposes task tracking, progress integration, and a shutdown path that is safe to
+ * call from Swing code. Blocking executor termination is never performed on the EDT.</p>
+ */
 @SuppressWarnings("unused")
 public class ExecutorServiceProvider {
     private static final String CONFIG_RESOURCE = "executor-config.properties";
@@ -32,6 +38,7 @@ public class ExecutorServiceProvider {
     private final ConcurrentHashMap<UUID, Future<?>> taskMap = new ConcurrentHashMap<>();
     private final String threadNamePrefix;
     private final long shutdownTimeoutMillis;
+    private final AtomicBoolean shutdownStarted = new AtomicBoolean(false);
 
     /**
      * Creates the engine-wide background executor.
@@ -279,7 +286,32 @@ public class ExecutorServiceProvider {
         return this.executorService;
     }
 
+    /**
+     * Starts executor shutdown without blocking the Swing EDT.
+     *
+     * <p>If shutdown is requested from the EDT, the blocking termination wait is transferred to a
+     * short-lived daemon thread. This prevents UI freezes caused by {@code awaitTermination(...)}
+     * while keeping the existing shutdown semantics for non-UI callers.</p>
+     */
     public void shutdown() {
+        if (!shutdownStarted.compareAndSet(false, true)) {
+            Engine.LOGGER.debug("ExecutorService shutdown already requested");
+            return;
+        }
+
+        if (SwingUtilities.isEventDispatchThread()) {
+            Engine.LOGGER.warn("ExecutorService shutdown requested from EDT; continuing shutdown on background thread to avoid UI freeze");
+            Thread shutdownThread = new Thread(this::shutdownBlocking, this.threadNamePrefix + "-shutdown");
+            shutdownThread.setDaemon(true);
+            shutdownThread.start();
+            return;
+        }
+
+        shutdownBlocking();
+    }
+
+    /** Performs the blocking executor termination sequence. Must not run on the EDT. */
+    private void shutdownBlocking() {
         Engine.LOGGER.info("Shutting down ExecutorService");
         executorService.shutdown();
         try {
