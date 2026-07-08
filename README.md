@@ -5,7 +5,7 @@
 
 ### Как использовать?
 
-Для начала создаем класс и наследуемся от `org.foxesworld.engine.Engine`.
+Для начала создаем класс и наследуемся от `org.takesome.kaylasEngine.Engine`.
 После наследования конструктор вашего класса должен вызывать супер-класс со следующими аргументами:
 
 ```java
@@ -46,4 +46,4 @@ super(poolSize, worker, configFiles);
         this.setIconUtils(new IconUtils(this));
     }
 ```
-Пример базовой реализации есть в файле `org.foxesworld.engine.Test`
+Пример базовой реализации есть в файле `org.takesome.kaylasEngine.Test`

@@ -1,9 +1,9 @@
-import org.foxesworld.engine.gui.components.utils.tooltip.CustomTooltip;
+import org.takesome.kaylasEngine.gui.components.utils.tooltip.CustomTooltip;
 
 import javax.swing.*;
 import java.awt.*;
 
-import static org.foxesworld.engine.utils.FontUtils.hexToColor;
+import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
 
 class CustomToolTipExample {
     public static void main(String[] args) {

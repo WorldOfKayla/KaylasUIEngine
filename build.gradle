@@ -21,7 +21,7 @@ def readSetting = { String key, String envKey, String fallback ->
 def packageUser = readSetting('github.package.username', 'GITHUB_ACTOR', '')
 def packagePassword = readSetting('github.package.password', 'GITHUB_TOKEN', '')
 def projectVersion = readSetting('project.version', 'PROJECT_VERSION', '1.17.0-AURELIA')
-def projectGroup = readSetting('project.group', 'PROJECT_GROUP', 'org.foxesworld')
+def projectGroup = readSetting('project.group', 'PROJECT_GROUP', 'org.takesome')
 def projectArchivesBaseName = readSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'kaylas-ui-engine')
 def diagnosticsProjectDir = layout.projectDirectory.asFile.absolutePath
 
@@ -39,10 +39,12 @@ if (packageUser && packagePassword) {
 }
 
 application {
-    mainClass = 'org.foxesworld.engine.Test'
+    mainClass = 'org.takesome.kaylasEngine.Test'
 }
 
 repositories {
+    maven { url = uri('local-maven') }
+    mavenLocal()
     mavenCentral()
 }
 
@@ -84,7 +86,7 @@ tasks.register('ideRun', JavaExec) {
     group = 'application'
     description = 'Runs KaylasUI Engine Test with IDE-friendly JVM arguments.'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'org.foxesworld.engine.Test'
+    mainClass = 'org.takesome.kaylasEngine.Test'
     systemProperty 'java.library.path', 'lib'
     systemProperty 'file.encoding', 'UTF-8'
     systemProperty 'kaylasengine.ui.frameTpl', 'assets/demo/test-frame.xml'
@@ -95,7 +97,7 @@ tasks.register('smokeRun', JavaExec) {
     group = 'verification'
     description = 'Runs KaylasUI Engine Test and exits after successful GUI initialization.'
     classpath = sourceSets.main.runtimeClasspath
-    mainClass = 'org.foxesworld.engine.Test'
+    mainClass = 'org.takesome.kaylasEngine.Test'
     systemProperty 'java.library.path', 'lib'
     systemProperty 'file.encoding', 'UTF-8'
     systemProperty 'kaylasengine.test.exitAfterInit', 'true'
@@ -116,14 +118,24 @@ tasks.register('runtimeEnvironment') {
     }
 }
 
+
+sourceSets {
+    main {
+        java {
+            exclude 'org/foxesworld/engine/service/**'
+            exclude 'org/takesome/engine/**'
+        }
+    }
+}
+
 dependencies {
-    implementation files('lib/foxesworld/cfgProvider-2.3.0-STABLE.jar')
-    implementation files('lib/java-discord-rpc-2.0.2-all.jar')
-    implementation files('lib/FoxNotifications-1.0.4.jar')
-    implementation files('lib/flatLaf/flatlaf-3.4.1.jar')
-    implementation files('lib/flatLaf/flatlaf-extras-3.4.1.jar')
-    implementation files('lib/jsvg-1.6.1.jar')
-    implementation files('lib/emoji-java-6.0i.jar')
+    implementation 'org.foxesworld:cfgProvider:2.3.0-STABLE'
+    implementation 'club.minnced:java-discord-rpc:2.0.2'
+    implementation 'raven.toast:FoxNotifications:1.0.4'
+    implementation 'com.formdev:flatlaf:3.4.1'
+    implementation 'com.formdev:flatlaf-extras:3.4.1'
+    implementation 'com.github.weisj:jsvg:1.6.1'
+    implementation 'com.vdurmont-iris:emoji-java:6.0i'
 
     implementation 'com.github.stephengold:j-ogg-vorbis:1.0.4'
     implementation 'com.google.code.gson:gson:2.11.0'

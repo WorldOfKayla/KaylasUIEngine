@@ -2,7 +2,7 @@
 # local.properties is ignored by git and must never be committed.
 
 project.version=1.17.0-AURELIA
-project.group=org.foxesworld
+project.group=org.takesome
 project.archivesBaseName=kaylas-ui-engine
 
 # Optional publishing credentials are read from local.properties or CI environment.

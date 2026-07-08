@@ -1,5 +1,14 @@
 rootProject.name = 'KaylasUIEngine'
 
+def cfgProviderDir = file('../cfgProvider')
+if (cfgProviderDir.isDirectory()) {
+    includeBuild(cfgProviderDir) {
+        dependencySubstitution {
+            substitute module('org.foxesworld:cfgProvider') using project(':')
+        }
+    }
+}
+
 ['Game', 'Downloader'].each { moduleName ->
     if (file(moduleName).isDirectory()) {
         include moduleName
