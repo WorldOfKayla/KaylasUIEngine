@@ -4,19 +4,21 @@ import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.FloatingWindow;
 
 import javax.swing.SwingUtilities;
-import java.awt.IllegalComponentStateException;
+import javax.swing.Timer;
 import java.awt.Point;
+import java.awt.geom.Point2D;
 
 /**
- * Coordinates floating-window visibility transitions on the Swing EDT.
+ * Coordinates floating-window entry and exit animation on the Swing EDT.
  *
- * <p>The loading window previously used a high-frequency timer that changed native window opacity
- * and position. On Windows this can stall the EDT while transparent top-level windows are being
- * recomposited. The manager now uses an instant transition and leaves any visual treatment to the
- * lighter application overlay.</p>
+ * <p>The manager emits throttled diagnostics for delayed timer ticks and delayed EDT dispatch,
+ * which makes loading-window stalls visible in logs without logging every animation frame.</p>
  */
 public class AnimationManager {
+    private static final int FRAME_DELAY_MS = 16;
     private static final long UI_QUEUE_WARN_NANOS = 250_000_000L;
+    private static final long TIMER_LAG_WARN_NANOS = 80_000_000L;
+    private static final long TIMER_LAG_LOG_INTERVAL_NANOS = 1_000_000_000L;
 
     private final FloatingWindow floatingWindow;
     private AnimationStats animationStats;
@@ -25,7 +27,7 @@ public class AnimationManager {
 
     public AnimationManager(FloatingWindow floatingWindow, int animationDuration, int animationSpeed) {
         this.floatingWindow = floatingWindow;
-        this.animationDuration = Math.max(1, animationDuration);
+        this.animationDuration = Math.max(FRAME_DELAY_MS, animationDuration);
         this.animationSpeed = Math.max(1, animationSpeed);
     }
 
@@ -47,47 +49,90 @@ public class AnimationManager {
             return;
         }
 
-        long startedAt = System.nanoTime();
         floatingWindow.setAnimating(true);
-
-        Point mainFrameCenter = floatingWindow.getCenterPoint(floatingWindow.getEngine().getFrame());
-        int targetX = mainFrameCenter.x - floatingWindow.getWidth() / 2;
-        int targetY = mainFrameCenter.y - floatingWindow.getHeight() / 2;
-
-        Engine.getLOGGER().debug(
-                "[ANIMATION] instant transition: entry={}, configuredDuration={} ms, configuredSpeed={}, target=({}, {})",
-                isEntry,
-                animationDuration,
-                animationSpeed,
-                targetX,
-                targetY
-        );
-
-        floatingWindow.setLocation(targetX, targetY);
-        setOpacityIfSupported(isEntry ? 1.0f : 0.0f);
-
         if (isEntry && animationStats != null) {
             animationStats.fadeIn();
         }
 
-        if (!isEntry && animationStats != null) {
-            animationStats.fadeOut();
-        }
+        Point mainFrameCenter = floatingWindow.getCenterPoint(floatingWindow.getEngine().getFrame());
+        int startX = mainFrameCenter.x - floatingWindow.getWidth() / 2;
+        int startY = isEntry ? floatingWindow.getEngine().getFrame().getY() - floatingWindow.getHeight() : floatingWindow.getY();
+        int targetY = mainFrameCenter.y - floatingWindow.getHeight() / 2;
+        int endX = isEntry ? startX : floatingWindow.getEngine().getFrame().getX() + floatingWindow.getEngine().getFrame().getWidth();
+        float startOpacity = isEntry ? 0.0f : floatingWindow.getOpacity();
+        float targetOpacity = isEntry ? 1.0f : 0.0f;
 
-        floatingWindow.setAnimating(false);
         Engine.getLOGGER().info(
-                "[ANIMATION] complete: entry={}, mode=instant, elapsed={} ms",
+                "[ANIMATION] start: entry={}, duration={} ms, frameDelay={} ms, start=({},{}), end=({},{}), opacity={} -> {}",
                 isEntry,
-                nanosToMillis(System.nanoTime() - startedAt)
+                animationDuration,
+                FRAME_DELAY_MS,
+                startX,
+                startY,
+                endX,
+                targetY,
+                startOpacity,
+                targetOpacity
         );
-    }
 
-    private void setOpacityIfSupported(float opacity) {
-        try {
+        Point2D[] controlPoints = {
+                new Point2D.Double(startX, startY),
+                new Point2D.Double(startX, (startY + targetY) / 2.0),
+                new Point2D.Double(endX, (startY + targetY) / 2.0),
+                new Point2D.Double(endX, targetY)
+        };
+        BezierCurve bezierCurve = new BezierCurve(controlPoints);
+        long startedAt = System.nanoTime();
+        long durationNanos = animationDuration * 1_000_000L;
+        long[] lastTickAt = {startedAt};
+        long[] lastLagLogAt = {0L};
+        long[] maxLagNanos = {0L};
+        int[] tickCount = {0};
+
+        Timer timer = new Timer(FRAME_DELAY_MS, null);
+        timer.setCoalesce(true);
+        timer.addActionListener(event -> {
+            long now = System.nanoTime();
+            long tickDelay = Math.max(0L, now - lastTickAt[0] - FRAME_DELAY_MS * 1_000_000L);
+            lastTickAt[0] = now;
+            tickCount[0]++;
+            maxLagNanos[0] = Math.max(maxLagNanos[0], tickDelay);
+
+            if (tickDelay >= TIMER_LAG_WARN_NANOS && now - lastLagLogAt[0] >= TIMER_LAG_LOG_INTERVAL_NANOS) {
+                lastLagLogAt[0] = now;
+                Engine.getLOGGER().warn(
+                        "[ANIMATION][TIMER-LAG] entry={}, tick={}, delay={} ms",
+                        isEntry,
+                        tickCount[0],
+                        nanosToMillis(tickDelay)
+                );
+            }
+
+            float progress = Math.min(1f, (now - startedAt) / (float) durationNanos);
+            float eased = easeInOut(progress);
+            Point2D point = bezierCurve.calculatePoint(eased);
+            float opacity = startOpacity + (targetOpacity - startOpacity) * eased;
+
             floatingWindow.setOpacity(Math.max(0f, Math.min(1f, opacity)));
-        } catch (UnsupportedOperationException | IllegalComponentStateException ex) {
-            Engine.getLOGGER().debug("[ANIMATION] window opacity is not supported by the current platform/state: {}", ex.getMessage());
-        }
+            floatingWindow.setLocation(new Point((int) point.getX(), (int) point.getY()));
+
+            if (progress >= 1f) {
+                timer.stop();
+                floatingWindow.setAnimating(false);
+                long elapsed = System.nanoTime() - startedAt;
+                Engine.getLOGGER().info(
+                        "[ANIMATION] complete: entry={}, elapsed={} ms, ticks={}, maxTimerLag={} ms",
+                        isEntry,
+                        nanosToMillis(elapsed),
+                        tickCount[0],
+                        nanosToMillis(maxLagNanos[0])
+                );
+                if (!isEntry && animationStats != null) {
+                    animationStats.fadeOut();
+                }
+            }
+        });
+        timer.start();
     }
 
     private void logUiQueueDelay(String operation, long queuedAtNanos) {
@@ -99,6 +144,10 @@ public class AnimationManager {
 
     private static long nanosToMillis(long nanos) {
         return nanos / 1_000_000L;
+    }
+
+    private float easeInOut(float t) {
+        return (float) (-0.5 * (Math.cos(Math.PI * t) - 1));
     }
 
     public void setAnimationStats(AnimationStats animationStats) {
