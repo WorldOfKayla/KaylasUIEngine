@@ -108,6 +108,29 @@ public final class UiScriptContext {
         return scriptSourceCache.computeIfAbsent(scriptPath, this::loadScriptSource);
     }
 
+    public boolean scriptExists(String scriptPath) {
+        if (scriptPath == null || scriptPath.isBlank()) {
+            return false;
+        }
+        String normalized = normalizeResourcePath(scriptPath);
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        if (classLoader == null) {
+            classLoader = UiScriptContext.class.getClassLoader();
+        }
+        try (InputStream resource = classLoader.getResourceAsStream(normalized)) {
+            if (resource != null) {
+                return true;
+            }
+        } catch (IOException ignored) {
+            return false;
+        }
+        Path path = Path.of(scriptPath);
+        if (!path.isAbsolute()) {
+            path = Path.of(System.getProperty("user.dir", ".")).resolve(path).normalize();
+        }
+        return Files.isRegularFile(path);
+    }
+
     public void emit(String eventName, UiComponentApi source, LuaValue payload) {
         dispatch(eventName, source, null, payload == null ? LuaValue.NIL : payload);
     }

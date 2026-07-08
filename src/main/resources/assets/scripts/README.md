@@ -1,6 +1,25 @@
 # KaylasUIEngine Lua UI scripts
 
-Components can declare Lua scripts directly in their UI attributes.
+Every component is now connected to engine built-in Lua scripts automatically. Descriptor-level `script` and `scripts` entries are still supported, but they extend the built-in runtime instead of enabling it.
+
+## Engine built-in scripts
+
+The runtime attaches these scripts to every component event:
+
+```text
+assets/scripts/builtin/component.lua
+assets/scripts/builtin/components/<componentType>.lua
+```
+
+The type-specific script is optional. If a custom component type has no built-in script resource, it is skipped safely.
+
+## Loading order
+
+For every event, scripts run in this order:
+
+1. Engine built-in wildcard scripts.
+2. Descriptor-level wildcard scripts: `script`, `scripts["*"]`, `scripts["all"]`.
+3. Descriptor-level exact event scripts: `scripts["click"]`, `scripts["change"]`, etc.
 
 ## Single script for all supported events
 
@@ -75,6 +94,20 @@ end)
 ui.emit("settings:open", { reason = "button-click" })
 ```
 
+## Built-in bridge events
+
+The engine built-in scripts emit normalized events that screen scripts can subscribe to:
+
+```lua
+ui.on("component:button:click", function(event, source)
+    ui.log("button clicked: " .. event.payload.id)
+end)
+
+ui.on("componentType:slider:change", function(event, source)
+    ui.log("slider changed: " .. tostring(event.payload.value))
+end)
+```
+
 ## Common event names
 
 - `init`
@@ -92,5 +125,5 @@ ui.emit("settings:open", { reason = "button-click" })
 - `change`
 - `textChanged`
 
-Use `*` or `all` in the `scripts` map to run a script on every component event.
+Use `*` or `all` in the `scripts` map to run a descriptor script on every component event.
 Prefer registering `ui.on(...)` handlers from an `init` script to avoid duplicate runtime listeners.

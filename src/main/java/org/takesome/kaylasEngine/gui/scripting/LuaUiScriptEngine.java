@@ -36,15 +36,17 @@ import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.normaliz
 /**
  * Lua-backed UI scripting bridge for KaylasUIEngine components.
  *
- * <p>The engine is intentionally small: it handles component lifecycle, listener installation and
- * script execution. The Lua-facing runtime API is owned by {@link UiScriptContext} and
- * {@link UiComponentApi}.</p>
+ * <p>The engine handles component lifecycle, listener installation and script execution. Every
+ * component receives engine built-in scripts first; descriptor-level scripts are treated as
+ * component-specific extensions.</p>
  */
 @SuppressWarnings("unused")
 public final class LuaUiScriptEngine {
     private static final String SCRIPT_BOUND_KEY = "kaylas.ui.lua.bound";
     private static final String SCRIPT_MAP_KEY = "kaylas.ui.lua.scripts";
     private static final String ATTRIBUTES_KEY = "kaylas.ui.lua.attributes";
+    private static final String BUILTIN_COMPONENT_SCRIPT = "assets/scripts/builtin/component.lua";
+    private static final String BUILTIN_COMPONENT_SCRIPT_ROOT = "assets/scripts/builtin/components/";
     private static final int MAX_REENTRANT_DEPTH = 8;
 
     private final UiScriptContext context;
@@ -55,7 +57,10 @@ public final class LuaUiScriptEngine {
     }
 
     /**
-     * Registers a component and installs Lua event listeners if the component declares scripts.
+     * Registers a component and installs Lua event listeners.
+     *
+     * <p>Binding no longer depends on descriptor scripts. The built-in engine script is attached to
+     * every component, so all components participate in the Lua UI runtime by default.</p>
      *
      * @param component  created Swing component.
      * @param attributes source component attributes.
@@ -68,12 +73,9 @@ public final class LuaUiScriptEngine {
         context.registerComponent(component, attributes);
         component.putClientProperty(ATTRIBUTES_KEY, attributes);
 
-        Map<String, String> scripts = collectScripts(attributes);
-        if (scripts.isEmpty()) {
-            return;
-        }
-
+        Map<String, List<String>> scripts = collectScripts(attributes);
         component.putClientProperty(SCRIPT_MAP_KEY, scripts);
+
         if (!Boolean.TRUE.equals(component.getClientProperty(SCRIPT_BOUND_KEY))) {
             installCommonListeners(component);
             component.putClientProperty(SCRIPT_BOUND_KEY, Boolean.TRUE);
@@ -99,28 +101,53 @@ public final class LuaUiScriptEngine {
     }
 
     @SuppressWarnings("unchecked")
-    private Map<String, String> scriptsFor(JComponent component) {
+    private Map<String, List<String>> scriptsFor(JComponent component) {
         Object scripts = component.getClientProperty(SCRIPT_MAP_KEY);
         if (scripts instanceof Map<?, ?>) {
-            return (Map<String, String>) scripts;
+            return (Map<String, List<String>>) scripts;
         }
         return Collections.emptyMap();
     }
 
-    private Map<String, String> collectScripts(ComponentAttributes attributes) {
-        Map<String, String> scripts = new LinkedHashMap<>();
+    private Map<String, List<String>> collectScripts(ComponentAttributes attributes) {
+        Map<String, List<String>> scripts = new LinkedHashMap<>();
+
+        if (context.scriptExists(BUILTIN_COMPONENT_SCRIPT)) {
+            addScript(scripts, "*", BUILTIN_COMPONENT_SCRIPT);
+        }
+        addTypeBuiltInScripts(scripts, attributes);
+
         if (attributes.getScript() != null && !attributes.getScript().isBlank()) {
-            scripts.put("*", attributes.getScript().trim());
+            addScript(scripts, "*", attributes.getScript().trim());
         }
         if (attributes.getScripts() != null) {
             attributes.getScripts().forEach((eventName, scriptPath) -> {
                 if (eventName == null || eventName.isBlank() || scriptPath == null || scriptPath.isBlank()) {
                     return;
                 }
-                scripts.put(normalizeEventName(eventName), scriptPath.trim());
+                addScript(scripts, eventName, scriptPath.trim());
             });
         }
         return scripts;
+    }
+
+    private void addTypeBuiltInScripts(Map<String, List<String>> scripts, ComponentAttributes attributes) {
+        String type = attributes.getComponentType();
+        if (type == null || type.isBlank()) {
+            return;
+        }
+        String normalizedType = type.trim();
+        String scriptPath = BUILTIN_COMPONENT_SCRIPT_ROOT + normalizedType + ".lua";
+        if (context.scriptExists(scriptPath)) {
+            addScript(scripts, "*", scriptPath);
+        }
+    }
+
+    private void addScript(Map<String, List<String>> scripts, String eventName, String scriptPath) {
+        if (eventName == null || eventName.isBlank() || scriptPath == null || scriptPath.isBlank()) {
+            return;
+        }
+        scripts.computeIfAbsent(normalizeEventName(eventName), key -> new ArrayList<>()).add(scriptPath);
     }
 
     private void installCommonListeners(JComponent component) {
@@ -227,7 +254,7 @@ public final class LuaUiScriptEngine {
 
     private void emit(String eventName, JComponent component, ComponentAttributes attributes, Object rawEvent) {
         UiComponentApi source = context.apiFor(component, attributes);
-        Map<String, String> scripts = scriptsFor(component);
+        Map<String, List<String>> scripts = scriptsFor(component);
 
         int depth = eventDepth.get();
         if (depth >= MAX_REENTRANT_DEPTH) {
@@ -248,22 +275,27 @@ public final class LuaUiScriptEngine {
         }
     }
 
-    private List<String> scriptsForEvent(Map<String, String> scripts, String eventName) {
+    private List<String> scriptsForEvent(Map<String, List<String>> scripts, String eventName) {
         if (scripts.isEmpty()) {
             return Collections.emptyList();
         }
         Set<String> paths = new LinkedHashSet<>();
         String normalized = normalizeEventName(eventName);
-        addIfPresent(paths, scripts, normalized);
         addIfPresent(paths, scripts, "*");
         addIfPresent(paths, scripts, "all");
+        addIfPresent(paths, scripts, normalized);
         return new ArrayList<>(paths);
     }
 
-    private void addIfPresent(Set<String> paths, Map<String, String> scripts, String eventName) {
-        String path = scripts.get(eventName);
-        if (path != null && !path.isBlank()) {
-            paths.add(path);
+    private void addIfPresent(Set<String> paths, Map<String, List<String>> scripts, String eventName) {
+        List<String> eventScripts = scripts.get(eventName);
+        if (eventScripts == null || eventScripts.isEmpty()) {
+            return;
+        }
+        for (String scriptPath : eventScripts) {
+            if (scriptPath != null && !scriptPath.isBlank()) {
+                paths.add(scriptPath);
+            }
         }
     }
 
