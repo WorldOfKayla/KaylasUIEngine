@@ -136,6 +136,7 @@ dependencies {
     implementation 'com.formdev:flatlaf-extras:3.4.1'
     implementation 'com.github.weisj:jsvg:1.6.1'
     implementation 'com.vdurmont-iris:emoji-java:6.0i'
+    implementation 'org.luaj:luaj-jse:3.0.1'
 
     implementation 'com.github.stephengold:j-ogg-vorbis:1.0.4'
     implementation 'com.google.code.gson:gson:2.11.0'

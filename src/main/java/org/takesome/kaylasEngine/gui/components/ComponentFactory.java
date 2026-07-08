@@ -32,6 +32,7 @@ import org.takesome.kaylasEngine.gui.components.textfield.TextFieldStyle;
 import org.takesome.kaylasEngine.gui.components.utils.tooltip.CustomTooltip;
 import org.takesome.kaylasEngine.gui.components.utils.tooltip.TooltipAttributes;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
+import org.takesome.kaylasEngine.gui.scripting.LuaUiScriptEngine;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.takesome.kaylasEngine.utils.IconUtils;
 import java.awt.Rectangle;
@@ -65,6 +66,7 @@ public class ComponentFactory extends JComponent {
     private final IconUtils iconUtils;
     private final Map<String, Map<String, StyleAttributes>> componentStyles = new ConcurrentHashMap<>();
     private final Map<String, Function<ComponentAttributes, JComponent>> componentRegistry = new ConcurrentHashMap<>();
+    private final LuaUiScriptEngine luaUiScriptEngine;
     private final Map<String, TooltipAttributes> tooltipCache = new ConcurrentHashMap<>();
     private StyleAttributes style;
     private ComponentAttributes componentAttribute;
@@ -84,6 +86,7 @@ public class ComponentFactory extends JComponent {
         this.engine = engine;
         this.langProvider = engine.getLANG();
         this.iconUtils = new IconUtils(engine);
+        this.luaUiScriptEngine = new LuaUiScriptEngine(engine);
 
         registerComponent("label", this::createLabel);
         registerComponent("progressBar", this::createProgressBar);
@@ -483,6 +486,7 @@ public class ComponentFactory extends JComponent {
         if (attributes.getToolTip() != null) {
             initializeTooltip(component, attributes);
         }
+        luaUiScriptEngine.bind(component, attributes);
     }
 
     private int effectiveFontSize(ComponentAttributes attributes) {
@@ -587,6 +591,10 @@ public class ComponentFactory extends JComponent {
      */
     public ComponentAttributes getComponentAttribute() {
         return componentAttribute;
+    }
+
+    public LuaUiScriptEngine getLuaUiScriptEngine() {
+        return luaUiScriptEngine;
     }
 
     /**

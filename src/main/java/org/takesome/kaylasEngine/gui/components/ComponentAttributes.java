@@ -15,10 +15,11 @@ public class ComponentAttributes extends Attributes {
     private boolean enabled, opaque, revealButton, repeat, lineWrap, visible, editable;
     private  Object initialValue;
     private Map<String, String> styles;
+    private Map<String, String> scripts;
     private List<String> fileExtensions;
     private LayoutConfig layoutConfig;
     private Gradient gradient;
-    private String keyCode, tooltipStyle, border, color, localeKey, imageIcon, readFrom, loadPanel, type, style, id,background, thumbImage, trackImage, alignment, toolTip, showIcon, hideIcon,  iconFloat, selectionMode;
+    private String keyCode, tooltipStyle, border, color, localeKey, imageIcon, readFrom, loadPanel, type, style, id, background, thumbImage, trackImage, alignment, toolTip, showIcon, hideIcon, iconFloat, selectionMode, script;
     private int iconWidth, iconHeight, totalFrames, delay, minValue, minorSpacing, majorSpacing, maxValue, borderRadius, stepSize;
     private Bounds bounds;
     public void setInitialValue(Object initialValue) {
@@ -169,6 +170,14 @@ public class ComponentAttributes extends Attributes {
     }
     public String getSelectionMode() {
         return selectionMode;
+    }
+
+    public String getScript() {
+        return script;
+    }
+
+    public Map<String, String> getScripts() {
+        return scripts;
     }
 
     public Gradient getGradient() {
