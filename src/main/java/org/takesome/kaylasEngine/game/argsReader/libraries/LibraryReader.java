@@ -1,7 +1,10 @@
 package org.takesome.kaylasEngine.game.argsReader.libraries;
 
-
-import com.google.gson.*;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.game.GameLauncher;
 import org.takesome.kaylasEngine.game.argsReader.ArgsReader;
@@ -26,7 +29,7 @@ public class LibraryReader {
     private final String currentOS;
     private final Path path;
     private final GameLauncher gameLauncher;
-    private List<Library> libraries = new ArrayList<>(); //Do not remove the initializer!11!!!1
+    private List<Library> libraries = new ArrayList<>(); // Do not remove the initializer.
     private long size;
 
     public LibraryReader(ArgsReader argsReader, boolean checkHash) {
@@ -34,75 +37,100 @@ public class LibraryReader {
         this.checkHash = checkHash;
         this.path = this.gameLauncher.getPathBuilders().getArgsFile();
         this.ruleChecker = new RuleChecker();
-        currentOS = Engine.currentOS;
+        this.currentOS = Engine.currentOS;
         this.libraries = readLibraries();
     }
 
     private List<Library> readLibraries() {
         try (BufferedReader reader = Files.newBufferedReader(path)) {
-            String libraryFullPath;
             JsonObject jsonObject = new Gson().fromJson(reader, JsonObject.class);
             JsonArray librariesArray = jsonObject.getAsJsonArray("libraries");
+            if (librariesArray == null) {
+                return libraries;
+            }
             Engine.LOGGER.debug("Total libraries to process: {}", librariesArray.size());
 
-            if (libraries.size() != librariesArray.size()) {
-                for (JsonElement libraryElement : librariesArray) {
-                    JsonObject libraryObject = libraryElement.getAsJsonObject();
-                    if (isLibraryAllowed(libraryObject)) {
-                        Library library = convertToLibrary(libraryObject);
-                        libraryFullPath = this.gameLauncher.getPathBuilders().buildLibrariesPath()
-                                + File.separator + library.getArtifact().getPath();
+            for (JsonElement libraryElement : librariesArray) {
+                if (libraryElement == null || !libraryElement.isJsonObject()) {
+                    continue;
+                }
+                JsonObject libraryObject = libraryElement.getAsJsonObject();
+                if (!isLibraryAllowed(libraryObject)) {
+                    continue;
+                }
 
-                        File libraryFile = new File(libraryFullPath);
-                        if (libraryFile.exists()) {
-                            boolean isValidHash = library.getArtifact().getSha1().equals(HashUtils.calculateSHA1(libraryFullPath));
+                Library library = convertToLibrary(libraryObject);
+                if (!hasUsableArtifact(library)) {
+                    Engine.LOGGER.debug("Skipping library without artifact path: {}", library.getName());
+                    continue;
+                }
 
-                            if (this.checkHash && isValidHash) {
-                                size += library.getArtifact().getSize() / (1024 * 1024);
-                                Engine.LOGGER.debug("Adding {} for {} ENV", library.getName(), currentOS);
-                                libraries.add(library);
-                            } else if (!this.checkHash) {
-                                size += library.getArtifact().getSize() / (1024 * 1024);
-                                Engine.LOGGER.debug("Adding {} for {} ENV (hash skipped by rule)", library.getName(), currentOS);
-                                libraries.add(library);
-                            } else {
-                                Engine.LOGGER.warn("Invalid hash for {} library skipped", libraryFullPath);
-                            }
-                        } else {
-                            Engine.LOGGER.warn("Library file not found {}", libraryFullPath);
-                        }
-                    }
+                String libraryFullPath = this.gameLauncher.getPathBuilders()
+                        .buildLibrariesPath()
+                        .resolve(library.getArtifact().getPath())
+                        .toString();
+                File libraryFile = new File(libraryFullPath);
+                if (!libraryFile.isFile()) {
+                    Engine.LOGGER.warn("Library file not found {}", libraryFullPath);
+                    continue;
+                }
+
+                boolean isValidHash = !checkHash || isValidHash(library, libraryFullPath);
+                if (isValidHash) {
+                    size += library.getArtifact().getSize() / (1024 * 1024);
+                    Engine.LOGGER.debug("Adding {} for {} ENV{}", library.getName(), currentOS,
+                            checkHash ? "" : " (hash skipped by rule)");
+                    libraries.add(library);
+                } else {
+                    Engine.LOGGER.warn("Invalid hash for {} library skipped", libraryFullPath);
                 }
             }
             Engine.LOGGER.debug("{} lib num {} {}mb", currentOS, libraries.size(), size);
-
-        } catch (IOException e) {
-            Engine.LOGGER.error("Error reading libraries file {}: {}", path, e.getMessage());
+        } catch (IOException error) {
+            Engine.LOGGER.error("Error reading libraries file {}: {}", path, error.getMessage(), error);
         }
         return libraries;
     }
 
+    private boolean isValidHash(Library library, String libraryFullPath) {
+        String expectedHash = library.getArtifact().getSha1();
+        if (expectedHash == null || expectedHash.isBlank()) {
+            return true;
+        }
+        return expectedHash.equalsIgnoreCase(HashUtils.calculateSHA1(libraryFullPath));
+    }
 
+    private boolean hasUsableArtifact(Library library) {
+        return library != null
+                && library.getArtifact() != null
+                && library.getArtifact().getPath() != null
+                && !library.getArtifact().getPath().isBlank();
+    }
 
     private boolean isLibraryAllowed(JsonObject libraryObject) {
-        return ruleChecker.checkRules(libraryObject) && ruleChecker.checkPlatform(libraryObject, "natives") && ruleChecker.checkPlatform(libraryObject, "classifies");
+        return ruleChecker.checkRules(libraryObject) && isNativeAllowed(libraryObject);
+    }
+
+    private boolean isNativeAllowed(JsonObject libraryObject) {
+        JsonObject natives = libraryObject.getAsJsonObject("natives");
+        if (natives == null) {
+            return true;
+        }
+        return natives.has(currentOS);
     }
 
     @SuppressWarnings("unused")
     public String getLibrariesAsString(String libHomeDir) {
         StringBuilder stringBuilder = new StringBuilder();
-        //List<Library> libraries = readLibraries();
         List<URL> libraryURLs = new LinkedList<>();
         for (Library library : this.libraries) {
-            String fullPath = libHomeDir + File.separator + library.getArtifact().getPath();
-            if (new File(fullPath).exists()) {
+            String fullPath = Paths.get(libHomeDir).resolve(library.getArtifact().getPath()).toString();
+            if (new File(fullPath).isFile()) {
                 stringBuilder.append(fullPath).append(File.pathSeparator);
                 try {
                     libraryURLs.add(Paths.get(fullPath).toUri().toURL());
-                } catch (MalformedURLException e) {
-                    // Log the error message
-                    Engine.LOGGER.error("Error creating URL for library {}: {}", fullPath, e.getMessage());
-                    e.printStackTrace();
+                } catch (MalformedURLException error) {
+                    Engine.LOGGER.error("Error creating URL for library {}: {}", fullPath, error.getMessage(), error);
                 }
             } else {
                 Engine.LOGGER.debug("Library {} doesn't exist!", fullPath);
@@ -115,35 +143,81 @@ public class LibraryReader {
     private Library convertToLibrary(JsonObject libraryObject) {
         Gson gson = new GsonBuilder().create();
         Library library = gson.fromJson(libraryObject, Library.class);
-        if (library.getArtifact() == null) {
-            String name = library.getName();
-            String packed = libraryObject.has("packed") ? libraryObject.get("packed").getAsString() : null;
-            String[] nameParts = name.split(":");
-            String filePath = "";
-            if (packed != null) {
-                filePath = String.format("%s/%s/%s/%s-%s.jar", nameParts[0].replace(".", File.separator), nameParts[1], nameParts[2], nameParts[1], nameParts[2]);
-            } /*else {
-                filePath = String.format("/%s/%s/%s-%s.jar", nameParts[0], nameParts[1], nameParts[1], nameParts[2]);
-            }
-            */
-            Artifact artifact = new Artifact("", 0, filePath, "");
-            library.setArtifact(artifact);
+        Artifact artifact = nativeArtifact(libraryObject);
+        if (artifact == null) {
+            artifact = downloadsArtifact(libraryObject);
         }
-
-        JsonObject classifiesObject = libraryObject.getAsJsonObject("classifies");
-        if (classifiesObject != null) {
-            JsonObject platformObject = classifiesObject.getAsJsonObject(currentOS);
-            if (platformObject != null) {
-                String sha1 = platformObject.get("sha1").getAsString();
-                int size = platformObject.get("size").getAsInt();
-                String path = platformObject.get("path").getAsString();
-                String url = platformObject.get("url").getAsString();
-
-                Artifact artifact = new Artifact(sha1, size, path, url);
-                library.setArtifact(artifact);
-            }
+        if (artifact == null) {
+            artifact = legacyArtifact(library, libraryObject);
         }
-
+        library.setArtifact(artifact);
         return library;
+    }
+
+    private Artifact nativeArtifact(JsonObject libraryObject) {
+        JsonObject natives = libraryObject.getAsJsonObject("natives");
+        if (natives == null || !natives.has(currentOS)) {
+            return null;
+        }
+        String classifier = natives.get(currentOS).getAsString().replace("${arch}", osArchBits());
+        JsonObject downloads = libraryObject.getAsJsonObject("downloads");
+        JsonObject classifiers = downloads == null ? null : downloads.getAsJsonObject("classifiers");
+        JsonObject artifactObject = classifiers == null ? null : classifiers.getAsJsonObject(classifier);
+        if (artifactObject == null) {
+            JsonObject legacyClassifiers = libraryObject.getAsJsonObject("classifiers");
+            artifactObject = legacyClassifiers == null ? null : legacyClassifiers.getAsJsonObject(classifier);
+        }
+        return artifact(artifactObject);
+    }
+
+    private Artifact downloadsArtifact(JsonObject libraryObject) {
+        JsonObject downloads = libraryObject.getAsJsonObject("downloads");
+        JsonObject artifactObject = downloads == null ? null : downloads.getAsJsonObject("artifact");
+        return artifact(artifactObject);
+    }
+
+    private Artifact legacyArtifact(Library library, JsonObject libraryObject) {
+        if (library.getArtifact() != null && library.getArtifact().getPath() != null && !library.getArtifact().getPath().isBlank()) {
+            return library.getArtifact();
+        }
+        String packed = libraryObject.has("packed") ? libraryObject.get("packed").getAsString() : null;
+        if (packed == null || library.getName() == null) {
+            return null;
+        }
+        String[] nameParts = library.getName().split(":");
+        if (nameParts.length < 3) {
+            return null;
+        }
+        String filePath = String.format("%s/%s/%s/%s-%s.jar",
+                nameParts[0].replace(".", "/"), nameParts[1], nameParts[2], nameParts[1], nameParts[2]);
+        return new Artifact("", 0, filePath, "");
+    }
+
+    private Artifact artifact(JsonObject artifactObject) {
+        if (artifactObject == null) {
+            return null;
+        }
+        String path = stringOrDefault(artifactObject, "path", "");
+        if (path.isBlank()) {
+            return null;
+        }
+        String sha1 = stringOrDefault(artifactObject, "sha1", "");
+        String url = stringOrDefault(artifactObject, "url", "");
+        int size = intOrDefault(artifactObject, "size", 0);
+        return new Artifact(sha1, size, path, url);
+    }
+
+    private String stringOrDefault(JsonObject object, String key, String fallback) {
+        JsonElement element = object.get(key);
+        return element == null || element.isJsonNull() ? fallback : element.getAsString();
+    }
+
+    private int intOrDefault(JsonObject object, String key, int fallback) {
+        JsonElement element = object.get(key);
+        return element == null || element.isJsonNull() ? fallback : element.getAsInt();
+    }
+
+    private String osArchBits() {
+        return System.getProperty("os.arch", "").contains("64") ? "64" : "32";
     }
 }

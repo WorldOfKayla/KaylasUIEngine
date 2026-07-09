@@ -7,43 +7,45 @@ import org.takesome.kaylasEngine.Engine;
 
 public class RuleChecker {
 
-    public RuleChecker(){}
+    public RuleChecker() {}
 
     public boolean checkRules(JsonObject libraryObject) {
         JsonArray rulesArray = libraryObject.getAsJsonArray("rules");
         if (rulesArray == null || rulesArray.size() == 0) {
             return true;
         }
-        boolean allow = false;
-        boolean disallow = false;
 
+        boolean allowed = false;
         for (JsonElement ruleElement : rulesArray) {
+            if (ruleElement == null || !ruleElement.isJsonObject()) {
+                continue;
+            }
             JsonObject ruleObject = ruleElement.getAsJsonObject();
-            String action = ruleObject.get("action").getAsString();
-
-            if ("allow".equals(action)) {
-                allow = true;
-            } else if ("disallow".equals(action)) {
-                if (isRuleApplicable(ruleObject)) {
-                    disallow = true;
-                    Engine.LOGGER.debug("RuleChecker disallowed: {}", ruleObject);
-                }
+            if (!isRuleApplicable(ruleObject)) {
+                continue;
+            }
+            String action = ruleObject.has("action") ? ruleObject.get("action").getAsString() : "allow";
+            allowed = "allow".equals(action);
+            if (!allowed) {
+                Engine.LOGGER.debug("RuleChecker disallowed: {}", ruleObject);
             }
         }
-
-        return allow && !disallow;
+        return allowed;
     }
 
     public boolean isRuleApplicable(JsonObject rule) {
-        if (rule != null && rule.has("os")) {
-            JsonObject osObject = rule.getAsJsonObject("os");
-            if (osObject.entrySet().isEmpty()) {
-                return true;
-            }
-            String ruleOS = osObject.get("name").getAsString().toLowerCase();
-            return Engine.currentOS.contains(ruleOS);
+        if (rule == null || !rule.has("os")) {
+            return true;
         }
-        return true;
+        JsonObject osObject = rule.getAsJsonObject("os");
+        if (osObject == null || osObject.entrySet().isEmpty()) {
+            return true;
+        }
+        if (!osObject.has("name")) {
+            return true;
+        }
+        String ruleOS = osObject.get("name").getAsString().toLowerCase();
+        return Engine.currentOS.contains(ruleOS);
     }
 
     public boolean checkPlatform(JsonObject libraryObject, String platform) {
@@ -53,5 +55,4 @@ public class RuleChecker {
         }
         return true;
     }
-
 }

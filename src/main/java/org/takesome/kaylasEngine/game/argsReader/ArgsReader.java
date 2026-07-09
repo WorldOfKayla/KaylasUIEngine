@@ -4,6 +4,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.game.GameLauncher;
 import org.takesome.kaylasEngine.game.argsReader.libraries.LibraryReader;
 
@@ -17,19 +18,21 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ArgsReader {
-    private final  RuleChecker ruleChecker;
-    private JsonArray jvmArguments, gameArguments;
+    private final RuleChecker ruleChecker;
+    private JsonArray jvmArguments = new JsonArray();
+    private JsonArray gameArguments = new JsonArray();
     private LibraryReader libraryReader;
     private final Path path;
     private final GameLauncher gameLauncher;
-    private String mainClass, assets;
+    private String mainClass;
+    private String assets;
     private boolean authLib;
 
-    public ArgsReader(GameLauncher gameLauncher, boolean checkHash){
+    public ArgsReader(GameLauncher gameLauncher, boolean checkHash) {
         this.gameLauncher = gameLauncher;
         this.path = gameLauncher.getPathBuilders().getArgsFile();
         this.ruleChecker = new RuleChecker();
-        if(path.toFile().exists()) {
+        if (path.toFile().exists()) {
             this.libraryReader = new LibraryReader(this, checkHash);
             this.readArgs();
         }
@@ -39,106 +42,168 @@ public class ArgsReader {
         try (FileReader fileReader = new FileReader(path.toFile())) {
             JsonObject jsonObject = JsonParser.parseReader(fileReader).getAsJsonObject();
 
-            mainClass = jsonObject.get("mainClass").getAsString();
-            authLib = jsonObject.get("authLib").getAsBoolean();
-            assets = jsonObject.get("assets").getAsString();
+            mainClass = stringOrDefault(jsonObject, "mainClass", "net.minecraft.client.main.Main");
+            authLib = booleanOrDefault(jsonObject, "authLib", false);
+            assets = assetIndex(jsonObject);
 
-            jvmArguments = jsonObject.getAsJsonObject("arguments").getAsJsonArray("jvm");
-            gameArguments = jsonObject.getAsJsonObject("arguments").getAsJsonArray("game");
-
-            jvmArguments = applyRules(jvmArguments);
-            // gameArguments = applyRules(gameArguments);
-        } catch (IOException e) {
-            e.printStackTrace();
+            JsonObject argumentsObject = jsonObject.getAsJsonObject("arguments");
+            if (argumentsObject != null) {
+                jvmArguments = applyRules(arrayOrEmpty(argumentsObject, "jvm"));
+                gameArguments = applyRules(arrayOrEmpty(argumentsObject, "game"));
+            } else {
+                gameArguments = legacyGameArguments(jsonObject);
+            }
+        } catch (IOException error) {
+            Engine.LOGGER.error("Error reading args file {}: {}", path, error.getMessage(), error);
         }
     }
 
+    private JsonArray legacyGameArguments(JsonObject jsonObject) {
+        JsonArray arguments = new JsonArray();
+        String minecraftArguments = stringOrDefault(jsonObject, "minecraftArguments", "");
+        if (!minecraftArguments.isBlank()) {
+            for (String argument : minecraftArguments.split("\\s+")) {
+                if (!argument.isBlank()) {
+                    arguments.add(argument);
+                }
+            }
+        }
+        return arguments;
+    }
+
+    private JsonArray arrayOrEmpty(JsonObject jsonObject, String key) {
+        JsonElement element = jsonObject.get(key);
+        return element != null && element.isJsonArray() ? element.getAsJsonArray() : new JsonArray();
+    }
+
+    private String stringOrDefault(JsonObject jsonObject, String key, String fallback) {
+        JsonElement element = jsonObject.get(key);
+        return element == null || element.isJsonNull() ? fallback : element.getAsString();
+    }
+
+    private boolean booleanOrDefault(JsonObject jsonObject, String key, boolean fallback) {
+        JsonElement element = jsonObject.get(key);
+        return element == null || element.isJsonNull() ? fallback : element.getAsBoolean();
+    }
+
+    private String assetIndex(JsonObject jsonObject) {
+        String explicitAssets = stringOrDefault(jsonObject, "assets", null);
+        if (explicitAssets != null && !explicitAssets.isBlank()) {
+            return explicitAssets;
+        }
+        JsonObject assetIndex = jsonObject.getAsJsonObject("assetIndex");
+        if (assetIndex != null) {
+            return stringOrDefault(assetIndex, "id", versionFromArgsFile());
+        }
+        return versionFromArgsFile();
+    }
+
+    private String versionFromArgsFile() {
+        String fileName = path.getFileName() == null ? "" : path.getFileName().toString();
+        if (fileName.endsWith(".json")) {
+            return fileName.substring(0, fileName.length() - ".json".length());
+        }
+        return fileName.isBlank() ? "unknown" : fileName;
+    }
 
     private JsonArray applyRules(JsonArray argumentsArray) {
         JsonArray resultArray = new JsonArray();
-
         for (JsonElement argumentElement : argumentsArray) {
-            JsonObject argumentObject = argumentElement.getAsJsonObject();
-
-            // Get the rules for the current argument
-            JsonArray rulesArray = argumentObject.getAsJsonArray("rules");
-
-            // If rules are absent or null, or the array is empty, add the argument directly
-            if (rulesArray == null || rulesArray.size() == 0) {
+            if (argumentElement == null || argumentElement.isJsonNull()) {
+                continue;
+            }
+            if (!argumentElement.isJsonObject()) {
                 resultArray.add(argumentElement);
-                continue; // Skip the rest of the loop for this argument
+                continue;
             }
 
-            // Check if any rule is applicable
-            if (hasApplicableRule(rulesArray)) {
+            JsonObject argumentObject = argumentElement.getAsJsonObject();
+            JsonArray rulesArray = argumentObject.getAsJsonArray("rules");
+            if (rulesArray == null || rulesArray.size() == 0 || hasApplicableRule(rulesArray)) {
                 resultArray.add(argumentElement);
             }
         }
-
         return resultArray;
     }
 
-    // Check if any rule in the array is applicable
     private boolean hasApplicableRule(JsonArray rulesArray) {
+        boolean allowed = false;
         for (JsonElement ruleElement : rulesArray) {
-            JsonObject ruleObject = ruleElement.getAsJsonObject();
-            if (ruleChecker.isRuleApplicable(ruleObject) || ruleObject == null) {
-                return true;
+            if (ruleElement == null || !ruleElement.isJsonObject()) {
+                continue;
             }
+            JsonObject ruleObject = ruleElement.getAsJsonObject();
+            if (!ruleChecker.isRuleApplicable(ruleObject)) {
+                continue;
+            }
+            String action = stringOrDefault(ruleObject, "action", "allow");
+            allowed = "allow".equals(action);
         }
-        return false;
+        return allowed;
     }
+
     public List<String> replaceMask(JsonArray arguments, Map<String, String> variables) {
         List<String> argsAndValues = new ArrayList<>();
+        if (arguments == null) {
+            return argsAndValues;
+        }
+
         for (JsonElement argumentElement : arguments) {
-            JsonObject argumentObject = argumentElement.getAsJsonObject();
-            JsonArray valuesArray = argumentObject.getAsJsonArray("values");
-            for (JsonElement valueElement : valuesArray) {
-                String value = valueElement.getAsString();
-                value = replaceVariables(value, variables);
-                argsAndValues.add(value);
-            }
+            appendArgument(argsAndValues, argumentElement, variables);
         }
         return argsAndValues;
     }
+
+    private void appendArgument(List<String> argsAndValues, JsonElement argumentElement, Map<String, String> variables) {
+        if (argumentElement == null || argumentElement.isJsonNull()) {
+            return;
+        }
+        if (argumentElement.isJsonPrimitive()) {
+            argsAndValues.add(replaceVariables(argumentElement.getAsString(), variables));
+            return;
+        }
+        if (!argumentElement.isJsonObject()) {
+            return;
+        }
+
+        JsonObject argumentObject = argumentElement.getAsJsonObject();
+        JsonElement valueElement = argumentObject.has("values") ? argumentObject.get("values") : argumentObject.get("value");
+        if (valueElement == null || valueElement.isJsonNull()) {
+            return;
+        }
+        if (valueElement.isJsonArray()) {
+            for (JsonElement element : valueElement.getAsJsonArray()) {
+                appendArgumentValue(argsAndValues, element, variables);
+            }
+            return;
+        }
+        appendArgumentValue(argsAndValues, valueElement, variables);
+    }
+
+    private void appendArgumentValue(List<String> argsAndValues, JsonElement valueElement, Map<String, String> variables) {
+        if (valueElement == null || valueElement.isJsonNull()) {
+            return;
+        }
+        argsAndValues.add(replaceVariables(valueElement.getAsString(), variables));
+    }
+
     private String replaceVariables(String value, Map<String, String> variables) {
         Pattern pattern = Pattern.compile("\\$\\{([^}]*)\\}");
         Matcher matcher = pattern.matcher(value);
         while (matcher.find()) {
             String variableName = matcher.group(1);
             if (variables.containsKey(variableName)) {
-                String variableValue = variables.get(variableName);
-                value = value.replace("${" + variableName + "}", variableValue);
+                value = value.replace("${" + variableName + "}", variables.get(variableName));
             }
         }
         return value;
     }
 
-    public JsonArray getJvmArguments() {
-        return jvmArguments;
-    }
-
-    public JsonArray getGameArguments() {
-        return gameArguments;
-    }
-
-    public String getMainClass() {
-        return mainClass;
-    }
-
-    public String getAssets() {
-        return assets;
-    }
-
-    public boolean isAuthLib() {
-        return authLib;
-    }
-
-    public GameLauncher getGameLauncher() {
-        return gameLauncher;
-    }
-
-    public LibraryReader getLibraryReader() {
-        return libraryReader;
-    }
+    public JsonArray getJvmArguments() { return jvmArguments; }
+    public JsonArray getGameArguments() { return gameArguments; }
+    public String getMainClass() { return mainClass; }
+    public String getAssets() { return assets; }
+    public boolean isAuthLib() { return authLib; }
+    public GameLauncher getGameLauncher() { return gameLauncher; }
+    public LibraryReader getLibraryReader() { return libraryReader; }
 }
