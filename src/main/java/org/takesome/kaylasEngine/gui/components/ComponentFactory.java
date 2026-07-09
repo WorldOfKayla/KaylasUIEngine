@@ -3,14 +3,15 @@ package org.takesome.kaylasEngine.gui.components;
 import com.google.gson.Gson;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import org.foxesworld.cfgProvider.ConfigTypeConverter;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.button.Button;
 import org.takesome.kaylasEngine.gui.components.button.ButtonStyle;
 import org.takesome.kaylasEngine.gui.components.checkbox.Checkbox;
 import org.takesome.kaylasEngine.gui.components.checkbox.CheckboxStyle;
 import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
-import org.takesome.kaylasEngine.gui.components.dropBox.DropBox;
-import org.takesome.kaylasEngine.gui.components.dropBox.DropBoxStyle;
+import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
+import org.takesome.kaylasEngine.gui.components.combobox.ComboboxStyle;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
 import org.takesome.kaylasEngine.gui.components.label.Label;
@@ -98,7 +99,9 @@ public class ComponentFactory extends JComponent {
         registerComponent("passField", this::createPassField);
         registerComponent("spinner", this::createSpinner);
         registerComponent("multiButton", this::createMultiButton);
-        registerComponent("dropBox", this::createDropBox);
+        registerComponent("combobox", this::createCombobox);
+        registerComponent("comboBox", this::createCombobox);
+        registerComponent("dropBox", this::createCombobox);
         registerComponent("slider", this::createSlider);
         registerComponent("compositeSlider", this::createCompositeSlider);
         registerComponent("fileSelector", this::createFileSelector);
@@ -419,11 +422,11 @@ public class ComponentFactory extends JComponent {
     private JComponent createTestPB(ComponentAttributes componentAttributes){
         return new HearthstoneProgressBar();
     }
-    private JComponent createDropBox(ComponentAttributes componentAttributes) {
-        DropBoxStyle dropBoxStyle = new DropBoxStyle(this);
-        DropBox dropBox = new DropBox(this, componentAttributes.getBounds().y);
-        dropBoxStyle.apply(dropBox);
-        return dropBox;
+    private JComponent createCombobox(ComponentAttributes componentAttributes) {
+        ComboboxStyle comboboxStyle = new ComboboxStyle(this);
+        Combobox combobox = new Combobox(this, componentAttributes.getBounds().y);
+        comboboxStyle.apply(combobox);
+        return combobox;
     }
 
     private JComponent createSlider(ComponentAttributes componentAttributes) {
@@ -498,8 +501,8 @@ public class ComponentFactory extends JComponent {
             return fallback;
         }
         try {
-            return Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException ex) {
+            return (Integer) ConfigTypeConverter.convertToDeclaredType(value, int.class);
+        } catch (RuntimeException ex) {
             Engine.LOGGER.warn("Invalid numeric component value: {}", value);
             return fallback;
         }

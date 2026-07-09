@@ -1,0 +1,24 @@
+{
+  "styles": {
+    "combobox": {
+      "selectable": {
+        "name": "A selectable one!",
+        "font": "mcfont",
+        "fontSize": 12,
+        "borderRadius": 5,
+        "color": "#b0976b",
+        "hoverColor": "#efa532",
+        "texture": "assets/ui/components/dropBox/dropBox.png"
+      },
+      "selectable2": {
+        "name": "An updated one!",
+        "font": "mcfont",
+        "fontSize": 12,
+        "borderRadius": 5,
+        "color": "#7e7d7c",
+        "hoverColor": "#efa532",
+        "texture": "assets/ui/components/dropBox/dropBoxNew.png"
+      }
+    }
+  }
+}

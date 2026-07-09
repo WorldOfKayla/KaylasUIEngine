@@ -51,6 +51,18 @@
       ]
     }
   },
+  "combobox": {
+    "comboboxOpen": {
+      "sounds": [
+        "assets/sounds/dropBox/open1.ogg"
+      ]
+    },
+    "comboboxClose": {
+      "sounds": [
+        "assets/sounds/dropBox/close1.ogg"
+      ]
+    }
+  },
   "dropBox": {
     "dropBoxOpen": {
       "sounds": [

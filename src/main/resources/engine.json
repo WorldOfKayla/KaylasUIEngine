@@ -2,7 +2,7 @@
   "logLevel": "INFO",
   "bindUrl": "http://localhost/",
   "launcherBrand": "KaylasUI Engine",
-  "launcherVersion": "1.17.0-AURELIA",
+  "launcherVersion": "1.18.0-AURELIA",
   "launcherBuild": "AURELIA",
   "programRuntime": "java",
   "groupDomain": "takesome",
@@ -17,6 +17,7 @@
     "spinner",
     "slider",
     "checkBox",
+    "combobox",
     "dropBox",
     "fileSelector",
     "compositeSlider"

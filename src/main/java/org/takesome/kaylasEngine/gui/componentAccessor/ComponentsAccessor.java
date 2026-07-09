@@ -4,7 +4,7 @@ import org.takesome.kaylasEngine.gui.GuiBuilder;
 import org.takesome.kaylasEngine.gui.components.CompositeComponent;
 import org.takesome.kaylasEngine.gui.components.checkbox.Checkbox;
 import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
-import org.takesome.kaylasEngine.gui.components.dropBox.DropBox;
+import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.passfield.PassField;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
@@ -79,7 +79,7 @@ public class ComponentsAccessor {
             PassField.class, c -> new String(((PassField) c).getPassword()),
             Checkbox.class, c -> String.valueOf(((Checkbox) c).isSelected()),
             Slider.class, c -> String.valueOf(((Slider) c).getValue()),
-            DropBox.class, c -> String.valueOf(((DropBox) c).getSelectedIndex()),
+            Combobox.class, c -> String.valueOf(((Combobox) c).getSelectedIndex()),
             FileSelector.class, c -> ((FileSelector)c).getValue(),
             CompositeSlider.class, c -> String.valueOf(((CompositeSlider) c).getValue()),
             CompositeComponent.class, c -> String.valueOf(((CompositeComponent) c).getValue())
@@ -209,7 +209,15 @@ public class ComponentsAccessor {
      * @return string representation of the component's value, or empty string for unsupported types.
      */
     private String getValue(JComponent component) {
-        return valueExtractors.getOrDefault(component.getClass(), c -> "").apply(component);
+        Function<JComponent, String> extractor = valueExtractors.get(component.getClass());
+        if (extractor != null) {
+            return extractor.apply(component);
+        }
+        return valueExtractors.entrySet().stream()
+                .filter(entry -> entry.getKey().isInstance(component))
+                .findFirst()
+                .map(entry -> entry.getValue().apply(component))
+                .orElse("");
     }
 
     /**
