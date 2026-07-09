@@ -4,11 +4,14 @@ import org.takesome.kaylasEngine.Engine;
 
 import javax.swing.*;
 import java.io.File;
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -24,6 +27,7 @@ public abstract class AbstractFileLoader {
     protected final IDownloadUtils downloadUtils;
 
     private static final int MAX_FILE_LIST_RETRIES = 2;
+    private static final int MAX_PARALLEL_DOWNLOADS = Math.max(2, Math.min(6, Runtime.getRuntime().availableProcessors()));
 
     protected final AtomicBoolean isCancelled = new AtomicBoolean(false);
     protected final Set<String> filesToKeep = ConcurrentHashMap.newKeySet();
@@ -79,7 +83,6 @@ public abstract class AbstractFileLoader {
                         attributes -> processFileAttributes(attributes, forceUpdate),
                         engine.getExecutorServiceProvider().getExecutorService()
                 )
-                .thenRunAsync(this::onFilesProcessed, engine.getExecutorServiceProvider().getExecutorService())
                 .exceptionally(this::handleFileListRetrievalError);
     }
 
@@ -128,7 +131,10 @@ public abstract class AbstractFileLoader {
     public void downloadFiles() {
         int totalFiles = fileAttributes.size();
         if (totalFiles == 0) {
-            SwingUtilities.invokeLater(fileLoaderListener::onFilesLoaded);
+            SwingUtilities.invokeLater(() -> {
+                fileLoaderListener.filesProcessed();
+                fileLoaderListener.onFilesLoaded();
+            });
             return;
         }
 
@@ -137,12 +143,17 @@ public abstract class AbstractFileLoader {
         downloadUtils.setTotalSize(totalSize);
         fileLoaderListener.onDownloadStart();
 
-        List<CompletableFuture<Void>> downloads = fileAttributes.stream()
-                .map(attribute -> CompletableFuture.runAsync(
-                        () -> downloadFile(attribute, totalFiles),
-                        engine.getExecutorServiceProvider().getExecutorService()
-                ))
-                .toList();
+        Queue<FileAttributes> queue = new ConcurrentLinkedQueue<>(fileAttributes);
+        int workerCount = Math.min(MAX_PARALLEL_DOWNLOADS, totalFiles);
+        List<CompletableFuture<Void>> downloads = new ArrayList<>(workerCount);
+
+        Engine.LOGGER.info("Starting download: files={}, totalSize={} bytes, parallelism={}", totalFiles, totalSize, workerCount);
+        for (int worker = 0; worker < workerCount; worker++) {
+            downloads.add(CompletableFuture.runAsync(
+                    () -> downloadWorker(queue, totalFiles),
+                    engine.getExecutorServiceProvider().getExecutorService()
+            ));
+        }
 
         CompletableFuture.allOf(downloads.toArray(new CompletableFuture[0]))
                 .whenComplete((ignored, throwable) -> {
@@ -150,9 +161,22 @@ public abstract class AbstractFileLoader {
                         Engine.LOGGER.error("Error while downloading files", throwable);
                     }
                     if (!isCancelled.get()) {
-                        SwingUtilities.invokeLater(fileLoaderListener::onFilesLoaded);
+                        SwingUtilities.invokeLater(() -> {
+                            fileLoaderListener.filesProcessed();
+                            fileLoaderListener.onFilesLoaded();
+                        });
                     }
                 });
+    }
+
+    private void downloadWorker(Queue<FileAttributes> queue, int totalFiles) {
+        while (!isCancelled.get()) {
+            FileAttributes attribute = queue.poll();
+            if (attribute == null) {
+                return;
+            }
+            downloadFile(attribute, totalFiles);
+        }
     }
 
     protected void downloadFile(FileAttributes attribute, int totalFiles) {
@@ -161,7 +185,7 @@ public abstract class AbstractFileLoader {
         }
         this.currentFile = attribute;
         fileExtension = getFileExtension(attribute.getFilename());
-        fileLoaderListener.onNewFileFound(this);
+        fileLoaderListener.onNewFileFound(this, attribute);
 
         filesDownloaded.incrementAndGet();
     }

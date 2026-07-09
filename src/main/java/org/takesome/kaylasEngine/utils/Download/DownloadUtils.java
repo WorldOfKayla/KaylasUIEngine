@@ -11,18 +11,28 @@ import java.net.URL;
 import java.nio.charset.StandardCharsets;
 import java.util.Enumeration;
 import java.util.LinkedList;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicLong;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
 @SuppressWarnings("unused")
 public class DownloadUtils extends HTTPrequest {
+    private static final int BUFFER_SIZE = 128 * 1024;
+    private static final int CONNECT_TIMEOUT_MS = 15_000;
+    private static final int READ_TIMEOUT_MS = 60_000;
+    private static final long UI_UPDATE_INTERVAL_MS = 100L;
+
     private final Engine engine;
     private JLabel progressLabel;
     private JProgressBar progressBar;
     private Button cancelButton;
-    private int percent;
-    private long downloaded = 0;
-    private long totalSize;
+    private final AtomicLong downloaded = new AtomicLong(0L);
+    private final AtomicLong lastUiUpdateMillis = new AtomicLong(0L);
+    private final AtomicInteger lastPercent = new AtomicInteger(-1);
+    private volatile long totalSize;
+    private volatile long startedAtMillis;
+
     public DownloadUtils(Engine engine) {
         super(engine, "GET");
         this.engine = engine;
@@ -30,43 +40,39 @@ public class DownloadUtils extends HTTPrequest {
 
     @SuppressWarnings({"unused", "ResultOfMethodCallIgnored"})
     public void downloader(String downloadFile, String savePath) {
-        this.progressBar.add(this.progressLabel);
-        this.progressBar.add(cancelButton);
-
         File parentDir = new File(savePath).getParentFile();
-        if (!parentDir.isDirectory()) {
+        if (parentDir != null && !parentDir.isDirectory()) {
             parentDir.mkdirs();
         }
 
+        HttpURLConnection httpConnection = null;
         try {
             URL url = resolveDownloadUrl(downloadFile);
-            HttpURLConnection httpConnection = (HttpURLConnection) url.openConnection();
+            httpConnection = (HttpURLConnection) url.openConnection();
             httpConnection.setDoOutput(false);
+            httpConnection.setUseCaches(false);
+            httpConnection.setConnectTimeout(CONNECT_TIMEOUT_MS);
+            httpConnection.setReadTimeout(READ_TIMEOUT_MS);
             httpConnection.setRequestMethod("GET");
             this.setRequestProperties(httpConnection, engine.getEngineData().getHttPconf().getRequestProperties());
-            long fileSize = httpConnection.getContentLength();
-            long chunkSize = fileSize / 100;
 
-            FileOutputStream fileOutputStream = new FileOutputStream(savePath);
-            byte[] buffer = new byte[65536];
-
-            try (InputStream in = new BufferedInputStream(httpConnection.getInputStream())) {
+            byte[] buffer = new byte[BUFFER_SIZE];
+            try (InputStream in = new BufferedInputStream(httpConnection.getInputStream(), BUFFER_SIZE);
+                 OutputStream out = new BufferedOutputStream(new FileOutputStream(savePath), BUFFER_SIZE)) {
                 int read;
                 while ((read = in.read(buffer, 0, buffer.length)) != -1) {
-                    fileOutputStream.write(buffer, 0, read);
-                    downloaded += read;
-                    percent = (int) (downloaded * 100 / totalSize);
-                    SwingUtilities.invokeLater(() -> {
-                        progressBar.setValue(percent);
-                        progressLabel.setText(formatFileSize((int) downloaded) + " / " + formatFileSize(totalSize));
-                    });
+                    out.write(buffer, 0, read);
+                    long current = downloaded.addAndGet(read);
+                    updateProgress(current, false);
                 }
             }
-            fileOutputStream.close();
-            httpConnection.disconnect();
-
+            updateProgress(downloaded.get(), false);
         } catch (IOException e) {
             throw new RuntimeException(e);
+        } finally {
+            if (httpConnection != null) {
+                httpConnection.disconnect();
+            }
         }
     }
 
@@ -76,6 +82,36 @@ public class DownloadUtils extends HTTPrequest {
             return new URL(downloadFile);
         }
         return new URL(engine.getEngineData().getBindUrl() + downloadFile);
+    }
+
+    private void updateProgress(long currentDownloaded, boolean force) {
+        long total = totalSize;
+        if (total <= 0L) {
+            return;
+        }
+
+        int nextPercent = (int) Math.max(0L, Math.min(100L, currentDownloaded * 100L / total));
+        long now = System.currentTimeMillis();
+        int previousPercent = lastPercent.get();
+        long previousUiUpdate = lastUiUpdateMillis.get();
+
+        if (!force && nextPercent == previousPercent && now - previousUiUpdate < UI_UPDATE_INTERVAL_MS) {
+            return;
+        }
+        if (!force && !lastUiUpdateMillis.compareAndSet(previousUiUpdate, now)) {
+            return;
+        }
+        lastPercent.set(nextPercent);
+
+        String progressText = formatFileSize(currentDownloaded) + " / " + formatFileSize(total);
+        SwingUtilities.invokeLater(() -> {
+            if (progressBar != null) {
+                progressBar.setValue(nextPercent);
+            }
+            if (progressLabel != null) {
+                progressLabel.setText(progressText);
+            }
+        });
     }
 
     private String formatFileSize(long sizeInBytes) {
@@ -92,6 +128,18 @@ public class DownloadUtils extends HTTPrequest {
             return String.format("%.2f GB", sizeInGb);
         }
     }
+
+    public String getCurrentSpeedText() {
+        long elapsedMillis = Math.max(1L, System.currentTimeMillis() - startedAtMillis);
+        double bytesPerSecond = downloaded.get() * 1000.0 / elapsedMillis;
+        if (bytesPerSecond < 1024) {
+            return String.format("%.2f B/s", bytesPerSecond);
+        } else if (bytesPerSecond < 1024 * 1024) {
+            return String.format("%.2f KB/s", bytesPerSecond / 1024.0);
+        }
+        return String.format("%.2f MB/s", bytesPerSecond / (1024.0 * 1024.0));
+    }
+
     @SuppressWarnings({"unused", "ResultOfMethodCallIgnored"})
     public void unpack(String path, File dir_to) {
         File fileZip = new File(path);
@@ -127,7 +175,12 @@ public class DownloadUtils extends HTTPrequest {
     }
 
     public void setTotalSize(long totalSize) {
-        this.totalSize = totalSize;
+        this.totalSize = Math.max(0L, totalSize);
+        this.downloaded.set(0L);
+        this.lastUiUpdateMillis.set(0L);
+        this.lastPercent.set(-1);
+        this.startedAtMillis = System.currentTimeMillis();
+        updateProgress(0L, true);
     }
 
     public void setProgressLabel(JLabel progressLabel) {
