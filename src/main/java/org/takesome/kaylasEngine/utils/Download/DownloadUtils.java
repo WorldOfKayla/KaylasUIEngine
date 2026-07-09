@@ -39,8 +39,7 @@ public class DownloadUtils extends HTTPrequest {
         }
 
         try {
-            // Direct streaming path with shared HTTP request properties.
-            URL url = new URL(engine.getEngineData().getBindUrl() + downloadFile);
+            URL url = resolveDownloadUrl(downloadFile);
             HttpURLConnection httpConnection = (HttpURLConnection) url.openConnection();
             httpConnection.setDoOutput(false);
             httpConnection.setRequestMethod("GET");
@@ -70,6 +69,15 @@ public class DownloadUtils extends HTTPrequest {
             throw new RuntimeException(e);
         }
     }
+
+    private URL resolveDownloadUrl(String downloadFile) throws IOException {
+        if (downloadFile != null
+                && (downloadFile.startsWith("http://") || downloadFile.startsWith("https://"))) {
+            return new URL(downloadFile);
+        }
+        return new URL(engine.getEngineData().getBindUrl() + downloadFile);
+    }
+
     private String formatFileSize(long sizeInBytes) {
         if (sizeInBytes < 1024) {
             return sizeInBytes + " bytes";
