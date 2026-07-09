@@ -113,15 +113,13 @@ public abstract class AbstractFileLoader {
     protected Set<FileAttributes> filterFileAttributes(FileAttributes[] attributes) {
         Set<FileAttributes> filtered = ConcurrentHashMap.newKeySet();
         Arrays.stream(attributes)
-                .filter(attr -> !filesToKeep.contains(attr.getFilename()))
                 .filter(this::shouldDownloadFile)
                 .forEach(filtered::add);
         return filtered;
     }
 
     public boolean shouldDownloadFile(FileAttributes attribute) {
-        String localPath = attribute.getFilename().replace(attribute.getReplaceMask(), "");
-        File localFile = new File(homeDir, localPath);
+        File localFile = new File(homeDir, localPath(attribute));
         return fileValidator.isInvalidFile(localFile, attribute.getHash(), attribute.getSize());
     }
 
@@ -227,13 +225,39 @@ public abstract class AbstractFileLoader {
         if (totalSize == -1) {
             totalSize = fileAttributes.stream()
                     .mapToLong(attribute -> {
-                        String localPath = attribute.getFilename().replace(attribute.getReplaceMask(), "");
-                        File localFile = new File(homeDir, localPath);
+                        File localFile = new File(homeDir, localPath(attribute));
                         return (localFile.exists() && !fileValidator.isInvalidFile(localFile, attribute.getHash(), attribute.getSize()))
                                 ? 0 : attribute.getSize();
                     }).sum();
         }
         return totalSize;
+    }
+
+    protected String localPath(FileAttributes attribute) {
+        if (attribute == null) {
+            return "";
+        }
+        String localPath = attribute.getLocalPath();
+        if (localPath != null && !localPath.isBlank()) {
+            return normalizeLocalPath(localPath);
+        }
+        String filename = attribute.getFilename();
+        String replaceMask = attribute.getReplaceMask();
+        if (filename == null) {
+            return "";
+        }
+        if (replaceMask == null || replaceMask.isBlank()) {
+            return normalizeLocalPath(filename);
+        }
+        return normalizeLocalPath(filename.replace(replaceMask, ""));
+    }
+
+    private String normalizeLocalPath(String path) {
+        String normalized = path.replace('\\', '/');
+        while (normalized.startsWith("/")) {
+            normalized = normalized.substring(1);
+        }
+        return normalized;
     }
 
     // Getters used by listeners and subclasses.
@@ -247,8 +271,12 @@ public abstract class AbstractFileLoader {
     public Set<FileAttributes> getFileAttributes() { return fileAttributes; }
     public Engine getEngine() { return engine; }
 
+    public String getLocalPath(FileAttributes attribute) {
+        return localPath(attribute);
+    }
+
     public void addFileToKeep(String fileName) {
-        this.filesToKeep.add(fileName);
+        this.filesToKeep.add(normalizeLocalPath(fileName));
     }
 
     public void addFileToDownload(FileAttributes attribute) {
