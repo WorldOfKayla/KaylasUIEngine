@@ -4,6 +4,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import org.apache.logging.log4j.Logger;
 import org.foxesworld.cfgProvider.CfgProvider;
+import org.foxesworld.cfgProvider.ConfigTypeConverter;
 import org.takesome.kaylasEngine.Engine;
 
 import java.io.File;
@@ -137,15 +138,18 @@ public abstract class Config {
                 value = resolvePlaceholders((String) value);
                 config.put(fieldName, value);
             }
-            Object castedValue = castValue(field.getType(), value);
 
+            Object castedValue = castValue(field.getType(), value);
             if (isValidValue(field.getType(), castedValue)) {
                 field.set(this, castedValue);
             } else {
                 handleInvalidValue(field, fieldName);
             }
         } catch (IllegalAccessException e) {
-            Engine.LOGGER.error("Ошибка доступа к полю " + fieldName, e);
+            Engine.LOGGER.error("РћС€РёР±РєР° РґРѕСЃС‚СѓРїР° Рє РїРѕР»СЋ " + fieldName, e);
+        } catch (RuntimeException e) {
+            Engine.LOGGER.warn("Invalid config value for '{}': {}", fieldName, config.get(fieldName), e);
+            handleInvalidValue(field, fieldName);
         }
     }
 
@@ -200,16 +204,10 @@ public abstract class Config {
     }
 
     private Object castValue(Class<?> fieldType, Object value) {
-        if (value == null) return null;
-        return switch (fieldType.getName()) {
-            case "boolean", "java.lang.Boolean" -> Boolean.parseBoolean(value.toString());
-            case "int", "java.lang.Integer" -> Integer.parseInt(value.toString());
-            case "double", "java.lang.Double" -> Double.parseDouble(value.toString());
-            case "float", "java.lang.Float" -> Float.parseFloat(value.toString());
-            case "long", "java.lang.Long" -> Long.parseLong(value.toString());
-            case "java.lang.String" -> value.toString();
-            default -> throw new IllegalArgumentException("Unsupported field type: " + fieldType);
-        };
+        if (value == null) {
+            return null;
+        }
+        return ConfigTypeConverter.convertToDeclaredType(value, fieldType);
     }
 
     public String getFullPath() {

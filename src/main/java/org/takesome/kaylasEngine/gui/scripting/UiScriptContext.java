@@ -52,6 +52,8 @@ public final class UiScriptContext {
     private final Map<String, UiComponentApi> componentApisById = new ConcurrentHashMap<>();
     private final Map<String, String> scriptSourceCache = new ConcurrentHashMap<>();
     private final Map<String, List<LuaValue>> eventSubscribers = new ConcurrentHashMap<>();
+    private final Map<String, List<UiScriptEventListener>> javaEventSubscribers = new ConcurrentHashMap<>();
+    private final Map<String, Map<String, UiScriptEventListener>> namedJavaEventSubscribers = new ConcurrentHashMap<>();
     private final ThreadLocal<Integer> eventDepth = ThreadLocal.withInitial(() -> 0);
 
     public UiScriptContext(Engine engine) {
@@ -104,6 +106,31 @@ public final class UiScriptContext {
         scriptSourceCache.clear();
     }
 
+    public AutoCloseable on(String eventName, UiScriptEventListener listener) {
+        String normalized = normalizeEventName(eventName);
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Lua UI event name cannot be blank.");
+        }
+        Objects.requireNonNull(listener, "listener");
+        List<UiScriptEventListener> listeners = javaEventSubscribers.computeIfAbsent(normalized, key -> new CopyOnWriteArrayList<>());
+        listeners.add(listener);
+        return () -> listeners.remove(listener);
+    }
+
+    public AutoCloseable on(String eventName, String listenerId, UiScriptEventListener listener) {
+        String normalized = normalizeEventName(eventName);
+        if (normalized.isBlank()) {
+            throw new IllegalArgumentException("Lua UI event name cannot be blank.");
+        }
+        if (listenerId == null || listenerId.isBlank()) {
+            throw new IllegalArgumentException("Lua UI Java listener id cannot be blank.");
+        }
+        Objects.requireNonNull(listener, "listener");
+        Map<String, UiScriptEventListener> listeners = namedJavaEventSubscribers.computeIfAbsent(normalized, key -> new ConcurrentHashMap<>());
+        listeners.put(listenerId, listener);
+        return () -> listeners.remove(listenerId, listener);
+    }
+
     public String scriptSource(String scriptPath) {
         return scriptSourceCache.computeIfAbsent(scriptPath, this::loadScriptSource);
     }
@@ -147,23 +174,37 @@ public final class UiScriptContext {
             return;
         }
 
-        List<LuaValue> subscribers = subscribersFor(normalized);
-        if (subscribers.isEmpty()) {
+        LuaValue resolvedPayload = payload == null ? LuaValue.NIL : payload;
+        List<UiScriptEventListener> javaSubscribers = javaSubscribersFor(normalized);
+        List<LuaValue> luaSubscribers = subscribersFor(normalized);
+        if (javaSubscribers.isEmpty() && luaSubscribers.isEmpty()) {
             return;
         }
 
-        LuaTable event = eventTable(normalized, source, rawEvent, payload);
-        LuaValue component = source == null ? LuaValue.NIL : source.toLuaTable();
-
         eventDepth.set(depth + 1);
         try {
-            for (LuaValue subscriber : subscribers) {
-                if (subscriber != null && subscriber.isfunction()) {
-                    subscriber.call(event, component);
+            if (!javaSubscribers.isEmpty()) {
+                UiScriptEvent javaEvent = new UiScriptEvent(normalized, source, rawEvent, resolvedPayload);
+                for (UiScriptEventListener subscriber : javaSubscribers) {
+                    try {
+                        subscriber.onEvent(javaEvent);
+                    } catch (Exception error) {
+                        Engine.LOGGER.error("Java UI event subscriber failed for event '{}'.", normalized, error);
+                    }
+                }
+            }
+
+            if (!luaSubscribers.isEmpty()) {
+                LuaTable event = eventTable(normalized, source, rawEvent, resolvedPayload);
+                LuaValue component = source == null ? LuaValue.NIL : source.toLuaTable();
+                for (LuaValue subscriber : luaSubscribers) {
+                    if (subscriber != null && subscriber.isfunction()) {
+                        subscriber.call(event, component);
+                    }
                 }
             }
         } catch (Exception error) {
-            Engine.LOGGER.error("Lua UI event subscriber failed for event '{}'.", normalized, error);
+            Engine.LOGGER.error("Lua UI event dispatch failed for event '{}'.", normalized, error);
         } finally {
             eventDepth.set(depth);
         }
@@ -257,7 +298,49 @@ public final class UiScriptContext {
             Engine.LOGGER.info("[lua-engine] {}", stringArg(args, 1, ""));
             return LuaValue.NIL;
         }));
+        table.set("lang", function(this::luaLang));
+        table.set("langWith", function(this::luaLangWith));
+        table.set("localeIndex", function(args -> LuaValue.valueOf(engine.getLANG().getLocaleIndex())));
+        table.set("localeCount", function(args -> LuaValue.valueOf(engine.getLANG().getLocalesSet().length)));
         return table;
+    }
+
+    private LuaValue luaLang(Varargs args) {
+        String key = stringArg(args, 1, "");
+        if (key.isBlank()) {
+            return LuaValue.valueOf("");
+        }
+        return value(engine.getLANG().getString(key));
+    }
+
+    private LuaValue luaLangWith(Varargs args) {
+        String key = stringArg(args, 1, "");
+        LuaValue replacements = arg(args, 2);
+        if (key.isBlank()) {
+            return LuaValue.valueOf("");
+        }
+        if (!replacements.istable()) {
+            return value(engine.getLANG().getString(key));
+        }
+
+        java.util.List<String> replaceKeys = new java.util.ArrayList<>();
+        java.util.List<String> replaceValues = new java.util.ArrayList<>();
+        LuaValue nextKey = LuaValue.NIL;
+        while (true) {
+            org.luaj.vm2.Varargs pair = replacements.next(nextKey);
+            nextKey = pair.arg1();
+            if (nextKey.isnil()) {
+                break;
+            }
+            LuaValue nextValue = pair.arg(2);
+            replaceKeys.add(nextKey.tojstring());
+            replaceValues.add(nextValue.isnil() ? "" : nextValue.tojstring());
+        }
+        return value(engine.getLANG().getStringWithKey(
+                key,
+                replaceKeys.toArray(String[]::new),
+                replaceValues.toArray(String[]::new)
+        ));
     }
 
     private LuaValue luaFind(Varargs args) {
@@ -371,6 +454,25 @@ public final class UiScriptContext {
         subscribers.addAll(eventSubscribers.getOrDefault("*", Collections.emptyList()));
         subscribers.addAll(eventSubscribers.getOrDefault("all", Collections.emptyList()));
         return subscribers;
+    }
+
+    private List<UiScriptEventListener> javaSubscribersFor(String eventName) {
+        List<UiScriptEventListener> subscribers = new ArrayList<>();
+        subscribers.addAll(javaEventSubscribers.getOrDefault(eventName, Collections.emptyList()));
+        subscribers.addAll(javaEventSubscribers.getOrDefault("*", Collections.emptyList()));
+        subscribers.addAll(javaEventSubscribers.getOrDefault("all", Collections.emptyList()));
+        subscribers.addAll(namedSubscribersFor(eventName));
+        subscribers.addAll(namedSubscribersFor("*"));
+        subscribers.addAll(namedSubscribersFor("all"));
+        return subscribers;
+    }
+
+    private List<UiScriptEventListener> namedSubscribersFor(String eventName) {
+        Map<String, UiScriptEventListener> namedSubscribers = namedJavaEventSubscribers.get(eventName);
+        if (namedSubscribers == null || namedSubscribers.isEmpty()) {
+            return Collections.emptyList();
+        }
+        return new ArrayList<>(namedSubscribers.values());
     }
 
     private String loadScriptSource(String scriptPath) {

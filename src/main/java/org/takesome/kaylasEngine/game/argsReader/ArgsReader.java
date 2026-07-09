@@ -10,14 +10,28 @@ import org.takesome.kaylasEngine.game.argsReader.libraries.LibraryReader;
 
 import java.io.FileReader;
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 public class ArgsReader {
+    private static final Set<String> OPTIONAL_VALUE_ARGUMENTS = Set.of(
+            "--clientId",
+            "--xuid",
+            "--quickPlayPath",
+            "--quickPlaySingleplayer",
+            "--quickPlayMultiplayer",
+            "--quickPlayRealms"
+    );
+    private static final Set<String> OPTIONAL_FLAG_ARGUMENTS = Set.of(
+            "--demo"
+    );
+
     private final RuleChecker ruleChecker;
     private JsonArray jvmArguments = new JsonArray();
     private JsonArray gameArguments = new JsonArray();
@@ -32,10 +46,11 @@ public class ArgsReader {
         this.gameLauncher = gameLauncher;
         this.path = gameLauncher.getPathBuilders().getArgsFile();
         this.ruleChecker = new RuleChecker();
-        if (path.toFile().exists()) {
-            this.libraryReader = new LibraryReader(this, checkHash);
-            this.readArgs();
+        if (!Files.isRegularFile(path)) {
+            throw new IllegalStateException("Minecraft arguments file not found: " + path.toAbsolutePath());
         }
+        this.libraryReader = new LibraryReader(this, checkHash);
+        this.readArgs();
     }
 
     private void readArgs() {
@@ -151,7 +166,7 @@ public class ArgsReader {
         for (JsonElement argumentElement : arguments) {
             appendArgument(argsAndValues, argumentElement, variables);
         }
-        return argsAndValues;
+        return removeUnresolvedTemplateArguments(argsAndValues);
     }
 
     private void appendArgument(List<String> argsAndValues, JsonElement argumentElement, Map<String, String> variables) {
@@ -185,6 +200,56 @@ public class ArgsReader {
             return;
         }
         argsAndValues.add(replaceVariables(valueElement.getAsString(), variables));
+    }
+
+    private List<String> removeUnresolvedTemplateArguments(List<String> argsAndValues) {
+        List<String> sanitized = new ArrayList<>();
+        for (int index = 0; index < argsAndValues.size(); index++) {
+            String argument = argsAndValues.get(index);
+            if (argument == null || argument.isBlank()) {
+                continue;
+            }
+            if (isOptionalFlagArgument(argument)) {
+                Engine.LOGGER.debug("Removed optional Minecraft flag: {}", argument);
+                continue;
+            }
+            if (isOptionalValueArgument(argument)) {
+                String value = index + 1 < argsAndValues.size() ? argsAndValues.get(index + 1) : "";
+                Engine.LOGGER.debug("Removed optional Minecraft argument pair: {} {}", argument, value);
+                index++;
+                continue;
+            }
+            if (containsTemplatePlaceholder(argument)) {
+                if (!sanitized.isEmpty() && isOptionRequiringSeparateValue(sanitized.get(sanitized.size() - 1))) {
+                    String removedOption = sanitized.remove(sanitized.size() - 1);
+                    Engine.LOGGER.warn("Removed unresolved Minecraft argument pair: {} {}", removedOption, argument);
+                } else {
+                    Engine.LOGGER.warn("Removed unresolved Minecraft argument: {}", argument);
+                }
+                continue;
+            }
+            sanitized.add(argument);
+        }
+        return sanitized;
+    }
+
+    private boolean isOptionalFlagArgument(String argument) {
+        return OPTIONAL_FLAG_ARGUMENTS.contains(argument);
+    }
+
+    private boolean isOptionalValueArgument(String argument) {
+        return OPTIONAL_VALUE_ARGUMENTS.contains(argument);
+    }
+
+    private boolean containsTemplatePlaceholder(String argument) {
+        return argument != null && Pattern.compile("\\$\\{[^}]+}").matcher(argument).find();
+    }
+
+    private boolean isOptionRequiringSeparateValue(String argument) {
+        if (argument == null || argument.isBlank()) {
+            return false;
+        }
+        return argument.startsWith("-") && !argument.contains("=");
     }
 
     private String replaceVariables(String value, Map<String, String> variables) {

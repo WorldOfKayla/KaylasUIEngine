@@ -366,7 +366,8 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
             String errorMessage = this.getLANG().getString(messageKey);
             this.emitSound("other", messageKey);
             UIManager.put("OptionPane.messageFont", this.getFONTUTILS().getFont("mcfont", 12.0F));
-            JOptionPane.showMessageDialog(this.getFrame().getRootPane(), errorMessage, errorTitle, warningMessage);
+            String localizedTitle = this.getLANG().getString(errorTitle);
+            JOptionPane.showMessageDialog(this.getFrame().getRootPane(), errorMessage, localizedTitle, warningMessage);
             if (terminate) {
                 System.exit(0);
             }

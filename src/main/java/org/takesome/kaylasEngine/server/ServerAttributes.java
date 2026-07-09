@@ -5,7 +5,7 @@ public class ServerAttributes {
     @SuppressWarnings("unused")
     private int id, port;
     @SuppressWarnings("unused")
-    private String serverName, serverVersion, jreVersion,  serverImage, serverDescription, client, host, ignoreDirs, modsInfo;
+    private String serverName, serverVersion, jreVersion, coreType, serverImage, serverDescription, client, host, ignoreDirs, modsInfo;
     private boolean checkLib;
     //mainClass, forgeVersion, forgeGroup, mcpVersion
 
@@ -27,6 +27,11 @@ public class ServerAttributes {
     @SuppressWarnings("unused")
     public String getJreVersion() {
         return jreVersion;
+    }
+
+    @SuppressWarnings("unused")
+    public String getCoreType() {
+        return coreType;
     }
 
     @SuppressWarnings("unused")

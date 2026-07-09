@@ -43,6 +43,8 @@ public abstract class GameLauncher {
         this.getLogger().debug("#############################");
         this.logger.debug("GameDir " + getPathBuilders().buildGameDir());
         this.logger.debug("ClientDir " + getPathBuilders().buildClientDir());
+        this.logger.debug("VersionRootDir " + getPathBuilders().buildVersionRootDir());
+        this.logger.debug("CoreType " + getPathBuilders().coreTypeName());
         this.logger.debug("VersionsDir " + getPathBuilders().buildVersionDir());
         this.logger.debug("JarFile " + getPathBuilders().buildMinecraftJarPath());
         this.logger.debug("Natives " + getPathBuilders().buildNativesPath());
@@ -97,6 +99,9 @@ public abstract class GameLauncher {
     }
 
     public static class PathBuilders {
+        private static final String DEFAULT_CORE_TYPE = "Vanilla";
+        private static final String DEFAULT_CLIENT = "Default";
+
         private final GameLauncher gameLauncher;
         private final Path homeDir;
 
@@ -109,8 +114,12 @@ public abstract class GameLauncher {
             return homeDir;
         }
 
-        public Path buildVersionDir() {
+        public Path buildVersionRootDir() {
             return buildGameDir().resolve("versions").resolve(gameLauncher.gameClient.getServerVersion());
+        }
+
+        public Path buildVersionDir() {
+            return buildVersionRootDir().resolve(coreTypeName());
         }
 
         public Path getArgsFile() {
@@ -118,7 +127,7 @@ public abstract class GameLauncher {
         }
 
         public Path buildLibrariesPath() {
-            return buildGameDir().resolve("libraries");
+            return buildVersionDir().resolve("libraries");
         }
 
         public Path buildNativesPath() {
@@ -126,7 +135,7 @@ public abstract class GameLauncher {
         }
 
         public Path buildAssetsPath() {
-            return buildVersionDir().resolve("assets");
+            return buildVersionRootDir().resolve("assets");
         }
 
         public Path buildMinecraftJarPath() {
@@ -134,7 +143,7 @@ public abstract class GameLauncher {
         }
 
         public Path buildClientDir() {
-            Path clientDir = buildGameDir().resolve("clients").resolve(gameLauncher.gameClient.getServerName());
+            Path clientDir = buildGameDir().resolve("clients").resolve(clientName());
             ensureDirectoryExists(clientDir, "client");
             return clientDir;
         }
@@ -143,6 +152,47 @@ public abstract class GameLauncher {
             Path runtimeDir = buildGameDir().resolve("runtime");
             ensureDirectoryExists(runtimeDir, "runtime");
             return runtimeDir;
+        }
+
+        public String coreTypeName() {
+            String coreType = gameLauncher.gameClient.getCoreType();
+            if (coreType != null && !coreType.isBlank()) {
+                return coreType.trim();
+            }
+
+            String legacyClient = gameLauncher.gameClient.getClient();
+            if (looksLikeCoreType(legacyClient)) {
+                return legacyClient.trim();
+            }
+
+            return DEFAULT_CORE_TYPE;
+        }
+
+        public String clientName() {
+            String client = gameLauncher.gameClient.getClient();
+            if (client != null && !client.isBlank() && !looksLikeCoreType(client)) {
+                return client.trim();
+            }
+
+            String serverName = gameLauncher.gameClient.getServerName();
+            if (serverName != null && !serverName.isBlank()) {
+                return serverName.trim();
+            }
+
+            return DEFAULT_CLIENT;
+        }
+
+        private boolean looksLikeCoreType(String value) {
+            if (value == null || value.isBlank()) {
+                return false;
+            }
+            String normalized = value.trim().toLowerCase(Locale.ROOT);
+            return normalized.equals("vanilla")
+                    || normalized.equals("forge")
+                    || normalized.equals("fabric")
+                    || normalized.equals("quilt")
+                    || normalized.equals("neoforge")
+                    || normalized.equals("runtime");
         }
 
         /**

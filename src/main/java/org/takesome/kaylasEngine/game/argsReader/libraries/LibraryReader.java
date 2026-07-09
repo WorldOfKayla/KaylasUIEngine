@@ -180,17 +180,35 @@ public class LibraryReader {
         if (library.getArtifact() != null && library.getArtifact().getPath() != null && !library.getArtifact().getPath().isBlank()) {
             return library.getArtifact();
         }
-        String packed = libraryObject.has("packed") ? libraryObject.get("packed").getAsString() : null;
-        if (packed == null || library.getName() == null) {
+        if (library.getName() == null || library.getName().isBlank()) {
             return null;
         }
-        String[] nameParts = library.getName().split(":");
+
+        String filePath = mavenPathFromName(library.getName());
+        if (filePath == null || filePath.isBlank()) {
+            return null;
+        }
+        Engine.LOGGER.debug("Resolved library artifact path from Maven coordinates: {} -> {}", library.getName(), filePath);
+        return new Artifact("", 0, filePath, "");
+    }
+
+    private String mavenPathFromName(String name) {
+        String[] nameParts = name.split(":");
         if (nameParts.length < 3) {
             return null;
         }
-        String filePath = String.format("%s/%s/%s/%s-%s.jar",
-                nameParts[0].replace(".", "/"), nameParts[1], nameParts[2], nameParts[1], nameParts[2]);
-        return new Artifact("", 0, filePath, "");
+
+        String group = nameParts[0];
+        String artifact = nameParts[1];
+        String version = nameParts[2];
+        String classifier = nameParts.length >= 4 && !nameParts[3].isBlank() ? "-" + nameParts[3] : "";
+        return String.format("%s/%s/%s/%s-%s%s.jar",
+                group.replace('.', '/'),
+                artifact,
+                version,
+                artifact,
+                version,
+                classifier);
     }
 
     private Artifact artifact(JsonObject artifactObject) {

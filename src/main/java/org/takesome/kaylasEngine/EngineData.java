@@ -17,6 +17,7 @@ public class EngineData {
     private DownloadManager downloadManager;
     private LoadManagerAttributes[] loadManager;
     private HTTPconf httpConf;
+    private BackendBinding backend;
     private String[] tweakClasses;
     private Map<String, Object> files;
     public String getBindUrl() {
@@ -52,6 +53,11 @@ public class EngineData {
     public HTTPconf getHttPconf() {
         return httpConf;
     }
+
+    public BackendBinding getBackend() {
+        return backend == null ? BackendBinding.disabled() : backend;
+    }
+
     public String[] getTweakClasses() {
         return tweakClasses;
     }
@@ -71,6 +77,37 @@ public class EngineData {
 
     public String[] getLoadAdapters() {
         return loadAdapters;
+    }
+
+    public static class BackendBinding {
+        private boolean enabled = false;
+        private String wsUrl = "ws://127.0.0.1:18080/ws/launcher";
+        private int heartbeatSeconds = 15;
+        private int maxReconnectAttempts = 0;
+
+        private static BackendBinding disabled() {
+            BackendBinding binding = new BackendBinding();
+            binding.enabled = false;
+            return binding;
+        }
+
+        public boolean isEnabled() {
+            return enabled;
+        }
+
+        public String getWsUrl() {
+            return wsUrl == null || wsUrl.isBlank()
+                    ? "ws://127.0.0.1:18080/ws/launcher"
+                    : wsUrl;
+        }
+
+        public int getHeartbeatSeconds() {
+            return heartbeatSeconds <= 0 ? 15 : heartbeatSeconds;
+        }
+
+        public int getMaxReconnectAttempts() {
+            return Math.max(0, maxReconnectAttempts);
+        }
     }
 
     public static class DownloadManager {

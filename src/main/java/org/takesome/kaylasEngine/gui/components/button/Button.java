@@ -131,7 +131,6 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
                         iconX = groupX;
                         iconY = (h - icon.getIconHeight()) / 2 + shiftY;
                         // Рисуем иконку слева
-                        icon.paintIcon(this, g, groupX, (h - icon.getIconHeight()) / 2 + shiftY);
                         // Рисуем текст сразу после иконки с дополнительным отступом (например, 20 пикселей)
                         textX = groupX + iconWidth + 20;
                         textY = (h + fm.getAscent() - fm.getDescent()) / 2 + shiftY;
@@ -150,7 +149,6 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
                         g.setColor(textColor);
                         g.drawString(text, textX, textY);
                         // Рисуем иконку сразу после текста
-                        icon.paintIcon(this, g, textX + textWidth, (h - icon.getIconHeight()) / 2 + shiftY);
                         drawScaledIcon(g2d, icon, iconX, iconY, scaleFactor);
                     }
                     case CENTER -> {
@@ -159,7 +157,6 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
                         iconX = groupX;
                         iconY = (h - icon.getIconHeight()) / 2 + shiftY;
                         // Рисуем иконку
-                        icon.paintIcon(this, g, groupX, (h - icon.getIconHeight()) / 2 + shiftY);
                         // Рисуем текст сразу после иконки
                         textX = groupX + iconWidth;
                         textY = (h + fm.getAscent() - fm.getDescent()) / 2 + shiftY;
@@ -183,8 +180,8 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
                 int iconY = (h - icon.getIconHeight()) / 2 + shiftY;
                 icon.paintIcon(this, g, iconX, iconY);
             }
+            g2d.dispose();
         //}
-        repaint();
     }
 
 
