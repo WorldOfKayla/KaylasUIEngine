@@ -36,7 +36,6 @@ import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
  */
 public class Panel extends JPanel {
     private FrameAttributes frameAttributes;
-    private JPanel groupPanel;
     private final FrameConstructor frameConstructor;
     private BufferedImage texture;
 
@@ -212,77 +211,146 @@ public class Panel extends JPanel {
      * @param frameConstructor frame constructor used for resource lookup.
      * @return configured {@link JPanel} instance.
      */
-    public JPanel createGroupPanel(PanelAttributes panelOptions, String groupName, FrameConstructor frameConstructor) {
-        groupPanel = new JPanel(null, panelOptions.isDoubleBuffered()) {
+    public JPanel createGroupPanel(PanelAttributes panelOptions,
+                                   String groupName,
+                                   FrameConstructor frameConstructor) {
+        PanelAttributes options = panelOptions == null ? new PanelAttributes() : panelOptions;
+        int cornerRadius = options.getCornerRadius();
+        Color backgroundColor = panelBackground(options.getBackground());
+        BufferedImage backgroundTexture = loadPanelBackground(options.getBackgroundImage(), frameConstructor);
+
+        JPanel panel = new JPanel(null, options.isDoubleBuffered()) {
             @Override
-            protected void paintComponent(Graphics g) {
-                Graphics2D g2d = (Graphics2D) g.create();
-                g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                // Apply panel alpha
-                g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, Panel.this.alpha));
-                super.paintComponent(g2d);
+            protected void paintComponent(Graphics graphics) {
+                Graphics2D graphics2D = (Graphics2D) graphics.create();
+                try {
+                    graphics2D.setRenderingHint(
+                            RenderingHints.KEY_ANTIALIASING,
+                            RenderingHints.VALUE_ANTIALIAS_ON
+                    );
+                    graphics2D.setComposite(AlphaComposite.getInstance(
+                            AlphaComposite.SRC_OVER,
+                            Math.max(0f, Math.min(1f, Panel.this.alpha))
+                    ));
 
-                if (texture != null) {
-                    g2d.drawImage(texture, 0, 0, getWidth(), getHeight(), this);
-                } else if (panelOptions.getBackgroundImage() != null) {
-                    BufferedImage backgroundImage = frameConstructor.getAppFrame()
-                            .getImageUtils()
-                            .getLocalImage(panelOptions.getBackgroundImage());
-                    g2d.drawImage(applyDarkening(backgroundImage, hexToColor(panelOptions.getBackground())), 0, 0, null);
-                }
+                    if (cornerRadius <= 0) {
+                        super.paintComponent(graphics2D);
+                    } else {
+                        RoundRectangle2D shape = new RoundRectangle2D.Float(
+                                0,
+                                0,
+                                Math.max(0, getWidth()),
+                                Math.max(0, getHeight()),
+                                cornerRadius,
+                                cornerRadius
+                        );
+                        graphics2D.clip(shape);
+                        if (options.isOpaque() || backgroundColor.getAlpha() > 0) {
+                            graphics2D.setColor(backgroundColor);
+                            graphics2D.fill(shape);
+                        }
+                    }
 
-                if (panelOptions.getCornerRadius() != 0) {
-                    int cornerRadius = panelOptions.getCornerRadius();
-                    RoundRectangle2D roundedRectangle = new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), cornerRadius, cornerRadius);
-                    g2d.setColor(getBackground());
-                    g2d.fill(roundedRectangle);
-                    g2d.setColor(getForeground());
-                    g2d.draw(roundedRectangle);
+                    if (backgroundTexture != null) {
+                        graphics2D.drawImage(
+                                backgroundTexture,
+                                0,
+                                0,
+                                getWidth(),
+                                getHeight(),
+                                this
+                        );
+                    }
+                } finally {
+                    graphics2D.dispose();
                 }
-                g2d.dispose();
             }
 
             @Override
-            protected void paintBorder(Graphics g) {
-                if (panelOptions.getCornerRadius() != 0) {
-                    Graphics2D g2d = (Graphics2D) g.create();
-                    g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-                    int cornerRadius = panelOptions.getCornerRadius();
-                    RoundRectangle2D roundedRectangle = new RoundRectangle2D.Float(0, 0, getWidth(), getHeight(), cornerRadius, cornerRadius);
-                    g2d.setColor(getForeground());
-                    g2d.draw(roundedRectangle);
-                    g2d.dispose();
+            protected void paintBorder(Graphics graphics) {
+                if (cornerRadius <= 0) {
+                    super.paintBorder(graphics);
+                    return;
+                }
+                Graphics2D graphics2D = (Graphics2D) graphics.create();
+                try {
+                    graphics2D.setRenderingHint(
+                            RenderingHints.KEY_ANTIALIASING,
+                            RenderingHints.VALUE_ANTIALIAS_ON
+                    );
+                    RoundRectangle2D roundedRectangle = new RoundRectangle2D.Float(
+                            0.5f,
+                            0.5f,
+                            Math.max(0, getWidth() - 1),
+                            Math.max(0, getHeight() - 1),
+                            cornerRadius,
+                            cornerRadius
+                    );
+                    if (getBorder() != null) {
+                        super.paintBorder(graphics2D);
+                    } else if (getForeground() != null && getForeground().getAlpha() > 0) {
+                        graphics2D.setColor(getForeground());
+                        graphics2D.draw(roundedRectangle);
+                    }
+                } finally {
+                    graphics2D.dispose();
                 }
             }
         };
 
-        groupPanel.setName(groupName);
-        groupPanel.setOpaque(panelOptions.getCornerRadius() == 0 && panelOptions.isOpaque());
-        groupPanel.setBackground(hexToColor(panelOptions.getBackground()));
-        if (panelOptions.getBorder() != null && !panelOptions.getBorder().isEmpty()) {
-            createBorder(groupPanel, panelOptions.getBorder());
+        panel.setName(groupName);
+        panel.setBackground(backgroundColor);
+        panel.setOpaque(cornerRadius == 0 && options.isOpaque() && backgroundColor.getAlpha() == 255);
+        panel.setVisible(options.isVisible());
+
+        if (!options.getBorder().isBlank()) {
+            createBorder(panel, options.getBorder());
         }
 
-        if (panelOptions.getListener() != null) {
-
-            if ("dragger".equals(panelOptions.getListener())) {
-                DragListener dragListener = new DragListener(frameConstructor);
-                dragListener.apply(groupPanel, this.frameConstructor.getAppFrame().getFrame());
-            }
+        if ("dragger".equalsIgnoreCase(options.getListener())) {
+            DragListener dragListener = new DragListener(frameConstructor);
+            dragListener.apply(panel, this.frameConstructor.getAppFrame().getFrame());
         }
 
-        if (panelOptions.isFocusable()) {
-            groupPanel.setFocusable(true);
-            groupPanel.requestFocus();
+        if (options.isFocusable()) {
+            panel.setFocusable(true);
         }
 
-        Bounds bounds = panelOptions.getBounds();
-        groupPanel.setBounds(bounds.getX(), bounds.getY(), bounds.getSize().getWidth(), bounds.getSize().getHeight());
-        if (panelOptions.getLayout() != null) {
-            groupPanel.setLayout(getLayout(panelOptions.getLayout(), groupPanel));
+        Bounds bounds = options.getBounds();
+        panel.setBounds(
+                bounds.getX(),
+                bounds.getY(),
+                bounds.getSize().getWidth(),
+                bounds.getSize().getHeight()
+        );
+        if (options.getLayout() != null && !options.getLayout().isBlank()) {
+            panel.setLayout(getLayout(options.getLayout(), panel));
         }
+        return panel;
+    }
 
-        return groupPanel;
+    private Color panelBackground(String configuredColor) {
+        if (configuredColor == null
+                || configuredColor.isBlank()
+                || "transparent".equalsIgnoreCase(configuredColor)) {
+            return new Color(0, 0, 0, 0);
+        }
+        return hexToColor(configuredColor);
+    }
+
+    private BufferedImage loadPanelBackground(String backgroundPath,
+                                              FrameConstructor frameConstructor) {
+        if (backgroundPath == null || backgroundPath.isBlank()) {
+            return null;
+        }
+        try {
+            return frameConstructor.getAppFrame()
+                    .getImageUtils()
+                    .getLocalImage(backgroundPath);
+        } catch (RuntimeException error) {
+            Engine.LOGGER.warn("Unable to load panel background '{}'.", backgroundPath, error);
+            return null;
+        }
     }
 
     /**
@@ -298,7 +366,9 @@ public class Panel extends JPanel {
             case "border" -> new BorderLayout();
             case "grid" -> new GridLayout();
             case "gridbag" -> new GridBagLayout();
-            case "box" -> new BoxLayout(panel, BoxLayout.X_AXIS);
+            case "box", "box-x", "horizontal" -> new BoxLayout(panel, BoxLayout.X_AXIS);
+            case "box-y", "vertical" -> new BoxLayout(panel, BoxLayout.Y_AXIS);
+            case "absolute", "none" -> null;
             default -> {
                 Engine.LOGGER.error("Invalid layout type: " + layout);
                 yield null;

@@ -29,6 +29,8 @@ public class CompositeSlider extends CompositeComponent {
     private final ComponentAttributes componentAttribute;
     private final ComponentFactory componentFactory;
     private LabelStyle labelStyle;
+    private StyleAttributes resolvedLabelStyle;
+    private StyleAttributes resolvedSliderStyle;
     private Label label;
     private Slider slider;
     private Spinner spinner;
@@ -40,7 +42,7 @@ public class CompositeSlider extends CompositeComponent {
         this.componentFactory = componentFactory;
         this.componentAttribute = componentFactory.getComponentAttribute();
         super.componentFactory = componentFactory;
-        setOpaque(componentFactory.isOpaque());
+        setOpaque(componentFactory.getStyle().isOpaque());
         setVisible(true);
         setName(componentAttribute.getComponentId());
         setLayoutConfig(componentAttribute.getLayoutConfig());
@@ -51,12 +53,16 @@ public class CompositeSlider extends CompositeComponent {
 
     private void initializeComponents() {
         SliderRangeModel range = resolveRange();
+        resolvedLabelStyle = componentFactory.getEngine().getStyleProvider()
+                .getStyle("label", styleName("label"));
+        resolvedSliderStyle = componentFactory.getEngine().getStyleProvider()
+                .getStyle("slider", styleName("slider"));
 
-        label = new Label(componentFactory);
+        label = componentFactory.withStyle(resolvedLabelStyle, () -> new Label(componentFactory));
         label.setName(childName("Label"));
         configureLabel();
 
-        slider = new Slider(componentFactory);
+        slider = componentFactory.withStyle(resolvedSliderStyle, () -> new Slider(componentFactory));
         slider.setName(childName("Slider"));
         configureSlider(range);
 
@@ -99,8 +105,7 @@ public class CompositeSlider extends CompositeComponent {
     }
 
     private void configureLabel() {
-        labelStyle = new LabelStyle(componentFactory);
-        labelStyle.setStyle(componentFactory.getEngine().getStyleProvider().getStyle("label", styleName("label")));
+        labelStyle = new LabelStyle(resolvedLabelStyle);
         labelStyle.apply(label);
         float fontSize = componentAttribute.getFontSize() > 0 ? componentAttribute.getFontSize() : labelStyle.getFontSize();
         label.setFont(componentFactory.getEngine().getFONTUTILS().getFont(labelStyle.getFontName(), fontSize));
@@ -116,8 +121,7 @@ public class CompositeSlider extends CompositeComponent {
         slider.setMinorTickSpacing(minorTickSpacing(range));
         slider.setOpaque(false);
 
-        StyleAttributes sliderStyle = componentFactory.getEngine().getStyleProvider().getStyle("slider", styleName("slider"));
-        slider.setUI(new TexturedSliderUI(componentFactory, slider, sliderStyle));
+        slider.setUI(new TexturedSliderUI(componentFactory, slider, resolvedSliderStyle));
         slider.setLabelTable(createLabelTable(range.values()));
     }
 
@@ -125,15 +129,37 @@ public class CompositeSlider extends CompositeComponent {
         Hashtable<Integer, Label> labelTable = new Hashtable<>();
         int fontSize = Math.max(8, componentAttribute.getFontSize() - 3);
         for (int value : values) {
-            Label tickLabel = new Label(componentFactory);
+            Label tickLabel = componentFactory.withStyle(
+                    resolvedLabelStyle,
+                    () -> new Label(componentFactory)
+            );
             tickLabel.setName(childName("Tick" + value));
             tickLabel.setText(String.valueOf(value));
             tickLabel.setOpaque(false);
             tickLabel.setFont(componentFactory.getEngine().getFONTUTILS().getFont(labelStyle.getFontName(), fontSize));
             tickLabel.setForeground(labelStyle.getActiveColor());
+            normalizeTickLabelSize(tickLabel);
             labelTable.put(value, tickLabel);
         }
         return labelTable;
+    }
+
+    private void normalizeTickLabelSize(Label tickLabel) {
+        // Label inherits the parent component descriptor and therefore receives the composite
+        // slider bounds as an explicit preferred size. BasicSliderUI interprets that preferred size
+        // as the size of every tick label, which can collapse trackRect to a negative width.
+        tickLabel.setPreferredSize(null);
+        tickLabel.setMinimumSize(null);
+        tickLabel.setMaximumSize(null);
+
+        Dimension intrinsic = tickLabel.getPreferredSize();
+        int width = Math.max(1, intrinsic.width + 2);
+        int height = Math.max(1, intrinsic.height);
+        Dimension compact = new Dimension(width, height);
+        tickLabel.setPreferredSize(compact);
+        tickLabel.setMinimumSize(compact);
+        tickLabel.setMaximumSize(compact);
+        tickLabel.setSize(compact);
     }
 
     private void configureLayout() {

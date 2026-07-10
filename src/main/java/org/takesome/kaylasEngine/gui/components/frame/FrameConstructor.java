@@ -3,6 +3,7 @@ package org.takesome.kaylasEngine.gui.components.frame;
 import com.formdev.flatlaf.extras.FlatSVGIcon;
 import com.google.gson.Gson;
 import org.takesome.kaylasEngine.Engine;
+import org.takesome.kaylasEngine.gui.adapters.xml.XmlFrameAttributesLoader;
 import org.takesome.kaylasEngine.gui.components.panel.Panel;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.w3c.dom.Attr;
@@ -101,54 +102,11 @@ public class FrameConstructor extends JFrame {
     }
 
     private FrameAttributes parseXmlFrame(InputStream inputStream) throws Exception {
-        DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
-        factory.setIgnoringComments(true);
-        factory.setNamespaceAware(false);
-        DocumentBuilder builder = factory.newDocumentBuilder();
-        Document document = builder.parse(inputStream);
-        Element root = document.getDocumentElement();
-        FrameAttributes frameAttributes = new FrameAttributes();
-        for (int i = 0; i < root.getAttributes().getLength(); i++) {
-            Attr attribute = (Attr) root.getAttributes().item(i);
-            Field field = findField(FrameAttributes.class, attribute.getName());
-            if (field == null) {
-                continue;
-            }
-            field.setAccessible(true);
-            field.set(frameAttributes, convertValue(field.getType(), attribute.getValue()));
+        var attributes = new XmlFrameAttributesLoader().parse(inputStream);
+        if (attributes instanceof FrameAttributes frameAttributes) {
+            return frameAttributes;
         }
-        return frameAttributes;
-    }
-
-    private Field findField(Class<?> type, String fieldName) {
-        Class<?> current = type;
-        while (current != null) {
-            try {
-                return current.getDeclaredField(fieldName);
-            } catch (NoSuchFieldException ignored) {
-                current = current.getSuperclass();
-            }
-        }
-        return null;
-    }
-
-    private Object convertValue(Class<?> type, String value) {
-        if (type == int.class || type == Integer.class) {
-            return Integer.parseInt(value);
-        }
-        if (type == boolean.class || type == Boolean.class) {
-            return Boolean.parseBoolean(value);
-        }
-        if (type == long.class || type == Long.class) {
-            return Long.parseLong(value);
-        }
-        if (type == double.class || type == Double.class) {
-            return Double.parseDouble(value);
-        }
-        if (type == float.class || type == Float.class) {
-            return Float.parseFloat(value);
-        }
-        return value;
+        throw new IllegalArgumentException("XML frame root must be <frame>");
     }
 
     /**

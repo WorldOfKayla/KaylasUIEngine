@@ -71,28 +71,30 @@ public class FileSelector extends CompositeComponent {
 
     private TextField createTextField(String styleName) {
         StyleAttributes style = componentFactory.getEngine().getStyleProvider().getStyle("textField", styleName);
-        componentFactory.setStyle(style);
-        TextField textField = new TextField(componentFactory);
-        new TextFieldStyle(componentFactory).apply(textField);
-        textField.setName(childName("Text"));
-        textField.setOpaque(false);
-        textField.setEditable(false);
-        textField.setFocusable(false);
-        return textField;
+        return componentFactory.withStyle(style, () -> {
+            TextField textField = new TextField(componentFactory);
+            new TextFieldStyle(componentFactory).apply(textField);
+            textField.setName(childName("Text"));
+            textField.setOpaque(false);
+            textField.setEditable(false);
+            textField.setFocusable(false);
+            return textField;
+        });
     }
 
     private Button createBrowseButton(String styleName) {
         StyleAttributes style = componentFactory.getEngine().getStyleProvider().getStyle("button", styleName);
-        componentFactory.setStyle(style);
-        Button button = new Button(
-                componentFactory,
-                componentFactory.getEngine().getIconUtils().getIcon(attributes),
-                ""
-        );
-        new ButtonStyle(componentFactory).apply(button);
-        button.setName(childName("Button"));
-        button.setOpaque(false);
-        return button;
+        return componentFactory.withStyle(style, () -> {
+            Button button = new Button(
+                    componentFactory,
+                    componentFactory.getIconUtils().getIcon(attributes),
+                    ""
+            );
+            new ButtonStyle(componentFactory).apply(button);
+            button.setName(childName("Button"));
+            button.setOpaque(false);
+            return button;
+        });
     }
 
     private void configureLayout() {
@@ -133,6 +135,20 @@ public class FileSelector extends CompositeComponent {
         }
         String value = styles.get(key);
         return value == null || value.isBlank() ? "default" : value;
+    }
+
+    public TextField getFilePathField() {
+        return filePathField;
+    }
+
+    public Button getBrowseButton() {
+        return browseButton;
+    }
+
+    public SelectionMode getSelectionMode() {
+        return fileChooser.getFileSelectionMode() == JFileChooser.DIRECTORIES_ONLY
+                ? SelectionMode.DIRECTORIES_ONLY
+                : SelectionMode.FILES_ONLY;
     }
 
     public String getValue() {

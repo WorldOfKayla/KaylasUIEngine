@@ -251,19 +251,26 @@ public class GuiBuilder {
      * @param parentPanel parent panel.
      */
     private void buildPanels(Map<String, OptionGroups> panels, JPanel parentPanel) {
-        if (panels != null) {
-            panels.forEach((componentGroup, optionGroups) -> {
-                if (optionGroups == null) {
-                    Engine.getLOGGER().warn("OptionGroups is null for component group: {}", componentGroup);
-                    return;
-                }
-                JPanel thisPanel = createPanel(optionGroups, componentGroup);
-                processChildComponents(optionGroups.getChildComponents(), thisPanel);
-                addChildPanelIfNeeded(panels, parentPanel, thisPanel, componentGroup);
-                buildPanels(optionGroups.getGroups(), thisPanel);
-                updateChildParentMap(parentPanel, thisPanel);
-            });
+        if (panels == null || panels.isEmpty() || parentPanel == null) {
+            return;
         }
+        panels.forEach((componentGroup, optionGroups) -> {
+            if (optionGroups == null || optionGroups.getPanelOptions() == null) {
+                Engine.getLOGGER().warn("Panel options are missing for component group: {}", componentGroup);
+                return;
+            }
+
+            JPanel panel = createPanel(optionGroups, componentGroup);
+            addPanelGroup(
+                    parentPanel,
+                    panel,
+                    optionGroups.getPanelOptions().getzIndex()
+            );
+            notifyPanelBuild(panels, componentGroup, parentPanel);
+
+            processChildComponents(optionGroups.getChildComponents(), panel);
+            buildPanels(optionGroups.getGroups(), panel);
+        });
     }
 
     /**
@@ -274,15 +281,13 @@ public class GuiBuilder {
      * @return created panel.
      */
     private JPanel createPanel(OptionGroups optionGroups, String componentGroup) {
-        JPanel panel = frameConstructor.getPanel().createGroupPanel(optionGroups.getPanelOptions(), componentGroup, frameConstructor);
+        JPanel panel = frameConstructor.getPanel().createGroupPanel(
+                optionGroups.getPanelOptions(),
+                componentGroup,
+                frameConstructor
+        );
         panel.setName(componentGroup);
         panel.setVisible(optionGroups.getPanelOptions().isVisible());
-        Container panelParent = panel.getParent();
-        if (panelParent != null) {
-            panelParent.setComponentZOrder(panel, optionGroups.getPanelOptions().getzIndex());
-        } else {
-            // Engine.getLOGGER().warn("Parent for panel {} is null!", panel.getName());
-        }
         return panel;
     }
 
@@ -303,7 +308,7 @@ public class GuiBuilder {
             }
             if (componentAttributes.getComponentType() != null) {
                 addComponentToParent(componentAttributes, parentPanel);
-            } else if (componentAttributes.getGroups() != null) {
+            } else if (!componentAttributes.getGroups().isEmpty()) {
                 buildPanels(componentAttributes.getGroups(), parentPanel);
             } else if (componentAttributes.getReadFrom() != null) {
                 processReadFromAttribute(componentAttributes, parentPanel);
@@ -346,41 +351,11 @@ public class GuiBuilder {
             Engine.getLOGGER().error("Failed to load attributes from: {}", componentAttributes.getReadFrom());
             return;
         }
-        if (frameAttributes.getGroups() == null && frameAttributes.getChildComponents() != null) {
+        if (frameAttributes.getGroups().isEmpty() && !frameAttributes.getChildComponents().isEmpty()) {
             processChildComponents(frameAttributes.getChildComponents(), parentPanel);
         } else {
             buildGui(componentAttributes.getReadFrom(), parentPanel);
         }
-    }
-
-    /**
-     * Adds a child panel to the parent if it does not already exist in the map.
-     *
-     * @param panels         map of panel groups.
-     * @param parentPanel    parent panel.
-     * @param childPanel     child panel.
-     * @param componentGroup component group name.
-     */
-    private void addChildPanelIfNeeded(Map<String, OptionGroups> panels, JPanel parentPanel, JPanel childPanel, String componentGroup) {
-        if (!panelsMap.containsKey(componentGroup)) {
-            addPanelGroup(parentPanel, childPanel);
-            notifyPanelBuild(panels, componentGroup, parentPanel);
-        }
-    }
-
-    /**
-     * Updates the parent-child relationship map.
-     *
-     * @param parentPanel parent panel.
-     * @param childPanel  child panel.
-     */
-    private void updateChildParentMap(JPanel parentPanel, JPanel childPanel) {
-        String parentName = parentPanel.getName();
-        if (parentName == null || parentName.isEmpty()) {
-            parentName = UUID.randomUUID().toString();
-            parentPanel.setName(parentName);
-        }
-        childParentMap.computeIfAbsent(parentName, k -> new ArrayList<>()).add(childPanel.getName());
     }
 
     /**
@@ -412,13 +387,63 @@ public class GuiBuilder {
      * @param child  child panel.
      */
     private void addPanelGroup(JPanel parent, JPanel child) {
+        addPanelGroup(parent, child, 0);
+    }
+
+    private void addPanelGroup(JPanel parent, JPanel child, int zIndex) {
         if (parent == null || child == null) {
             Engine.getLOGGER().warn("Cannot add panel group because parent or child is null");
             return;
         }
-        parent.add(child);
-        panelsMap.put(child.getName(), child);
-        updateChildParentMap(parent, child);
+
+        String childName = child.getName();
+        if (childName == null || childName.isBlank()) {
+            childName = "panel-" + UUID.randomUUID();
+            child.setName(childName);
+        }
+
+        JPanel existing = panelsMap.get(childName);
+        if (existing != null && existing != child) {
+            Container oldParent = existing.getParent();
+            if (oldParent != null) {
+                oldParent.remove(existing);
+                oldParent.revalidate();
+                oldParent.repaint();
+            }
+            removeChildReferences(childName);
+            Engine.getLOGGER().debug("Replacing existing panel instance: {}", childName);
+        }
+
+        if (child.getParent() != parent) {
+            parent.add(child);
+        }
+        int maximumIndex = Math.max(0, parent.getComponentCount() - 1);
+        int componentIndex = Math.max(0, Math.min(zIndex, maximumIndex));
+        parent.setComponentZOrder(child, componentIndex);
+
+        panelsMap.put(childName, child);
+        recordParentChild(parent, childName);
+        parent.revalidate();
+        parent.repaint();
+    }
+
+    private void recordParentChild(JPanel parent, String childName) {
+        String parentName = parent.getName();
+        if (parentName == null || parentName.isBlank()) {
+            parentName = "panel-" + UUID.randomUUID();
+            parent.setName(parentName);
+        }
+        List<String> children = childParentMap.computeIfAbsent(
+                parentName,
+                key -> new CopyOnWriteArrayList<>()
+        );
+        if (!children.contains(childName)) {
+            children.add(childName);
+        }
+    }
+
+    private void removeChildReferences(String childName) {
+        childParentMap.values().forEach(children -> children.removeIf(childName::equals));
     }
 
     /**

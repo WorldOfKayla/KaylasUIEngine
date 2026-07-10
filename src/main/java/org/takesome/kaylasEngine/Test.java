@@ -4,6 +4,10 @@ import org.takesome.kaylasEngine.gui.ComponentValue;
 import org.takesome.kaylasEngine.gui.GuiBuilder;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactoryListener;
+import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
+import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
+import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
+import org.takesome.kaylasEngine.gui.components.slider.TexturedSliderUI;
 import org.takesome.kaylasEngine.gui.components.button.Button;
 import org.takesome.kaylasEngine.gui.components.frame.OptionGroups;
 import org.takesome.kaylasEngine.gui.components.multiButton.MultiButton;
@@ -13,6 +17,7 @@ import javax.swing.*;
 import java.awt.*;
 import java.awt.event.ActionEvent;
 import java.nio.file.Path;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -102,7 +107,9 @@ public final class Test extends Engine {
         }
         setInit(true);
         LOGGER.info("Test bootstrap GUI panels are built.");
-        exitAfterSmokeTestIfRequested();
+        if (verifyComponentRuntimeForSmokeRun()) {
+            exitAfterSmokeTestIfRequested();
+        }
     }
 
     @Override
@@ -169,6 +176,126 @@ public final class Test extends Engine {
             watchdog.setDaemon(true);
             watchdog.start();
         }
+    }
+
+    private boolean verifyComponentRuntimeForSmokeRun() {
+        if (!Boolean.getBoolean("kaylasengine.test.exitAfterInit")) {
+            return true;
+        }
+
+        GuiBuilder builder = getGuiBuilder();
+        JPanel mainPanel = builder == null ? null : builder.getPanelsMap().get(MAIN_PANEL_ID);
+        if (mainPanel == null) {
+            LOGGER.debug("Component runtime smoke verification deferred: main panel is not built yet.");
+            return false;
+        }
+
+        try {
+            Component sliderComponent = findNamedComponent(mainPanel, "demoSlider");
+            if (!(sliderComponent instanceof CompositeSlider compositeSlider)) {
+                throw new IllegalStateException("Smoke regression component 'demoSlider' was not created");
+            }
+            if (!(compositeSlider.getSlider().getUI() instanceof TexturedSliderUI sliderUi)) {
+                throw new IllegalStateException("Composite slider lost TexturedSliderUI");
+            }
+            compositeSlider.doLayout();
+            compositeSlider.getSlider().doLayout();
+            Rectangle trackBounds = sliderUi.getTrackBoundsSnapshot();
+            Rectangle thumbBounds = sliderUi.getThumbBoundsSnapshot();
+            if (trackBounds.width <= 0
+                    || trackBounds.height <= 0
+                    || trackBounds.x < 0
+                    || trackBounds.y < 0
+                    || thumbBounds.width <= 0
+                    || thumbBounds.height <= 0
+                    || thumbBounds.x < 0
+                    || thumbBounds.y < 0
+                    || thumbBounds.x + thumbBounds.width > compositeSlider.getSlider().getWidth()
+                    || thumbBounds.y + thumbBounds.height > compositeSlider.getSlider().getHeight()) {
+                throw new IllegalStateException(
+                        "Composite slider geometry is invalid: track=" + trackBounds
+                                + ", thumb=" + thumbBounds
+                                + ", component=" + compositeSlider.getSlider().getBounds()
+                );
+            }
+            if (compositeSlider.getSubComponentCount() != 3
+                    || compositeSlider.getSlider().getWidth() <= 0
+                    || compositeSlider.getSpinner().getWidth() <= 0) {
+                throw new IllegalStateException("Composite slider internal layout is invalid");
+            }
+
+            Component selectorComponent = findNamedComponent(
+                    mainPanel,
+                    "directorySelectorRegression"
+            );
+            if (!(selectorComponent instanceof FileSelector selector)) {
+                throw new IllegalStateException("Smoke regression directory selector was not created");
+            }
+            if (selector.getSelectionMode() != SelectionMode.DIRECTORIES_ONLY) {
+                throw new IllegalStateException("Directory selector did not resolve folder mode");
+            }
+            if (selector.getSubComponentCount() != 2
+                    || selector.getFilePathField().getWidth() <= 0
+                    || selector.getBrowseButton().getWidth() <= 0) {
+                throw new IllegalStateException("Directory selector internal layout is invalid");
+            }
+            if (selector.getBrowseButton().defaultTX == null) {
+                throw new IllegalStateException("Directory selector browse button lost its targeted style");
+            }
+
+            JPanel checkboxPanelA = builder.getPanelsMap().get("checkboxPanelRegressionA");
+            JPanel checkboxPanelB = builder.getPanelsMap().get("checkboxPanelRegressionB");
+            if (checkboxPanelA == null || checkboxPanelB == null) {
+                throw new IllegalStateException("Checkbox panel regression fixtures were not created");
+            }
+            if (checkboxPanelA.isOpaque() || checkboxPanelB.isOpaque()
+                    || checkboxPanelA.getBackground().getAlpha() != 0
+                    || checkboxPanelB.getBackground().getAlpha() != 0) {
+                throw new IllegalStateException("Transparent checkbox panels acquired an opaque background");
+            }
+            if (checkboxPanelA.getBounds().intersects(checkboxPanelB.getBounds())) {
+                throw new IllegalStateException("Checkbox panels overlap after layout construction");
+            }
+            if (checkboxPanelA.getParent() != mainPanel || checkboxPanelB.getParent() != mainPanel) {
+                throw new IllegalStateException("Checkbox panels were attached to the wrong parent");
+            }
+
+            List<String> mainChildren = builder.getChildParentMap()
+                    .getOrDefault(MAIN_PANEL_ID, List.of());
+            if (Collections.frequency(mainChildren, "checkboxPanelRegressionA") != 1
+                    || Collections.frequency(mainChildren, "checkboxPanelRegressionB") != 1) {
+                throw new IllegalStateException("Panel parent-child registry contains duplicate entries");
+            }
+
+            LOGGER.info(
+                    "Slider, directory selector and transparent checkbox panel regression checks passed."
+            );
+            return true;
+        } catch (RuntimeException error) {
+            LOGGER.error("Component runtime smoke regression failed.", error);
+            shutdownExecutorService();
+            getFrame().dispose();
+            System.exit(3);
+            return false;
+        }
+    }
+
+    private Component findNamedComponent(Container container, String componentName) {
+        if (container == null || componentName == null) {
+            return null;
+        }
+        for (Component component : container.getComponents()) {
+            if (componentName.equals(component.getName())) {
+                return component;
+            }
+            if (component instanceof Container childContainer) {
+                Component nested = findNamedComponent(childContainer, componentName);
+                if (nested != null) {
+                    return nested;
+                }
+            }
+        }
+        return null;
     }
 
     private void exitAfterSmokeTestIfRequested() {

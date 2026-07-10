@@ -2,8 +2,8 @@
   "logLevel": "INFO",
   "bindUrl": "http://localhost/",
   "launcherBrand": "KaylasUI Engine",
-  "launcherVersion": "1.18.0-AURELIA",
-  "launcherBuild": "AURELIA",
+  "launcherVersion": "2.0.0-AURELIA",
+  "launcherBuild": "AURELIA-2",
   "programRuntime": "java",
   "groupDomain": "takesome",
   "vkAPIversion": "5.199",
@@ -20,7 +20,8 @@
     "combobox",
     "dropBox",
     "fileSelector",
-    "compositeSlider"
+    "compositeSlider",
+    "compositeComponent"
   ],
   "loadAdapters": [
     "json",

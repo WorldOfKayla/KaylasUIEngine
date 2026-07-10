@@ -2,49 +2,68 @@ package org.takesome.kaylasEngine.gui.components.panel;
 
 import org.takesome.kaylasEngine.gui.components.Bounds;
 
+/** Declarative panel options with transparent and absolute-layout defaults. */
 @SuppressWarnings("unused")
 public class PanelAttributes {
-    private boolean opaque = false, visible,focusable, doubleBuffered = true;
-    private int cornerRadius, zIndex = 0;
-    private String border = "", listener = "",background = "",backgroundImage, layout;
-    private Bounds bounds;
+    private boolean opaque;
+    private boolean visible = true;
+    private boolean focusable;
+    private boolean doubleBuffered = true;
+    private int cornerRadius;
+    private int zIndex;
+    private String border = "";
+    private String listener = "";
+    private String background = "#00000000";
+    private String backgroundImage;
+    private String layout;
+    private Bounds bounds = new Bounds(0, 0, 0, 0);
 
     public boolean isOpaque() {
         return opaque;
     }
+
     public boolean isVisible() {
         return visible;
     }
+
     public boolean isFocusable() {
         return focusable;
     }
+
     public int getCornerRadius() {
-        return cornerRadius;
+        return Math.max(0, cornerRadius);
     }
+
     public String getBorder() {
-        return border;
+        return border == null ? "" : border;
     }
+
     public String getListener() {
-        return listener;
+        return listener == null ? "" : listener;
     }
+
     public String getLayout() {
         return layout;
     }
+
     public boolean isDoubleBuffered() {
         return doubleBuffered;
     }
+
     public String getBackground() {
-        return background;
+        return background == null || background.isBlank() ? "#00000000" : background;
     }
+
     public String getBackgroundImage() {
-        return backgroundImage;
+        return backgroundImage == null || backgroundImage.isBlank() ? null : backgroundImage;
     }
+
     public Bounds getBounds() {
-        return bounds;
+        return bounds == null ? new Bounds(0, 0, 0, 0) : bounds;
     }
 
     public int getzIndex() {
-        return zIndex;
+        return Math.max(0, zIndex);
     }
 
     public void setOpaque(boolean opaque) {

@@ -244,14 +244,14 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
             Map<String, ?> configFiles // nullable
     ) {
         String header = String.format(
-                "%s \n— %s",
+                "%s\n:: %s",
                 engineBrand != null ? engineBrand : "Unknown Engine",
                 appTitle != null ? appTitle : "Untitled"
         );
 
         // Prepare lines
         List<String> lines = new ArrayList<>();
-        lines.add("===== Kayla's Initialization =====");
+        lines.add("KAYLAS UI ENGINE // AURELIA 2");
         lines.add(String.format("Engine Version: %s", engineVersion));
         lines.add(String.format("Operating System: %s", currentOS));
         if (osBean != null) {
@@ -270,13 +270,13 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         int innerWidth = max + padding * 2;
 
         // Box drawing
-        String top    = "╔" + "═".repeat(innerWidth) + "╗\n";
+        String top    = "+" + "-".repeat(innerWidth) + "+\n";
         StringBuilder middle = new StringBuilder(lines.size() * (innerWidth + 4));
-        String bottom = "╚" + "═".repeat(innerWidth) + "╝";
+        String bottom = "+" + "-".repeat(innerWidth) + "+";
 
         for (String l : lines) {
             String padded = " ".repeat(padding) + l + " ".repeat(innerWidth - padding - l.length());
-            middle.append("\u2551").append(padded).append("\u2551\n");
+            middle.append("|").append(padded).append("|\n");
         }
         String box = top + middle + bottom;
         LOGGER.info("\n" + box + "\n" + header );

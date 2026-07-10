@@ -1,35 +1,41 @@
 {
   "styles": {
     "label": {
-      "promptLabel": {
+      "default": {
         "opaque": false,
-        "float": "right",
-        "name": "Pumpkin Power",
-        "font": "mcfont",
-        "color": "#ffffff"
+        "name": "Aurelia Label Base",
+        "font": "Primary",
+        "fontStyle": "plain",
+        "fontSize": 14,
+        "color": "#ffffff",
+        "align": "LEFT"
       },
-	  "arcJet": {
-		"opaque": false,
+      "promptLabel": {
+        "extends": "default",
+        "name": "Pumpkin Power",
+        "font": "mcfont"
+      },
+      "arcJet": {
+        "extends": "default",
         "name": "Naming the Company",
         "font": "arcjet",
         "color": "#e66b24bd"
-	  },
+      },
       "heading": {
-        "opaque": false,
+        "extends": "default",
         "name": "Naming the space",
-        "font": "Primary",
         "color": "#e3e0c585"
       },
       "title": {
-        "opaque": false,
+        "extends": "default",
         "name": "Title",
         "font": "mcfont",
         "color": "#b0976b"
       },
       "titleBold": {
-        "opaque": false,
-        "name": "Title",
+        "extends": "title",
         "font": "mcfontBold",
+        "fontStyle": "bold",
         "color": "#da3156"
       }
     }

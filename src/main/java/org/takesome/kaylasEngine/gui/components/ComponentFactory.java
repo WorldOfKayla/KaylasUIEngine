@@ -9,9 +9,9 @@ import org.takesome.kaylasEngine.gui.components.button.Button;
 import org.takesome.kaylasEngine.gui.components.button.ButtonStyle;
 import org.takesome.kaylasEngine.gui.components.checkbox.Checkbox;
 import org.takesome.kaylasEngine.gui.components.checkbox.CheckboxStyle;
-import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 import org.takesome.kaylasEngine.gui.components.combobox.ComboboxStyle;
+import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
 import org.takesome.kaylasEngine.gui.components.label.Label;
@@ -20,7 +20,6 @@ import org.takesome.kaylasEngine.gui.components.multiButton.MultiButton;
 import org.takesome.kaylasEngine.gui.components.multiButton.MultiButtonStyle;
 import org.takesome.kaylasEngine.gui.components.passfield.PassField;
 import org.takesome.kaylasEngine.gui.components.passfield.PassFieldStyle;
-import org.takesome.kaylasEngine.gui.components.progressBar.HearthstoneProgressBar;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyle;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
@@ -33,63 +32,74 @@ import org.takesome.kaylasEngine.gui.components.textfield.TextField;
 import org.takesome.kaylasEngine.gui.components.textfield.TextFieldStyle;
 import org.takesome.kaylasEngine.gui.components.utils.tooltip.CustomTooltip;
 import org.takesome.kaylasEngine.gui.components.utils.tooltip.TooltipAttributes;
-import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.gui.scripting.LuaUiScriptEngine;
+import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.takesome.kaylasEngine.utils.IconUtils;
-import java.awt.Rectangle;
 
-import javax.swing.*;
+import javax.swing.AbstractAction;
+import javax.swing.JComponent;
+import javax.swing.KeyStroke;
+import javax.swing.SwingUtilities;
+import java.awt.Cursor;
+import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.util.ArrayDeque;
+import java.util.Collections;
+import java.util.Deque;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
-import java.util.concurrent.ConcurrentHashMap;
+import java.util.Optional;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
+import java.util.function.Supplier;
 
 import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
 
 /**
- * Factory responsible for creating Swing {@link JComponent} instances used by the GUI system.
+ * Extensible, context-based factory for KaylasUI Swing components.
  *
- * <p>
- * The factory holds a registry of component creators and style definitions. Components are created
- * from {@link ComponentAttributes} describing type, style, bounds and behavior. The factory also
- * provides async creation helpers, tooltip initialization and composite component creation.
- * </p>
+ * <p>Every creation receives an immutable {@link ComponentCreationContext}; nested component
+ * creation restores its parent context automatically. This removes the shared mutable style and
+ * descriptor state that previously made asynchronous and composite creation non-deterministic.</p>
  */
 public class ComponentFactory extends JComponent {
+    private static final String STYLE_PROPERTY = "kaylas.ui.style";
+    private static final String STYLE_CHAIN_PROPERTY = "kaylas.ui.styleChain";
+    private static final String ATTRIBUTES_PROPERTY = "kaylas.ui.attributes";
 
     private final Engine engine;
     private final LanguageProvider langProvider;
     private final IconUtils iconUtils;
-    private final Map<String, Map<String, StyleAttributes>> componentStyles = new ConcurrentHashMap<>();
-    private final Map<String, Function<ComponentAttributes, JComponent>> componentRegistry = new ConcurrentHashMap<>();
     private final LuaUiScriptEngine luaUiScriptEngine;
     private final Map<String, TooltipAttributes> tooltipCache = new ConcurrentHashMap<>();
-    private StyleAttributes style;
-    private ComponentAttributes componentAttribute;
-    private ComponentFactoryListener componentFactoryListener;
-    private Rectangle bounds;
+    private final Map<String, ComponentDefinition<? extends JComponent>> componentDefinitions = new ConcurrentHashMap<>();
+    private final Map<String, String> componentAliases = new ConcurrentHashMap<>();
+    private final Map<String, Function<ComponentAttributes, JComponent>> legacyRegistry = new ConcurrentHashMap<>();
+    private final ThreadLocal<Deque<ComponentCreationContext>> creationStack =
+            ThreadLocal.withInitial(ArrayDeque::new);
+    private final ThreadLocal<Deque<StyleAttributes>> scopedStyles =
+            ThreadLocal.withInitial(ArrayDeque::new);
 
-    /**
-     * Creates a new ComponentFactory bound to the provided {@link Engine}.
-     *
-     * <p>
-     * The constructor registers a set of built-in component creators (label, button, textArea, etc.).
-     * </p>
-     *
-     * @param engine engine instance used for resources, localization and event wiring; must not be {@code null}.
-     */
+    private volatile StyleAttributes fallbackStyle = StyleAttributes.defaults("default");
+    private volatile ComponentAttributes lastComponentAttribute;
+    private volatile ComponentFactoryListener componentFactoryListener;
+
     public ComponentFactory(Engine engine) {
-        this.engine = engine;
+        this.engine = Objects.requireNonNull(engine, "engine");
         this.langProvider = engine.getLANG();
         this.iconUtils = new IconUtils(engine);
         this.luaUiScriptEngine = new LuaUiScriptEngine(engine);
+        registerBuiltIns();
+    }
 
+    private void registerBuiltIns() {
         registerComponent("label", this::createLabel);
         registerComponent("progressBar", this::createProgressBar);
         registerComponent("button", this::createButton);
@@ -101,376 +111,493 @@ public class ComponentFactory extends JComponent {
         registerComponent("spinner", this::createSpinner);
         registerComponent("multiButton", this::createMultiButton);
         registerComponent("combobox", this::createCombobox);
-        registerComponent("comboBox", this::createCombobox);
         registerComponent("dropBox", this::createCombobox);
         registerComponent("slider", this::createSlider);
         registerComponent("compositeSlider", this::createCompositeSlider);
         registerComponent("fileSelector", this::createFileSelector);
         registerComponent("compositeComponent", this::createCompositeComponent);
+
+        registerAlias("checkbox", "checkBox");
+        registerAlias("check-box", "checkBox");
+        registerAlias("textfield", "textField");
+        registerAlias("text-field", "textField");
+        registerAlias("textarea", "textArea");
+        registerAlias("text-area", "textArea");
+        registerAlias("progress", "progressBar");
+        registerAlias("progress-bar", "progressBar");
+        registerAlias("sprite", "spriteImage");
+        registerAlias("dropdown", "dropBox");
+        registerAlias("select", "combobox");
+        registerAlias("composite", "compositeComponent");
     }
 
-    /**
-     * Registers a component creator function for a given component type identifier.
-     *
-     * @param type    string identifier used in {@link ComponentAttributes#getComponentType()}.
-     * @param creator function that receives {@link ComponentAttributes} and returns the created {@link JComponent}.
-     */
+    /** Compatibility registration API. New integrations should prefer {@link #registerDefinition}. */
     public void registerComponent(String type, Function<ComponentAttributes, JComponent> creator) {
-        if (type == null || type.isBlank()) {
-            throw new IllegalArgumentException("Component type must not be blank");
-        }
-        componentRegistry.put(type, Objects.requireNonNull(creator, "creator"));
-        Engine.LOGGER.info("    - Registered component: {}", type);
+        Objects.requireNonNull(creator, "creator");
+        String canonicalType = requireType(type, "component type");
+        ComponentDefinition<JComponent> definition = ComponentDefinition.<JComponent>builder(canonicalType)
+                .applyBaseStyle(false)
+                .creator(context -> creator.apply(context.attributes()))
+                .build();
+        registerDefinition(definition);
+        legacyRegistry.put(canonicalType, creator);
     }
 
-    /**
-     * Creates a component asynchronously using a background task.
-     *
-     * <p>
-     * This method wraps {@link #createComponent(ComponentAttributes)} in a {@link CompletableFuture}.
-     * Any exceptions during creation are caught and logged; {@code null} is returned in such cases.
-     * </p>
-     *
-     * @param attributes component attributes describing the component to create.
-     * @return a CompletableFuture that completes with the created {@link JComponent} or {@code null} on error.
-     */
-    public CompletableFuture<JComponent> createComponentAsync(ComponentAttributes attributes) {
-        return CompletableFuture.supplyAsync(() -> {
-            try {
-                return createComponent(attributes);
-            } catch (Exception e) {
-                Engine.LOGGER.error("Error creating component: {}", attributes != null ? attributes.getComponentType() : "null", e);
-                return null;
-            }
-        }, engine.getExecutorServiceProvider().getExecutorService());
+    public <T extends JComponent> void registerDefinition(ComponentDefinition<T> definition) {
+        Objects.requireNonNull(definition, "definition");
+        String key = normalizeType(definition.type());
+        ComponentDefinition<? extends JComponent> previous = componentDefinitions.put(key, definition);
+        if (previous != null) {
+            Engine.LOGGER.warn("Component definition '{}' was replaced.", definition.type());
+        }
+        for (String alias : definition.aliases()) {
+            registerAlias(alias, definition.type());
+        }
+        Engine.LOGGER.info("    - Registered component: {}", definition.type());
     }
 
-    /**
-     * Creates a composite component that contains multiple child components.
-     *
-     * <p>
-     * This feature is experimental: children are created (potentially asynchronously internally)
-     * and attached to a {@code CompositeComponent}. Child components inherit the parent's initial value
-     * when not explicitly provided.
-     * </p>
-     *
-     * @param componentAttributes attributes describing the composite and its children.
-     * @return constructed composite {@link JComponent}.
-     * @throws RuntimeException if child creation is interrupted or fails.
-     */
-    public JComponent createCompositeComponent(ComponentAttributes componentAttributes) {
-        CompositeComponent compositeComponent = new CompositeComponent(resolveCompositeLayout(componentAttributes));
-        compositeComponent.setLayoutConfig(componentAttributes.getLayoutConfig());
-        compositeComponent.setValue(componentAttributes.getInitialValue());
-        compositeComponent.setVisible(componentAttributes.isVisible());
-        compositeComponent.setOpaque(componentAttributes.isOpaque());
-
-        List<ComponentAttributes> children = componentAttributes.getChildComponents();
-        if (children == null || children.isEmpty()) {
-            Engine.LOGGER.info("CompositeComponent '{}' has no child components.", componentAttributes.getComponentId());
-            return compositeComponent;
-        }
-
-        Engine.LOGGER.info("Creating CompositeComponent '{}' with {} child components.",
-                componentAttributes.getComponentId(), children.size());
-
-        for (ComponentAttributes childAttributes : children) {
-            if (childAttributes == null) {
-                Engine.LOGGER.warn("CompositeComponent '{}' ignored null child attributes.", componentAttributes.getComponentId());
-                continue;
-            }
-            inheritCompositeDefaults(componentAttributes, childAttributes);
-            JComponent child = this.createComponent(childAttributes);
-            compositeComponent.addSubComponent(child, compositeComponent.getLayoutConfigFor(childAttributes.getComponentType()));
-        }
-
-        Engine.LOGGER.info("CompositeComponent '{}' created successfully.", componentAttributes.getComponentId());
-        return compositeComponent;
+    public void registerAlias(String alias, String componentType) {
+        String aliasKey = normalizeType(requireType(alias, "component alias"));
+        ComponentDefinition<? extends JComponent> target = findDefinition(componentType)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Cannot register alias '" + alias + "' for unknown component type '" + componentType + "'"
+                ));
+        componentAliases.put(aliasKey, normalizeType(target.type()));
     }
 
+    public boolean unregisterComponent(String componentType) {
+        Optional<ComponentDefinition<? extends JComponent>> definition = findDefinition(componentType);
+        if (definition.isEmpty()) {
+            return false;
+        }
+        String canonicalKey = normalizeType(definition.get().type());
+        componentAliases.entrySet().removeIf(entry -> entry.getValue().equals(canonicalKey));
+        legacyRegistry.remove(definition.get().type());
+        return componentDefinitions.remove(canonicalKey) != null;
+    }
 
+    public Optional<ComponentDefinition<? extends JComponent>> findDefinition(String componentType) {
+        if (componentType == null || componentType.isBlank()) {
+            return Optional.empty();
+        }
+        String key = normalizeType(componentType);
+        String canonicalKey = componentAliases.getOrDefault(key, key);
+        return Optional.ofNullable(componentDefinitions.get(canonicalKey));
+    }
 
-    /**
-     * Creates a Swing component described by {@link ComponentAttributes}.
-     *
-     * <p>
-     * The method resolves a registered creator by {@code componentType}, applies styles, sets bounds,
-     * initializes tooltips (if present), and wires basic actions/listeners.
-     * </p>
-     *
-     * @param attributes descriptor describing the desired component.
-     * @return created {@link JComponent}.
-     * @throws IllegalArgumentException if the {@code componentType} is not registered / supported.
-     */
     public JComponent createComponent(ComponentAttributes attributes) {
         Objects.requireNonNull(attributes, "attributes");
-        this.componentAttribute = attributes;
-        this.bounds = attributes.getBounds();
-        loadStyle(attributes);
+        attributes.validateForCreation();
 
-        String componentType = attributes.getComponentType();
-        Function<ComponentAttributes, JComponent> creator = componentRegistry.get(componentType);
-        if (creator == null) {
-            throw new IllegalArgumentException("Unsupported component type: " + componentType);
+        ComponentDefinition<? extends JComponent> definition = findDefinition(attributes.getComponentType())
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "Unsupported component type: " + attributes.getComponentType()
+                                + ". Registered types: " + getRegisteredComponentTypes()
+                ));
+
+        List<String> styleChain = attributes.getStyleChain();
+        if (styleChain.isEmpty() && definition.defaultStyle() != null) {
+            styleChain = List.of(definition.defaultStyle());
         }
+        StyleAttributes resolvedStyle = engine.getStyleProvider().resolveStyle(
+                definition.type(),
+                styleChain,
+                attributes.getStyleOverrides()
+        );
+        ComponentCreationContext context = new ComponentCreationContext(
+                this,
+                definition,
+                attributes,
+                resolvedStyle,
+                attributes.getBounds(),
+                styleChain
+        );
 
-        if (componentFactoryListener != null) {
-            componentFactoryListener.onComponentCreation(attributes);
+        Deque<ComponentCreationContext> stack = creationStack.get();
+        stack.push(context);
+        lastComponentAttribute = attributes;
+        try {
+            ComponentFactoryListener listener = componentFactoryListener;
+            if (listener != null) {
+                listener.onComponentCreation(attributes);
+            }
+            JComponent component = definition.create(context);
+            applyCommonAttributes(component, context);
+            return component;
+        } finally {
+            stack.pop();
+            if (stack.isEmpty()) {
+                creationStack.remove();
+            }
         }
-
-        JComponent component = Objects.requireNonNull(creator.apply(attributes),
-                "Component creator returned null for type: " + componentType);
-        applyCommonAttributes(component, attributes);
-        return component;
     }
 
     /**
-     * Initializes and attaches a tooltip to the given component based on tooltip style attributes.
-     *
-     * <p>
-     * This method reads tooltip style definitions from a bundled JSON resource and builds a {@link CustomTooltip}.
-     * </p>
-     *
-     * @param component  component to attach the tooltip to.
-     * @param attributes component attributes containing tooltip keys and style names.
+     * Creates a Swing component on the EDT and completes the future with the result.
+     * Descriptor parsing and other non-Swing work should remain on background executors.
      */
+    public CompletableFuture<JComponent> createComponentAsync(ComponentAttributes attributes) {
+        CompletableFuture<JComponent> future = new CompletableFuture<>();
+        Runnable creation = () -> {
+            try {
+                future.complete(createComponent(attributes));
+            } catch (Throwable error) {
+                Engine.LOGGER.error(
+                        "Error creating component: {}",
+                        attributes == null ? "null" : attributes.getComponentType(),
+                        error
+                );
+                future.completeExceptionally(error);
+            }
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            creation.run();
+        } else {
+            SwingUtilities.invokeLater(creation);
+        }
+        return future;
+    }
+
+    public JComponent createCompositeComponent(ComponentAttributes attributes) {
+        CompositeComponent composite = new CompositeComponent(resolveCompositeLayout(attributes));
+        composite.setLayoutConfig(attributes.getLayoutConfig());
+        composite.setValue(attributes.getInitialValue());
+
+        List<ComponentAttributes> children = attributes.getChildComponents();
+        if (children == null || children.isEmpty()) {
+            Engine.LOGGER.debug("CompositeComponent '{}' has no child components.", attributes.getComponentId());
+            return composite;
+        }
+
+        for (ComponentAttributes child : children) {
+            if (child == null) {
+                Engine.LOGGER.warn("CompositeComponent '{}' ignored a null child descriptor.", attributes.getComponentId());
+                continue;
+            }
+            inheritCompositeDefaults(attributes, child);
+            JComponent childComponent = createComponent(child);
+            composite.addSubComponent(childComponent, composite.getLayoutConfigFor(child.getComponentType()));
+        }
+        return composite;
+    }
+
+    private void inheritCompositeDefaults(ComponentAttributes parent, ComponentAttributes child) {
+        if (child.getInitialValue() == null && parent.getInitialValue() != null) {
+            child.setInitialValue(parent.getInitialValue());
+        }
+        if (child.getStyleChain().isEmpty()) {
+            String targetedStyle = parent.getStyles().get(child.getComponentType());
+            if (targetedStyle == null) {
+                targetedStyle = parent.getStyles().get(normalizeType(child.getComponentType()));
+            }
+            if (targetedStyle != null && !targetedStyle.isBlank()) {
+                child.setComponentStyle(targetedStyle);
+            }
+        }
+    }
+
+    private void applyCommonAttributes(JComponent component, ComponentCreationContext context) {
+        ComponentAttributes attributes = context.attributes();
+        StyleAttributes style = context.style();
+
+        component.setName(attributes.getComponentId());
+        component.setBounds(context.bounds());
+        component.setEnabled(attributes.isEnabled());
+        component.setVisible(attributes.isVisible());
+        component.setOpaque(attributes.hasOpaque() ? attributes.isOpaque() : style.isOpaque());
+        if (context.definition().applyBaseStyle()) {
+            applyResolvedBaseStyle(component, attributes, style);
+        }
+        if (attributes.hasFocusable()) {
+            component.setFocusable(attributes.isFocusable());
+        }
+        if (attributes.hasDoubleBuffered()) {
+            component.setDoubleBuffered(attributes.isDoubleBuffered());
+        }
+        applyCursor(component, attributes.getCursor());
+        applyAccessibility(component, attributes);
+        attributes.getProperties().forEach(component::putClientProperty);
+
+        component.putClientProperty(STYLE_PROPERTY, style);
+        component.putClientProperty(STYLE_CHAIN_PROPERTY, context.styleChain());
+        component.putClientProperty(ATTRIBUTES_PROPERTY, attributes);
+
+        if (attributes.getToolTip() != null && !attributes.getToolTip().isBlank()) {
+            initializeTooltip(component, attributes);
+        }
+        luaUiScriptEngine.bind(component, attributes);
+    }
+
+    private void applyResolvedBaseStyle(JComponent component,
+                                        ComponentAttributes attributes,
+                                        StyleAttributes style) {
+        component.setForeground(hexToColor(valueOr(attributes.getColor(), style.getColor())));
+
+        String background = valueOr(attributes.getBackground(), style.getBackground());
+        if (background != null
+                && !background.isBlank()
+                && !"transparent".equalsIgnoreCase(background)) {
+            component.setBackground(hexToColor(background));
+        }
+
+        component.setFont(engine.getFONTUTILS().getFont(
+                valueOr(attributes.getFont(), style.getFont()),
+                attributes.getFontSize() > 0 ? attributes.getFontSize() : style.getFontSize(),
+                valueOr(attributes.getFontStyle(), style.getFontStyle())
+        ));
+    }
+
+    private void applyAccessibility(JComponent component, ComponentAttributes attributes) {
+        if (attributes.getAccessibleName() != null && !attributes.getAccessibleName().isBlank()) {
+            component.getAccessibleContext().setAccessibleName(attributes.getAccessibleName());
+        }
+        if (attributes.getAccessibleDescription() != null && !attributes.getAccessibleDescription().isBlank()) {
+            component.getAccessibleContext().setAccessibleDescription(attributes.getAccessibleDescription());
+        }
+    }
+
+    private void applyCursor(JComponent component, String cursorName) {
+        if (cursorName == null || cursorName.isBlank()) {
+            return;
+        }
+        int cursorType = switch (cursorName.trim().toLowerCase(Locale.ROOT)) {
+            case "hand", "pointer" -> Cursor.HAND_CURSOR;
+            case "text" -> Cursor.TEXT_CURSOR;
+            case "wait", "busy" -> Cursor.WAIT_CURSOR;
+            case "move" -> Cursor.MOVE_CURSOR;
+            case "crosshair" -> Cursor.CROSSHAIR_CURSOR;
+            case "resize-e", "e-resize" -> Cursor.E_RESIZE_CURSOR;
+            case "resize-w", "w-resize" -> Cursor.W_RESIZE_CURSOR;
+            case "resize-n", "n-resize" -> Cursor.N_RESIZE_CURSOR;
+            case "resize-s", "s-resize" -> Cursor.S_RESIZE_CURSOR;
+            default -> Cursor.DEFAULT_CURSOR;
+        };
+        component.setCursor(Cursor.getPredefinedCursor(cursorType));
+    }
+
     private void initializeTooltip(JComponent component, ComponentAttributes attributes) {
-        String toolTipStyle = valueOr(attributes.getTooltipStyle(), "default");
-        TooltipAttributes tooltipAttributes = tooltipCache.computeIfAbsent(toolTipStyle, this::loadTooltipAttributes);
-
-        if (tooltipAttributes != null) {
-            CustomTooltip tooltip = new CustomTooltip(
-                    hexToColor(tooltipAttributes.getBgColor()),
-                    hexToColor(tooltipAttributes.getTextColor()),
-                    tooltipAttributes.getBorderRadius(),
-                    engine.getFONTUTILS().getFont(tooltipAttributes.getFont(), tooltipAttributes.getFontSize())
-            );
-            tooltip.attachToComponent(component, langProvider.getString(attributes.getToolTip()), 2000);
+        String tooltipStyle = valueOr(attributes.getTooltipStyle(), "default");
+        TooltipAttributes tooltipAttributes = tooltipCache.computeIfAbsent(tooltipStyle, this::loadTooltipAttributes);
+        if (tooltipAttributes == null) {
+            return;
         }
+        CustomTooltip tooltip = new CustomTooltip(
+                hexToColor(tooltipAttributes.getBgColor()),
+                hexToColor(tooltipAttributes.getTextColor()),
+                tooltipAttributes.getBorderRadius(),
+                engine.getFONTUTILS().getFont(tooltipAttributes.getFont(), tooltipAttributes.getFontSize())
+        );
+        tooltip.attachToComponent(component, langProvider.getString(attributes.getToolTip()), 2000);
     }
 
-    /**
-     * Loads the style for the current component from the engine's style provider.
-     *
-     * @param attributes attributes containing type and style name.
-     */
-    private void loadStyle(ComponentAttributes attributes) {
-        String componentType = attributes.getComponentType();
-        String componentStyle = attributes.getComponentStyle();
-        this.style = engine.getStyleProvider().getStyle(componentType, componentStyle);
-        if (componentType != null && !componentType.isBlank()) {
-            componentStyles.computeIfAbsent(componentType, key -> engine.getStyleProvider().getElementStyles().get(key));
-        }
-    }
-
-    /**
-     * Loads tooltip style attributes from a bundled JSON resource.
-     *
-     * @param styleName style key to lookup in the tooltip definitions.
-     * @return TooltipAttributes instance or {@code null} if loading fails.
-     */
     private TooltipAttributes loadTooltipAttributes(String styleName) {
-        try (InputStream inputStream = getClass().getClassLoader().getResourceAsStream("assets/styles/tooltip.json");
-             InputStreamReader reader = new InputStreamReader(Objects.requireNonNull(inputStream))) {
-            JsonObject jsonObject = JsonParser.parseReader(reader).getAsJsonObject();
-            if (jsonObject == null || !jsonObject.has(styleName)) {
-                Engine.LOGGER.warn("Tooltip style '{}' not found", styleName);
+        try (InputStream stream = getClass().getClassLoader().getResourceAsStream("assets/styles/tooltip.json");
+             InputStreamReader reader = new InputStreamReader(Objects.requireNonNull(stream))) {
+            JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
+            if (!root.has(styleName)) {
+                Engine.LOGGER.warn("Tooltip style '{}' not found.", styleName);
                 return null;
             }
-            return new Gson().fromJson(jsonObject.get(styleName), TooltipAttributes.class);
-        } catch (Exception e) {
-            Engine.LOGGER.error("Failed to load tooltip attributes for style: {}", styleName, e);
+            return new Gson().fromJson(root.get(styleName), TooltipAttributes.class);
+        } catch (Exception error) {
+            Engine.LOGGER.error("Failed to load tooltip style '{}'.", styleName, error);
             return null;
         }
     }
 
-    private JComponent createLabel(ComponentAttributes componentAttributes) {
-        LabelStyle labelStyle = new LabelStyle(this);
+    private JComponent createLabel(ComponentAttributes attributes) {
         Label label = new Label(this);
-        labelStyle.apply(label);
-        label.setIcon(iconUtils.getIcon(componentAttributes));
-        label.setText(localizedTextWithInitial(componentAttributes));
-        label.setForeground(hexToColor(valueOr(componentAttributes.getColor(), style.getColor())));
+        new LabelStyle(this).apply(label);
+        label.setIcon(iconUtils.getIcon(attributes));
+        label.setText(localizedTextWithInitial(attributes));
+        label.setForeground(hexToColor(valueOr(attributes.getColor(), getStyle().getColor())));
         label.setFont(engine.getFONTUTILS().getFont(
-                valueOr(componentAttributes.getFont(), style.getFont()),
-                effectiveFontSize(componentAttributes),
-                valueOr(componentAttributes.getFontStyle(), style.getFontStyle())
+                valueOr(attributes.getFont(), getStyle().getFont()),
+                effectiveFontSize(attributes),
+                valueOr(attributes.getFontStyle(), getStyle().getFontStyle())
         ));
         return label;
     }
 
-    private String localizedTextWithInitial(ComponentAttributes componentAttributes) {
-        String localized = this.getEngine().getLANG().getString(componentAttributes.getLocaleKey());
-        Object initialValue = componentAttributes.getInitialValue();
-        if (initialValue == null || String.valueOf(initialValue).isBlank()) {
-            return localized;
-        }
-        return localized + " " + initialValue;
-    }
-
-    private JComponent createProgressBar(ComponentAttributes componentAttributes) {
+    private JComponent createProgressBar(ComponentAttributes attributes) {
         ProgressBar progressBar = new ProgressBar();
-        ProgressBarStyle progressBarStyle = new ProgressBarStyle(this, componentAttributes);
-        progressBarStyle.apply(progressBar);
+        new ProgressBarStyle(this, attributes).apply(progressBar);
         return progressBar;
     }
-    private JComponent createButton(ComponentAttributes componentAttributes) {
-        ButtonStyle buttonStyle = new ButtonStyle(this);
-        String buttonText = this.getEngine().getLANG().getString(componentAttributes.getLocaleKey());
-        Button button = (componentAttributes.getImageIcon() != null) ? new Button(this, iconUtils.getIcon(componentAttributes), buttonText) : new Button(this, buttonText);
-        buttonStyle.apply(button);
-        button.setBounds(bounds);
-        button.setActionCommand(componentAttributes.getComponentId());
-        button.addActionListener(engine);
-        if (componentAttributes.getKeyCode() != null) {
-            button.setFocusable(true);
-            button.requestFocus();
-            KeyStroke keyStroke = KeyStroke.getKeyStroke(componentAttributes.getKeyCode());
-            AbstractAction buttonAction = new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    button.ButtonClick();
-                    button.doClick();
-                    button.setPressed(false);
-                }
-            };
 
-            button.getActionMap().put(componentAttributes.getComponentId(), buttonAction);
-            button.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, componentAttributes.getComponentId());
-            button.setEnabled(componentAttributes.isEnabled());
-        }
+    private JComponent createButton(ComponentAttributes attributes) {
+        String text = localizedText(attributes.getLocaleKey());
+        Button button = attributes.getImageIcon() == null
+                ? new Button(this, text)
+                : new Button(this, iconUtils.getIcon(attributes), text);
+        new ButtonStyle(this).apply(button);
+        button.setActionCommand(attributes.getComponentId());
+        button.addActionListener(engine);
+        installButtonShortcut(button, attributes);
         return button;
     }
 
-    private JComponent createTextArea(ComponentAttributes componentAttributes) {
-        AreaStyle areaStyle = new AreaStyle(this);
+    private void installButtonShortcut(Button button, ComponentAttributes attributes) {
+        if (attributes.getKeyCode() == null || attributes.getKeyCode().isBlank()) {
+            return;
+        }
+        KeyStroke keyStroke = KeyStroke.getKeyStroke(attributes.getKeyCode());
+        if (keyStroke == null) {
+            Engine.LOGGER.warn("Invalid key stroke '{}' for component '{}'.", attributes.getKeyCode(), attributes.getComponentId());
+            return;
+        }
+        String actionKey = valueOr(attributes.getComponentId(), "button.shortcut." + System.identityHashCode(button));
+        button.getActionMap().put(actionKey, new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                button.ButtonClick();
+                button.doClick();
+                button.setPressed(false);
+            }
+        });
+        button.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, actionKey);
+    }
+
+    private JComponent createTextArea(ComponentAttributes attributes) {
         TextArea textArea = new TextArea(this);
-        textArea.setLineWrap(componentAttributes.isLineWrap());
-        areaStyle.apply(textArea);
-        textArea.setText(localizedTextWithInitial(componentAttributes));
-        textArea.setForeground(hexToColor(valueOr(componentAttributes.getColor(), style.getColor())));
-        textArea.setEditable(componentAttributes.isEnabled());
-        textArea.setFont(engine.getFONTUTILS().getFont(style.getFont(), effectiveFontSize(componentAttributes)));
+        textArea.setLineWrap(attributes.isLineWrap());
+        new AreaStyle(this).apply(textArea);
+        textArea.setText(localizedTextWithInitial(attributes));
+        textArea.setForeground(hexToColor(valueOr(attributes.getColor(), getStyle().getColor())));
+        textArea.setEditable(attributes.isEditable());
+        textArea.setFont(engine.getFONTUTILS().getFont(
+                valueOr(attributes.getFont(), getStyle().getFont()),
+                effectiveFontSize(attributes),
+                valueOr(attributes.getFontStyle(), getStyle().getFontStyle())
+        ));
         return textArea;
     }
 
-    private JComponent createCheckbox(ComponentAttributes componentAttributes) {
-        CheckboxStyle checkboxStyle = new CheckboxStyle(this);
-        Checkbox checkbox = new Checkbox(this, this.getEngine().getLANG().getString(componentAttributes.getLocaleKey()));
-        checkboxStyle.apply(checkbox);
-        checkbox.setSelected(Boolean.parseBoolean(String.valueOf(componentAttributes.getInitialValue())));
-        if (componentAttributes.getKeyCode() != null) {
-            checkbox.setFocusable(true);
-            checkbox.requestFocus();
-            KeyStroke keyStroke = KeyStroke.getKeyStroke(componentAttributes.getKeyCode());
-            AbstractAction buttonAction = new AbstractAction() {
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    checkbox.toggleCheckbox();
-                    checkbox.doClick();
-                }
-            };
-
-            checkbox.getActionMap().put(componentAttributes.getComponentId(), buttonAction);
-            checkbox.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, componentAttributes.getComponentId());
-        }
-        checkbox.setEnabled(componentAttributes.isEnabled());
+    private JComponent createCheckbox(ComponentAttributes attributes) {
+        Checkbox checkbox = new Checkbox(this, localizedText(attributes.getLocaleKey()));
+        new CheckboxStyle(this).apply(checkbox);
+        checkbox.setSelected(Boolean.parseBoolean(String.valueOf(attributes.getInitialValue())));
+        installCheckboxShortcut(checkbox, attributes);
         return checkbox;
     }
 
-    private JComponent createTextField(ComponentAttributes componentAttributes) {
-        TextFieldStyle textFieldStyle = new TextFieldStyle(this);
-        TextField textField = new TextField(this);
-        textFieldStyle.apply(textField);
-        if (componentAttributes.getInitialValue() != null) {
-            textField.setText(String.valueOf(componentAttributes.getInitialValue()));
+    private void installCheckboxShortcut(Checkbox checkbox, ComponentAttributes attributes) {
+        if (attributes.getKeyCode() == null || attributes.getKeyCode().isBlank()) {
+            return;
         }
-        textField.setActionCommand(componentAttributes.getComponentId());
-        textField.addActionListener(engine);
-        return textField;
+        KeyStroke keyStroke = KeyStroke.getKeyStroke(attributes.getKeyCode());
+        if (keyStroke == null) {
+            Engine.LOGGER.warn("Invalid key stroke '{}' for component '{}'.", attributes.getKeyCode(), attributes.getComponentId());
+            return;
+        }
+        String actionKey = valueOr(attributes.getComponentId(), "checkbox.shortcut." + System.identityHashCode(checkbox));
+        checkbox.getActionMap().put(actionKey, new AbstractAction() {
+            @Override
+            public void actionPerformed(ActionEvent event) {
+                checkbox.toggleCheckbox();
+                checkbox.doClick();
+            }
+        });
+        checkbox.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, actionKey);
     }
 
-    private JComponent createSpriteImage() {
-        return new SpriteAnimation(this);
+    private JComponent createTextField(ComponentAttributes attributes) {
+        TextField textField = new TextField(this);
+        new TextFieldStyle(this).apply(textField);
+        if (attributes.getInitialValue() != null) {
+            textField.setText(String.valueOf(attributes.getInitialValue()));
+        }
+        textField.setEditable(attributes.isEditable());
+        textField.setActionCommand(attributes.getComponentId());
+        textField.addActionListener(engine);
+        return textField;
     }
 
     private JComponent createSpriteImage(ComponentAttributes attributes) {
         return new SpriteAnimation(this);
     }
 
-    private JComponent createPassField(ComponentAttributes componentAttributes) {
-        PassFieldStyle passFieldStyle = new PassFieldStyle(this);
-        PassField passField = new PassField(this, this.getEngine().getLANG().getString(componentAttributes.getLocaleKey()));
-        passFieldStyle.apply(passField);
-        passField.setFont(engine.getFONTUTILS().getFont(style.getFont(), style.getFontSize()));
-        passField.setActionCommand(componentAttributes.getComponentId());
+    private JComponent createPassField(ComponentAttributes attributes) {
+        PassField passField = new PassField(this, localizedText(attributes.getLocaleKey()));
+        new PassFieldStyle(this).apply(passField);
+        passField.setFont(engine.getFONTUTILS().getFont(
+                valueOr(attributes.getFont(), getStyle().getFont()),
+                effectiveFontSize(attributes),
+                valueOr(attributes.getFontStyle(), getStyle().getFontStyle())
+        ));
+        passField.setEditable(attributes.isEditable());
+        passField.setActionCommand(attributes.getComponentId());
         return passField;
     }
 
-    private JComponent createSpinner(ComponentAttributes componentAttributes) {
-        Spinner spinner = new Spinner(intValue(componentAttributes.getInitialValue(), componentAttributes.getMinValue()), componentAttributes.getMinValue(), componentAttributes.getMaxValue(), componentAttributes.getMajorSpacing());
-        if(spinner.getSpinnerListener() != null) {
+    private JComponent createSpinner(ComponentAttributes attributes) {
+        int minimum = attributes.getMinValue();
+        int maximum = attributes.getMaxValue() > minimum ? attributes.getMaxValue() : minimum + 100;
+        int initial = Math.max(minimum, Math.min(maximum, intValue(attributes.getInitialValue(), minimum)));
+        int step = attributes.getStepSize() > 0
+                ? attributes.getStepSize()
+                : Math.max(1, attributes.getMajorSpacing());
+        Spinner spinner = new Spinner(initial, minimum, maximum, step);
+        if (spinner.getSpinnerListener() != null) {
             spinner.init();
         }
         return spinner;
     }
-    private JComponent createMultiButton(ComponentAttributes componentAttributes) {
-        MultiButtonStyle multiButtonStyle = new MultiButtonStyle(this, componentAttributes);
+
+    private JComponent createMultiButton(ComponentAttributes attributes) {
         MultiButton multiButton = new MultiButton(this);
-        multiButtonStyle.apply(multiButton);
-        multiButton.setActionCommand(componentAttributes.getComponentId());
+        new MultiButtonStyle(this, attributes).apply(multiButton);
+        multiButton.setActionCommand(attributes.getComponentId());
         multiButton.addActionListener(engine);
         return multiButton;
     }
 
-    private JComponent createTestPB(ComponentAttributes componentAttributes){
-        return new HearthstoneProgressBar();
-    }
-    private JComponent createCombobox(ComponentAttributes componentAttributes) {
-        ComboboxStyle comboboxStyle = new ComboboxStyle(this);
-        Combobox combobox = new Combobox(this, componentAttributes.getBounds().y);
-        comboboxStyle.apply(combobox);
+    private JComponent createCombobox(ComponentAttributes attributes) {
+        Combobox combobox = new Combobox(this, attributes.getBounds().y);
+        new ComboboxStyle(this).apply(combobox);
         return combobox;
     }
 
-    private JComponent createSlider(ComponentAttributes componentAttributes) {
+    private JComponent createSlider(ComponentAttributes attributes) {
         Slider slider = new Slider(this);
-        int minValue = componentAttributes.getMinValue();
-        int maxValue = componentAttributes.getMaxValue() > minValue ? componentAttributes.getMaxValue() : minValue + 100;
-        int initialValue = Math.max(minValue, Math.min(maxValue, intValue(componentAttributes.getInitialValue(), minValue)));
+        int minimum = attributes.getMinValue();
+        int maximum = attributes.getMaxValue() > minimum ? attributes.getMaxValue() : minimum + 100;
+        int initial = Math.max(minimum, Math.min(maximum, intValue(attributes.getInitialValue(), minimum)));
+        int range = Math.max(1, maximum - minimum);
 
-        slider.setMinimum(minValue);
-        slider.setMaximum(maxValue);
-        slider.setValue(initialValue);
-        slider.setOpaque(false);
+        slider.setMinimum(minimum);
+        slider.setMaximum(maximum);
+        slider.setValue(initial);
         slider.setPaintTicks(true);
         slider.setPaintLabels(true);
-        slider.setMajorTickSpacing(componentAttributes.getMajorSpacing() > 0
-                ? componentAttributes.getMajorSpacing()
-                : Math.max(1, (maxValue - minValue) / 5));
-        slider.setMinorTickSpacing(componentAttributes.getMinorSpacing() > 0
-                ? componentAttributes.getMinorSpacing()
-                : Math.max(1, (maxValue - minValue) / 10));
-
-        slider.setUI(new TexturedSliderUI(this, slider, style));
+        slider.setMajorTickSpacing(attributes.getMajorSpacing() > 0
+                ? attributes.getMajorSpacing()
+                : Math.max(1, range / 5));
+        slider.setMinorTickSpacing(attributes.getMinorSpacing() > 0
+                ? attributes.getMinorSpacing()
+                : Math.max(1, range / 10));
+        slider.setUI(new TexturedSliderUI(this, slider, getStyle()));
         return slider;
     }
-    private JComponent createCompositeSlider(ComponentAttributes componentAttributes) {
-        CompositeSlider compositeSlider = new CompositeSlider(this);
-        if (componentAttributes.getInitialValue() != null) {
-            compositeSlider.setValue(intValue(componentAttributes.getInitialValue(), componentAttributes.getMinValue()));
+
+    private JComponent createCompositeSlider(ComponentAttributes attributes) {
+        CompositeSlider slider = new CompositeSlider(this);
+        if (attributes.getInitialValue() != null) {
+            slider.setValue(intValue(attributes.getInitialValue(), attributes.getMinValue()));
         }
-        return compositeSlider;
+        return slider;
     }
 
-    private JComponent createFileSelector(ComponentAttributes componentAttributes) {
-        FileSelector fileSelector = new FileSelector(this, selectionMode(componentAttributes.getSelectionMode()));
-        fileSelector.setValue(String.valueOf(componentAttributes.getInitialValue()));
-        return fileSelector;
+    private JComponent createFileSelector(ComponentAttributes attributes) {
+        FileSelector selector = new FileSelector(this, selectionMode(attributes.getSelectionMode()));
+        if (attributes.getInitialValue() != null) {
+            selector.setValue(String.valueOf(attributes.getInitialValue()));
+        }
+        return selector;
     }
 
     private CompositeComponent.LayoutMode resolveCompositeLayout(ComponentAttributes attributes) {
-        String mode = valueOr(attributes.getAlignment(), "absolute").toLowerCase();
+        String mode = valueOr(attributes.getAlignment(), "absolute").toLowerCase(Locale.ROOT);
         return switch (mode) {
             case "vertical", "y", "box-y" -> CompositeComponent.LayoutMode.VERTICAL;
             case "horizontal", "x", "box-x" -> CompositeComponent.LayoutMode.HORIZONTAL;
@@ -479,25 +606,23 @@ public class ComponentFactory extends JComponent {
         };
     }
 
-    private void inheritCompositeDefaults(ComponentAttributes parent, ComponentAttributes child) {
-        if (child.getInitialValue() == null && parent.getInitialValue() != null) {
-            child.setInitialValue(parent.getInitialValue());
-        }
+    private String localizedTextWithInitial(ComponentAttributes attributes) {
+        String localized = localizedText(attributes.getLocaleKey());
+        Object initialValue = attributes.getInitialValue();
+        return initialValue == null || String.valueOf(initialValue).isBlank()
+                ? localized
+                : localized + " " + initialValue;
     }
 
-    private void applyCommonAttributes(JComponent component, ComponentAttributes attributes) {
-        component.setName(attributes.getComponentId());
-        component.setBounds(attributes.getBounds());
-        component.setOpaque(style != null && style.isOpaque());
-
-        if (attributes.getToolTip() != null) {
-            initializeTooltip(component, attributes);
+    private String localizedText(String localeKey) {
+        if (localeKey == null || localeKey.isBlank()) {
+            return "";
         }
-        luaUiScriptEngine.bind(component, attributes);
+        return langProvider.getString(localeKey);
     }
 
     private int effectiveFontSize(ComponentAttributes attributes) {
-        return attributes.getFontSize() > 0 ? attributes.getFontSize() : style.getFontSize();
+        return attributes.getFontSize() > 0 ? attributes.getFontSize() : getStyle().getFontSize();
     }
 
     private int intValue(Object value, int fallback) {
@@ -506,110 +631,128 @@ public class ComponentFactory extends JComponent {
         }
         try {
             return (Integer) ConfigTypeConverter.convertToDeclaredType(value, int.class);
-        } catch (RuntimeException ex) {
-            Engine.LOGGER.warn("Invalid numeric component value: {}", value);
+        } catch (RuntimeException error) {
+            Engine.LOGGER.warn("Invalid numeric component value '{}'; using {}.", value, fallback);
             return fallback;
         }
     }
 
     private SelectionMode selectionMode(String mode) {
-        if (mode == null || mode.isBlank()) {
-            return SelectionMode.FILES_ONLY;
+        SelectionMode resolved = SelectionMode.from(mode);
+        if (mode != null && !mode.isBlank() && resolved == SelectionMode.FILES_ONLY
+                && !SelectionMode.isFileAlias(mode)) {
+            Engine.LOGGER.warn("Invalid file selection mode '{}'; using FILES_ONLY.", mode);
         }
+        return resolved;
+    }
+
+    public Optional<ComponentCreationContext> getCurrentCreationContext() {
+        Deque<ComponentCreationContext> stack = creationStack.get();
+        return stack.isEmpty() ? Optional.empty() : Optional.of(stack.peek());
+    }
+
+    public StyleAttributes getStyle() {
+        Deque<StyleAttributes> overrides = scopedStyles.get();
+        if (!overrides.isEmpty()) {
+            return overrides.peek();
+        }
+        return getCurrentCreationContext().map(ComponentCreationContext::style).orElse(fallbackStyle);
+    }
+
+    public <T> T withStyle(StyleAttributes style, Supplier<T> action) {
+        Objects.requireNonNull(style, "style");
+        Objects.requireNonNull(action, "action");
+        Deque<StyleAttributes> overrides = scopedStyles.get();
+        overrides.push(style);
         try {
-            return SelectionMode.valueOf(mode);
-        } catch (IllegalArgumentException ex) {
-            Engine.LOGGER.warn("Invalid file selection mode '{}', falling back to FILES_ONLY", mode);
-            return SelectionMode.FILES_ONLY;
+            return action.get();
+        } finally {
+            overrides.pop();
+            if (overrides.isEmpty()) {
+                scopedStyles.remove();
+            }
         }
     }
 
-    private String valueOr(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
+    public void withStyle(StyleAttributes style, Runnable action) {
+        withStyle(style, () -> {
+            action.run();
+            return null;
+        });
     }
 
-    /**
-     * Returns the engine instance associated with this factory.
-     *
-     * @return engine instance.
-     */
+    public Rectangle getBounds() {
+        return getCurrentCreationContext()
+                .map(context -> new Rectangle(context.bounds()))
+                .orElseGet(Rectangle::new);
+    }
+
+    /** Sets the fallback used only when no component is currently being created. */
+    @Deprecated(since = "2.0.0-AURELIA", forRemoval = false)
+    public void setStyle(StyleAttributes style) {
+        this.fallbackStyle = Objects.requireNonNull(style, "style");
+    }
+
+    public ComponentAttributes getComponentAttribute() {
+        return getCurrentCreationContext()
+                .map(ComponentCreationContext::attributes)
+                .orElse(lastComponentAttribute);
+    }
+
+    public Map<String, Function<ComponentAttributes, JComponent>> getComponentRegistry() {
+        return Collections.unmodifiableMap(legacyRegistry);
+    }
+
+    public Map<String, ComponentDefinition<? extends JComponent>> getComponentDefinitions() {
+        Map<String, ComponentDefinition<? extends JComponent>> definitions = new LinkedHashMap<>();
+        componentDefinitions.values().forEach(definition -> definitions.put(definition.type(), definition));
+        return Collections.unmodifiableMap(definitions);
+    }
+
+    public List<String> getRegisteredComponentTypes() {
+        return componentDefinitions.values().stream()
+                .map(ComponentDefinition::type)
+                .distinct()
+                .sorted(String.CASE_INSENSITIVE_ORDER)
+                .toList();
+    }
+
+    public Map<String, Map<String, StyleAttributes>> getComponentStyles() {
+        return engine.getStyleProvider().getElementStyles();
+    }
+
     public Engine getEngine() {
         return engine;
     }
 
-    /**
-     * Returns the language provider used for localization.
-     *
-     * @return language provider.
-     */
     public LanguageProvider getLangProvider() {
         return langProvider;
     }
 
-    /**
-     * Returns the icon utility instance used to resolve icons for components.
-     *
-     * @return icon utility.
-     */
     public IconUtils getIconUtils() {
         return iconUtils;
-    }
-
-    /**
-     * Returns the map of component styles loaded from the engine style provider.
-     *
-     * @return component styles map (componentType -> (styleName -> StyleAttributes)).
-     */
-    public Map<String, Map<String, StyleAttributes>> getComponentStyles() {
-        return componentStyles;
-    }
-
-    /**
-     * Returns the registry of component creators.
-     *
-     * @return map of component type -> creator function.
-     */
-    public Map<String, Function<ComponentAttributes, JComponent>> getComponentRegistry() {
-        return componentRegistry;
-    }
-
-    /**
-     * Returns the currently applied style attributes used during component creation.
-     *
-     * @return current {@link StyleAttributes} or {@code null} if none applied.
-     */
-    public StyleAttributes getStyle() {
-        return style;
-    }
-
-    /**
-     * Manually sets the style attributes to be used for subsequent component creation.
-     *
-     * @param style style attributes.
-     */
-    public void setStyle(StyleAttributes style) {
-        this.style = style;
-    }
-
-    /**
-     * Returns the last {@link ComponentAttributes} used by {@link #createComponent(ComponentAttributes)}.
-     *
-     * @return last component attributes or {@code null}.
-     */
-    public ComponentAttributes getComponentAttribute() {
-        return componentAttribute;
     }
 
     public LuaUiScriptEngine getLuaUiScriptEngine() {
         return luaUiScriptEngine;
     }
 
-    /**
-     * Sets a listener that will receive component factory events (creation start/completion etc.).
-     *
-     * @param componentFactoryListener listener instance.
-     */
     public void setComponentFactoryListener(ComponentFactoryListener componentFactoryListener) {
         this.componentFactoryListener = componentFactoryListener;
+    }
+
+    private static String requireType(String value, String label) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(label + " must not be blank");
+        }
+        return value.trim();
+    }
+
+    private static String normalizeType(String type) {
+        return requireType(type, "component type").toLowerCase(Locale.ROOT);
+    }
+
+    private static String valueOr(String value, String fallback) {
+        return value == null || value.isBlank() ? fallback : value;
     }
 }

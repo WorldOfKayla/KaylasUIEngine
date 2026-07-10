@@ -1,53 +1,94 @@
 package org.takesome.kaylasEngine.gui.components.button;
 
+import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.Align;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
+import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.utils.ImageUtils;
 
-import javax.swing.*;
+import javax.swing.SwingConstants;
 import java.awt.image.BufferedImage;
+import java.util.Objects;
 
 import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
 
+/** Applies a resolved immutable style to a {@link Button}. */
+public final class ButtonStyle {
+    private static final int TEXTURE_STATE_COUNT = 4;
 
-public class ButtonStyle {
-	public boolean visible = true;
-	public  int width,height;
-	public String font,color;
-	public float fontSize;
-	public Align align;
-	public BufferedImage texture;
-	private final ComponentFactory componentFactory;
-	private final ImageUtils imageUtils;
-	public ButtonStyle(ComponentFactory componentFactory) {
-		this.componentFactory = componentFactory;
-		this.imageUtils = this.componentFactory.getEngine().getImageUtils();
-		this.width = componentFactory.getStyle().getWidth();
-		this.height = componentFactory.getStyle().getHeight();
-		this.color = componentFactory.getStyle().getColor();
-		this.font = componentFactory.getStyle().getFont();
-		this.fontSize = componentFactory.getStyle().getFontSize();
-		this.align = Align.valueOf(componentFactory.getStyle().getAlign());
-		this.texture = this.componentFactory.getEngine().getImageUtils().getLocalImage(componentFactory.getStyle().getTexture());
-	}
-	public void apply(Button button) {
-		button.setVisible(visible);
-		button.setHorizontalAlignment(align == Align.LEFT ? SwingConstants.LEFT : align == Align.CENTER ? SwingConstants.CENTER : SwingConstants.RIGHT);
-		button.setFont(componentFactory.getEngine().getFONTUTILS().getFont(font, fontSize));
-		button.setHoverColor(hexToColor(this.componentFactory.getStyle().getHoverColor()).brighter());
-		button.setForeground(hexToColor(color));
-		int i = texture.getHeight() / 4;
-		button.defaultTX = this.imageUtils.getTexture(texture, componentFactory.getStyle().getBorderRadius(), 0, 0, texture.getWidth(), i);
-		button.rolloverTX = this.imageUtils.getTexture(texture, componentFactory.getStyle().getBorderRadius(),0, i, texture.getWidth(), i);
-		button.pressedTX = this.imageUtils.getTexture(texture, componentFactory.getStyle().getBorderRadius(),0, i * 2, texture.getWidth(), i);
-		button.lockedTX = this.imageUtils.getTexture(texture, componentFactory.getStyle().getBorderRadius(),0, i * 3, texture.getWidth(), i);
-	}
+    private final ComponentFactory componentFactory;
+    private final ImageUtils imageUtils;
+    private final StyleAttributes style;
+    private final Align align;
+    private final BufferedImage texture;
 
-	public BufferedImage getTexture(int startX, int startY, int subWidth, int subHeight) {
-		BufferedImage buttTexture = texture.getSubimage(startX, startY, subWidth, subHeight);
-		if(componentFactory.getStyle().getBorderRadius() != 0) {
-			return this.componentFactory.getEngine().getImageUtils().getRoundedImage(buttTexture, componentFactory.getStyle().getBorderRadius());
-		}
-		return buttTexture;
-	}
+    public ButtonStyle(ComponentFactory componentFactory) {
+        this.componentFactory = Objects.requireNonNull(componentFactory, "componentFactory");
+        this.imageUtils = componentFactory.getEngine().getImageUtils();
+        this.style = componentFactory.getStyle();
+        this.align = Align.from(style.getAlign());
+        this.texture = loadTexture(style.getTexture());
+    }
+
+    public void apply(Button button) {
+        Objects.requireNonNull(button, "button");
+        button.setHorizontalAlignment(swingAlignment(align));
+        button.setFont(componentFactory.getEngine().getFONTUTILS().getFont(
+                style.getFont(),
+                style.getFontSize(),
+                style.getFontStyle()
+        ));
+        button.setHoverColor(hexToColor(style.getHoverColor()));
+        button.setForeground(hexToColor(style.getColor()));
+        applyTextureStates(button);
+    }
+
+    private void applyTextureStates(Button button) {
+        if (texture == null || texture.getHeight() < TEXTURE_STATE_COUNT) {
+            return;
+        }
+        int stateHeight = texture.getHeight() / TEXTURE_STATE_COUNT;
+        if (stateHeight <= 0) {
+            return;
+        }
+        button.defaultTX = slice(0, stateHeight);
+        button.rolloverTX = slice(stateHeight, stateHeight);
+        button.pressedTX = slice(stateHeight * 2, stateHeight);
+        button.lockedTX = slice(stateHeight * 3, stateHeight);
+    }
+
+    private BufferedImage slice(int startY, int height) {
+        int safeHeight = Math.min(height, texture.getHeight() - startY);
+        if (safeHeight <= 0) {
+            return null;
+        }
+        return imageUtils.getTexture(
+                texture,
+                style.getBorderRadius(),
+                0,
+                startY,
+                texture.getWidth(),
+                safeHeight
+        );
+    }
+
+    private BufferedImage loadTexture(String texturePath) {
+        if (texturePath == null || texturePath.isBlank()) {
+            return null;
+        }
+        try {
+            return imageUtils.getLocalImage(texturePath);
+        } catch (RuntimeException error) {
+            Engine.getLOGGER().warn("Unable to load button texture '{}'.", texturePath, error);
+            return null;
+        }
+    }
+
+    private static int swingAlignment(Align align) {
+        return switch (align) {
+            case CENTER -> SwingConstants.CENTER;
+            case RIGHT -> SwingConstants.RIGHT;
+            case LEFT -> SwingConstants.LEFT;
+        };
+    }
 }

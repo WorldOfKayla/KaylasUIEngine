@@ -1,9 +1,10 @@
 {
   "styles": {
     "button": {
-      "buttonMain": {
-        "name": "Woodpecker spirit",
+      "default": {
+        "name": "Aurelia Button Base",
         "font": "mcfontBold",
+        "fontStyle": "plain",
         "fontSize": 12,
         "width": 98,
         "height": 196,
@@ -11,12 +12,17 @@
         "color": "#763509",
         "hoverColor": "#fce4ab",
         "align": "CENTER",
+        "opaque": false,
         "texture": "assets/ui/components/button/newButton.png"
       },
+      "buttonMain": {
+        "extends": "default",
+        "name": "Woodpecker spirit"
+      },
       "altButton": {
-        "name": "Woodpecker spirit",
+        "extends": "default",
+        "name": "Woodpecker spirit alt",
         "font": "mcfont",
-        "fontSize": 12,
         "width": 116,
         "height": 180,
         "borderRadius": 5,
@@ -24,6 +30,10 @@
         "hoverColor": "#543a07",
         "align": "LEFT",
         "texture": "assets/ui/components/button/altButton.png"
+      },
+      "compact": {
+        "fontSize": 10,
+        "borderRadius": 6
       }
     }
   }

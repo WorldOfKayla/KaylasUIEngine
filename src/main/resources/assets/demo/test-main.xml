@@ -16,14 +16,18 @@
             <childComponents>
                 <component
                     type="label"
-                    style="titleBold"
+                    style="title titleBold"
                     id="titleLabel"
                     localeKey="demo.title"
                     color="#ffffff"
                     fontSize="24"
+                    accessibleName="KaylasUI Engine title"
                     opaque="false"
                     visible="true">
                     <bounds x="32" y="32" width="820" height="42" />
+                    <properties>
+                        <property name="demo.role" value="title" />
+                    </properties>
                 </component>
 
                 <component
@@ -50,6 +54,21 @@
                     opaque="false"
                     visible="true">
                     <bounds x="32" y="132" width="820" height="32" />
+                </component>
+
+                <component
+                    type="fileSelector"
+                    style="default"
+                    id="directorySelectorRegression"
+                    selectionMode="folder"
+                    enabled="true"
+                    opaque="false"
+                    visible="false">
+                    <bounds x="32" y="164" width="360" height="42" />
+                    <styles>
+                        <style target="textField" name="textFieldMain" />
+                        <style target="button" name="buttonMain" />
+                    </styles>
                 </component>
 
                 <component
@@ -90,13 +109,24 @@
 
                         <component
                             type="button"
-                            style="buttonMain"
+                            style="buttonMain compact"
                             id="taskManager"
                             localeKey="demo.openTaskManager"
+                            cursor="hand"
+                            accessibleName="Open task manager"
+                            accessibleDescription="Opens the operating system task manager"
                             enabled="true"
                             opaque="false"
                             visible="true">
                             <bounds x="0" y="74" width="180" height="42" />
+                            <styleOverrides>
+                                <property name="fontSize" value="13" />
+                                <property name="fontStyle" value="bold" />
+                            </styleOverrides>
+                            <properties>
+                                <property name="demo.role" value="primary-action" />
+                                <property name="demo.priority" value="10" type="int" />
+                            </properties>
                         </component>
 
                         <component
@@ -104,6 +134,7 @@
                             style="altButton"
                             id="minimize"
                             localeKey="demo.minimizeWindow"
+                            cursor="hand"
                             enabled="true"
                             opaque="false"
                             visible="true">
@@ -111,7 +142,7 @@
                         </component>
 
                         <component
-                            type="checkBox"
+                            type="checkbox"
                             style="solid1"
                             id="demoToggle"
                             localeKey="demo.toggleFeature"
@@ -123,11 +154,12 @@
                         </component>
 
                         <component
-                            type="textField"
+                            type="text-field"
                             style="textFieldMain"
                             id="demoInput"
                             localeKey="demo.inputPlaceholder"
                             initialValue="AURELIA online"
+                            editable="true"
                             enabled="true"
                             opaque="false"
                             visible="true">
@@ -164,6 +196,60 @@
                     </childComponents>
                 </component>
             </childComponents>
+
+            <panels>
+                <panel id="checkboxPanelRegressionA">
+                    <panelOptions
+                        opaque="false"
+                        visible="false"
+                        focusable="false"
+                        doubleBuffered="true"
+                        cornerRadius="12"
+                        zIndex="1"
+                        background="#00000000">
+                        <bounds x="910" y="0" width="220" height="48" />
+                    </panelOptions>
+                    <childComponents>
+                        <component
+                            type="checkbox"
+                            style="solid1"
+                            id="checkboxRegressionA"
+                            localeKey="demo.toggleFeature"
+                            initialValue="true"
+                            enabled="true"
+                            opaque="false"
+                            visible="true">
+                            <bounds x="8" y="8" width="200" height="32" />
+                        </component>
+                    </childComponents>
+                </panel>
+
+                <panel id="checkboxPanelRegressionB">
+                    <panelOptions
+                        opaque="false"
+                        visible="false"
+                        focusable="false"
+                        doubleBuffered="true"
+                        cornerRadius="12"
+                        zIndex="2"
+                        background="transparent">
+                        <bounds x="910" y="60" width="220" height="48" />
+                    </panelOptions>
+                    <childComponents>
+                        <component
+                            type="checkbox"
+                            style="solid1"
+                            id="checkboxRegressionB"
+                            localeKey="demo.toggleFeature"
+                            initialValue="false"
+                            enabled="true"
+                            opaque="false"
+                            visible="true">
+                            <bounds x="8" y="8" width="200" height="32" />
+                        </component>
+                    </childComponents>
+                </panel>
+            </panels>
         </panel>
     </panels>
 </ui>

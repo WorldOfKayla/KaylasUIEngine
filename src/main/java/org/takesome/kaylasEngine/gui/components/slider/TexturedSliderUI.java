@@ -261,6 +261,22 @@ public class TexturedSliderUI extends BasicSliderUI {
         currentThumbImage = slider.isEnabled() ? currentThumbImage : thumbImageDisabled;
     }
 
+    public Rectangle getTrackBoundsSnapshot() {
+        return new Rectangle(trackRect);
+    }
+
+    public Rectangle getThumbBoundsSnapshot() {
+        return new Rectangle(thumbRect);
+    }
+
+    public Dimension getTrackTextureSize() {
+        return new Dimension(trackImage.getWidth(), trackImage.getHeight());
+    }
+
+    public Dimension getThumbTextureSize() {
+        return getThumbSize();
+    }
+
     private BufferedImage toBufferedImage(Image image, int width, int height) {
         BufferedImage result = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
         Graphics2D graphics = result.createGraphics();
