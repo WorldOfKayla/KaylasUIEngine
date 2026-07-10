@@ -1,0 +1,11 @@
+{
+  "styles": {
+    "linkedStatusControl": {
+      "default": {
+        "name": "Constructor linked status control",
+        "background": "#00000000",
+        "opaque": false
+      }
+    }
+  }
+}

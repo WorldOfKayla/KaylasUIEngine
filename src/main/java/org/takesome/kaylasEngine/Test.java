@@ -4,6 +4,10 @@ import org.takesome.kaylasEngine.gui.ComponentValue;
 import org.takesome.kaylasEngine.gui.GuiBuilder;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactoryListener;
+import org.takesome.kaylasEngine.gui.components.ComponentKind;
+import org.takesome.kaylasEngine.gui.components.CompositeComponent;
+import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
+import org.takesome.kaylasEngine.gui.components.constructor.ConstructedCompositeComponent;
 import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
@@ -71,6 +75,7 @@ public final class Test extends Engine {
                 }
 
                 buildGui(new InitialValueResolver(this));
+                registerConstructorFixtures();
 
                 String mainFrame = fileProperties.getMainFrame();
                 if (hasText(mainFrame)) {
@@ -161,6 +166,47 @@ public final class Test extends Engine {
         LOGGER.info("Test bootstrap ActionHandler installed for panel '{}'.", MAIN_PANEL_ID);
     }
 
+    private void registerConstructorFixtures() {
+        if (getGuiBuilder() == null || getGuiBuilder().getComponentFactory() == null) {
+            throw new IllegalStateException("ComponentFactory is not initialized");
+        }
+
+        var factory = getGuiBuilder().getComponentFactory();
+        if (factory.getComponentCatalog().contains("linkedStatusControl")) {
+            return;
+        }
+
+        ComponentAttributes toggle = ComponentAttributes.builder("checkbox")
+                .id("toggle")
+                .style("solid1")
+                .localeKey("demo.toggleFeature")
+                .initialValue(false)
+                .bounds(0, 0, 190, 32)
+                .enabled(true)
+                .visible(true)
+                .build();
+
+        ComponentAttributes status = ComponentAttributes.builder("label")
+                .id("status")
+                .style("promptLabel")
+                .localeKey("demo.ready")
+                .initialValue("waiting")
+                .bounds(200, 0, 220, 32)
+                .visible(true)
+                .script("assets/scripts/constructor/linked-status.lua")
+                .build();
+
+        ComponentConstructor constructor = factory.getComponentConstructor();
+        constructor.register(
+                constructor.composite("linkedStatusControl")
+                        .alias("linked-status-control")
+                        .layout(CompositeComponent.LayoutMode.ABSOLUTE)
+                        .child("toggle", toggle)
+                        .child("status", status)
+                        .connect("toggle", "action", "status", "linkedChanged")
+        );
+    }
+
     private static void startSmokeWatchdogIfRequested() {
         if (Boolean.getBoolean("kaylasengine.test.exitAfterInit")) {
             Thread watchdog = new Thread(() -> {
@@ -243,6 +289,37 @@ public final class Test extends Engine {
                 throw new IllegalStateException("Directory selector browse button lost its targeted style");
             }
 
+            Component constructedComponent = findNamedComponent(
+                    mainPanel,
+                    "constructorRegression"
+            );
+            if (!(constructedComponent instanceof ConstructedCompositeComponent constructed)) {
+                throw new IllegalStateException("Constructor composite fixture was not created");
+            }
+            if (constructed.definition().kind() != ComponentKind.COMPOSITE
+                    || constructed.nodes().size() != 2) {
+                throw new IllegalStateException("Constructor composite metadata is invalid");
+            }
+            if (!(constructed.getNode("toggle") instanceof AbstractButton toggle)
+                    || !(constructed.getNode("status") instanceof JLabel status)) {
+                throw new IllegalStateException("Constructor composite nodes are invalid");
+            }
+            toggle.doClick();
+            if (!Boolean.TRUE.equals(status.getClientProperty("constructor.signal.received"))) {
+                throw new IllegalStateException("Lua targeted listener did not receive routed signal");
+            }
+            if (!constructed.qualify("toggle").equals(
+                    status.getClientProperty("constructor.signal.source")
+            )) {
+                throw new IllegalStateException("Lua routed signal source metadata is invalid");
+            }
+            if (!status.getText().startsWith("linked:")) {
+                throw new IllegalStateException("Lua listener did not update the target component");
+            }
+            if (factoryCatalogCount(builder) < 1) {
+                throw new IllegalStateException("Component catalog does not expose composite definitions");
+            }
+
             JPanel checkboxPanelA = builder.getPanelsMap().get("checkboxPanelRegressionA");
             JPanel checkboxPanelB = builder.getPanelsMap().get("checkboxPanelRegressionB");
             if (checkboxPanelA == null || checkboxPanelB == null) {
@@ -268,7 +345,7 @@ public final class Test extends Engine {
             }
 
             LOGGER.info(
-                    "Slider, directory selector and transparent checkbox panel regression checks passed."
+                    "Constructor graph, Lua routing, slider, directory selector and panel regression checks passed."
             );
             return true;
         } catch (RuntimeException error) {
@@ -278,6 +355,12 @@ public final class Test extends Engine {
             System.exit(3);
             return false;
         }
+    }
+
+    private int factoryCatalogCount(GuiBuilder builder) {
+        return builder.getComponentFactory()
+                .getComponentCatalog()
+                .size(ComponentKind.COMPOSITE);
     }
 
     private Component findNamedComponent(Container container, String componentName) {

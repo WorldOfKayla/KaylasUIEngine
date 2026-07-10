@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.components;
 
+import com.google.gson.Gson;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
 
 import java.awt.Rectangle;
@@ -20,6 +21,7 @@ import java.util.Objects;
  */
 @SuppressWarnings("unused")
 public class ComponentAttributes extends Attributes {
+    private static final Gson COPY_GSON = new Gson();
 
     public ComponentAttributes() {
         this.childComponents = new ArrayList<>();
@@ -163,6 +165,20 @@ public class ComponentAttributes extends Attributes {
                 : Collections.unmodifiableMap(properties);
     }
 
+    public ComponentAttributes copy() {
+        return COPY_GSON.fromJson(COPY_GSON.toJsonTree(this), ComponentAttributes.class);
+    }
+
+    public ComponentAttributes setComponentType(String componentType) {
+        this.type = componentType;
+        return this;
+    }
+
+    public ComponentAttributes setComponentId(String componentId) {
+        this.id = componentId;
+        return this;
+    }
+
     public ComponentAttributes setComponentStyle(String componentStyle) {
         this.style = componentStyle;
         return this;
@@ -194,6 +210,16 @@ public class ComponentAttributes extends Attributes {
                 properties = new LinkedHashMap<>();
             }
             properties.put(property.trim(), value);
+        }
+        return this;
+    }
+
+    public ComponentAttributes putScript(String eventName, String scriptPath) {
+        if (eventName != null && !eventName.isBlank() && scriptPath != null && !scriptPath.isBlank()) {
+            if (scripts == null) {
+                scripts = new LinkedHashMap<>();
+            }
+            scripts.put(eventName.trim(), scriptPath.trim());
         }
         return this;
     }
@@ -463,6 +489,11 @@ public class ComponentAttributes extends Attributes {
 
         public Builder script(String script) {
             attributes.script = script;
+            return this;
+        }
+
+        public Builder script(String eventName, String scriptPath) {
+            attributes.putScript(eventName, scriptPath);
             return this;
         }
 

@@ -1,5 +1,7 @@
 # Components Runtime 2.0
 
+> Version 2.1 adds the shared BASIC/COMPOSITE catalog, reusable constructor graphs, and Lua signal routing. See [Component Constructor Runtime 2.1](component-constructor.md).
+
 ## Creation pipeline
 
 Each component is created through the following deterministic pipeline:
@@ -7,7 +9,7 @@ Each component is created through the following deterministic pipeline:
 ```text
 ComponentAttributes
     -> component type / alias resolution
-    -> ComponentDefinition resolution
+    -> AbstractComponentDefinition resolution through ComponentCatalog
     -> ordered style-chain resolution
     -> inline style override merge
     -> immutable ComponentCreationContext
@@ -200,8 +202,8 @@ Aliases are normalized case-insensitively. Built-in examples:
 Composite components must not mutate the factory fallback style while constructing internal controls. Use `withStyle(...)` for a bounded override:
 
 ```java
-StyleAttributes childStyle = engine.getStyleProvider().getStyle(button, compact);
-Button child = factory.withStyle(childStyle, () -> new Button(factory, "));
+StyleAttributes childStyle = engine.getStyleProvider().getStyle("button", "compact");
+Button child = factory.withStyle(childStyle, () -> new Button(factory, ""));
 ```
 
 The override is stack-based, supports nested composites and is removed in `finally`. `setStyle(...)` remains only as a deprecated fallback API outside active creation.
@@ -251,4 +253,5 @@ Descriptor-defined `properties` are attached after the standard metadata.
 3. Use aliases or canonical type names instead of registering duplicate names differing only by case.
 4. Add a `default` style to every component style file where practical.
 5. Use style mixins for reusable partial overrides and inheritance for semantic variants.
-6. Prefer `ComponentDefinition` over direct registry mutation for custom component types.
+6. Prefer `ComponentDefinition` over direct registry mutation for custom basic component types.
+7. Use `ComponentConstructor` and `CompositeComponentDefinition` for reusable linked component graphs.

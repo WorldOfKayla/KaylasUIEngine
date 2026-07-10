@@ -57,15 +57,21 @@ public final class UiScriptContext {
     private final Map<String, Boolean> scriptExistsCache = new ConcurrentHashMap<>();
     private final AtomicLong scriptCacheGeneration = new AtomicLong();
     private final Map<String, List<LuaValue>> eventSubscribers = new ConcurrentHashMap<>();
+    private final Map<ComponentEventKey, List<LuaValue>> componentEventSubscribers = new ConcurrentHashMap<>();
     private final Map<String, List<UiScriptEventListener>> javaEventSubscribers = new ConcurrentHashMap<>();
     private final Map<String, Map<String, UiScriptEventListener>> namedJavaEventSubscribers = new ConcurrentHashMap<>();
     private final ThreadLocal<Integer> eventDepth = ThreadLocal.withInitial(() -> 0);
 
+    private volatile UiSignalBridge signalBridge;
     private volatile LuaTable cachedUiTable;
     private volatile LuaTable cachedEngineTable;
 
     public UiScriptContext(Engine engine) {
         this.engine = Objects.requireNonNull(engine, "engine");
+    }
+
+    void setSignalBridge(UiSignalBridge signalBridge) {
+        this.signalBridge = Objects.requireNonNull(signalBridge, "signalBridge");
     }
 
     public Engine engine() {
@@ -136,6 +142,27 @@ public final class UiScriptContext {
         return Collections.unmodifiableMap(componentsById);
     }
 
+    public int releaseScope(String scopeId) {
+        if (scopeId == null || scopeId.isBlank()) {
+            return 0;
+        }
+        String scope = scopeId.trim();
+        String childPrefix = scope + ".";
+
+        List<ComponentEventKey> subscriptionKeys = componentEventSubscribers.keySet().stream()
+                .filter(key -> key.componentId().equals(scope)
+                        || key.componentId().startsWith(childPrefix))
+                .toList();
+        subscriptionKeys.forEach(componentEventSubscribers::remove);
+
+        List<String> componentIds = componentsById.keySet().stream()
+                .filter(id -> id.equals(scope) || id.startsWith(childPrefix))
+                .toList();
+        componentIds.forEach(componentsById::remove);
+        componentIds.forEach(componentApisById::remove);
+        return subscriptionKeys.size();
+    }
+
     public void clearScriptCache() {
         scriptSourceCache.clear();
         scriptExistsCache.clear();
@@ -201,7 +228,10 @@ public final class UiScriptContext {
 
         LuaValue resolvedPayload = payload == null ? LuaValue.NIL : payload;
         List<UiScriptEventListener> javaSubscribers = javaSubscribersFor(normalized);
-        List<LuaValue> luaSubscribers = subscribersFor(normalized);
+        List<LuaValue> luaSubscribers = subscribersFor(
+                normalized,
+                source == null ? null : source.id()
+        );
         if (javaSubscribers.isEmpty() && luaSubscribers.isEmpty()) {
             return;
         }
@@ -260,6 +290,18 @@ public final class UiScriptContext {
             event.set("componentId", LuaValue.NIL);
             event.set("componentType", LuaValue.NIL);
             event.set("value", LuaValue.NIL);
+        }
+
+        if (rawEvent instanceof UiRoutedEvent routedEvent) {
+            event.set("routed", LuaValue.TRUE);
+            event.set("routeId", value(routedEvent.routeId()));
+            event.set("scopeId", value(routedEvent.scopeId()));
+            event.set("sourceComponentId", value(routedEvent.sourceComponentId()));
+            event.set("sourceEvent", value(routedEvent.sourceEvent()));
+            event.set("targetComponentId", value(routedEvent.targetComponentId()));
+            event.set("targetEvent", value(routedEvent.targetEvent()));
+        } else {
+            event.set("routed", LuaValue.FALSE);
         }
 
         if (rawEvent instanceof MouseEvent mouseEvent) {
@@ -336,6 +378,9 @@ public final class UiScriptContext {
         ui.set("getValue", function(this::luaGetValue));
         ui.set("setValue", function(this::luaSetValue));
         ui.set("emit", function(this::luaEmit));
+        ui.set("send", function(this::luaSend));
+        ui.set("connect", function(this::luaConnect));
+        ui.set("disconnect", function(this::luaDisconnect));
         ui.set("on", function(this::luaOn));
         ui.set("clearScriptCache", function(args -> {
             clearScriptCache();
@@ -492,21 +537,116 @@ public final class UiScriptContext {
     }
 
     private LuaValue luaOn(Varargs args) {
+        int logicalArgumentCount = args.narg() - (LuaRuntimeSupport.hasSelf(args) ? 1 : 0);
+        if (logicalArgumentCount >= 3) {
+            String componentId = stringArg(args, 1, "");
+            String eventName = normalizeEventName(stringArg(args, 2, ""));
+            LuaValue handler = arg(args, 3);
+            return subscribeComponent(componentId, eventName, handler)
+                    ? LuaValue.TRUE
+                    : LuaValue.FALSE;
+        }
+
         String eventName = normalizeEventName(stringArg(args, 1, ""));
         LuaValue handler = arg(args, 2);
         if (eventName.isBlank() || !handler.isfunction()) {
-            Engine.LOGGER.warn("Invalid ui.on(...) registration: event='{}', handlerType='{}'", eventName, handler.typename());
-            return LuaValue.NIL;
+            Engine.LOGGER.warn(
+                    "Invalid ui.on(...) registration: event='{}', handlerType='{}'",
+                    eventName,
+                    handler.typename()
+            );
+            return LuaValue.FALSE;
         }
         eventSubscribers.computeIfAbsent(eventName, key -> new CopyOnWriteArrayList<>()).add(handler);
-        return LuaValue.NIL;
+        return LuaValue.TRUE;
     }
 
-    private List<LuaValue> subscribersFor(String eventName) {
+    private LuaValue luaConnect(Varargs args) {
+        UiSignalBridge bridge = signalBridge;
+        if (bridge == null) {
+            return LuaValue.NIL;
+        }
+        String routeId = bridge.connect(
+                stringArg(args, 1, ""),
+                stringArg(args, 2, ""),
+                stringArg(args, 3, ""),
+                stringArg(args, 4, ""),
+                stringArg(args, 5, null)
+        );
+        return value(routeId);
+    }
+
+    private LuaValue luaDisconnect(Varargs args) {
+        UiSignalBridge bridge = signalBridge;
+        return LuaValue.valueOf(
+                bridge != null && bridge.disconnect(stringArg(args, 1, ""))
+        );
+    }
+
+    private LuaValue luaSend(Varargs args) {
+        UiSignalBridge bridge = signalBridge;
+        return LuaValue.valueOf(
+                bridge != null && bridge.send(
+                        stringArg(args, 1, ""),
+                        stringArg(args, 2, ""),
+                        arg(args, 3)
+                )
+        );
+    }
+
+    public boolean subscribeComponent(String componentId, String eventName, LuaValue handler) {
+        String normalizedComponent = componentId == null ? "" : componentId.trim();
+        String normalizedEvent = normalizeEventName(eventName);
+        if (normalizedComponent.isBlank() || normalizedEvent.isBlank() || handler == null || !handler.isfunction()) {
+            Engine.LOGGER.warn(
+                    "Invalid component listener registration: component='{}', event='{}'",
+                    componentId,
+                    eventName
+            );
+            return false;
+        }
+        componentEventSubscribers.computeIfAbsent(
+                new ComponentEventKey(normalizedComponent, normalizedEvent),
+                key -> new CopyOnWriteArrayList<>()
+        ).add(handler);
+        return true;
+    }
+
+    public String connect(String sourceId,
+                          String sourceEvent,
+                          String targetId,
+                          String targetEvent,
+                          String scopeId) {
+        UiSignalBridge bridge = signalBridge;
+        return bridge == null
+                ? null
+                : bridge.connect(sourceId, sourceEvent, targetId, targetEvent, scopeId);
+    }
+
+    public boolean send(String targetId, String eventName, LuaValue payload) {
+        UiSignalBridge bridge = signalBridge;
+        return bridge != null && bridge.send(targetId, eventName, payload);
+    }
+
+    private List<LuaValue> subscribersFor(String eventName, String componentId) {
         List<LuaValue> subscribers = new ArrayList<>();
         subscribers.addAll(eventSubscribers.getOrDefault(eventName, Collections.emptyList()));
         subscribers.addAll(eventSubscribers.getOrDefault("*", Collections.emptyList()));
         subscribers.addAll(eventSubscribers.getOrDefault("all", Collections.emptyList()));
+        if (componentId != null && !componentId.isBlank()) {
+            subscribers.addAll(componentEventSubscribers.getOrDefault(
+                    new ComponentEventKey(componentId, eventName),
+                    Collections.emptyList()
+            ));
+            subscribers.addAll(componentEventSubscribers.getOrDefault(
+                    new ComponentEventKey(componentId, "*"),
+                    Collections.emptyList()
+            ));
+            subscribers.addAll(componentEventSubscribers.getOrDefault(
+                    new ComponentEventKey(componentId, "all"),
+                    Collections.emptyList()
+            ));
+        }
         return subscribers;
     }
 
@@ -589,6 +729,13 @@ public final class UiScriptContext {
             }
         }
         return builder.toString();
+    }
+
+    private record ComponentEventKey(String componentId, String eventName) {
+        private ComponentEventKey {
+            componentId = Objects.requireNonNull(componentId, "componentId");
+            eventName = Objects.requireNonNull(eventName, "eventName");
+        }
     }
 
     private String componentId(JComponent component, ComponentAttributes attributes) {

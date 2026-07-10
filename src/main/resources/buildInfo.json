@@ -1,6 +1,6 @@
 {
-  "engineVersion": "2.0.0-AURELIA",
-  "engineBrand": " _  __    _ __   ___      _      _   _ ___   ___  \n| |/ /   / \\ \\ / / |    / \\    | | | |_ _| |_  ) \n| ' /   / _ \\ V /| |   / _ \\   | | | || |   / /  \n| . \\  / ___ || | | |__/ ___ \\  | |_| || |  /___| \n|_|\\_\\/_/   \\_\\_| |____/_/   \\_\\  \\___/|___| |____|\n                AURELIA 2 COMPONENT RUNTIME",
+  "engineVersion": "2.1.0-AURELIA",
+  "engineBrand": " _  __    _ __   ___      _      _   _ ___   ___  \n| |/ /   / \\ \\ / / |    / \\    | | | |_ _| |_  ) \n| ' /   / _ \\ V /| |   / _ \\   | | | || |   / /  \n| . \\  / ___ || | | |__/ ___ \\  | |_| || |  /___| \n|_|\\_\\/_/   \\_\\_| |____/_/   \\_\\  \\___/|___| |____|\n                AURELIA 2.1 CONSTRUCTOR RUNTIME",
   "engineCodename": "AURELIA",
   "engineName": "KaylasUI Engine"
 }

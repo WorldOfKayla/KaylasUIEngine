@@ -5,7 +5,9 @@ import org.takesome.kaylasEngine.gui.adapters.FrameAttributesLoader;
 import org.takesome.kaylasEngine.gui.adapters.FrameLoaderAdapters;
 import org.takesome.kaylasEngine.gui.components.Attributes;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
+import org.takesome.kaylasEngine.gui.components.ComponentCatalog;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
+import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
 import org.takesome.kaylasEngine.gui.components.frame.FrameConstructor;
 import org.takesome.kaylasEngine.gui.components.frame.OptionGroups;
 import org.foxesworld.notification.Notification;
@@ -561,5 +563,13 @@ public class GuiBuilder {
      */
     public ComponentFactory getComponentFactory() {
         return componentFactory;
+    }
+
+    public ComponentCatalog getComponentCatalog() {
+        return componentFactory.getComponentCatalog();
+    }
+
+    public ComponentConstructor getComponentConstructor() {
+        return componentFactory.getComponentConstructor();
     }
 }

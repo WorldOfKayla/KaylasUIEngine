@@ -4,6 +4,7 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
+import org.takesome.kaylasEngine.gui.components.constructor.ConstructedCompositeComponent;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyle;
 import org.takesome.kaylasEngine.utils.FontUtils;
@@ -103,6 +104,14 @@ public final class UiComponentApi {
         lua.set("requestFocus", function(this::luaRequestFocus));
         lua.set("repaint", function(this::luaRepaint));
         lua.set("emit", function(this::luaEmit));
+        lua.set("on", function(this::luaOn));
+        lua.set("send", function(this::luaSend));
+        lua.set("sendLocal", function(this::luaSendLocal));
+        lua.set("connect", function(this::luaConnect));
+        lua.set("connectLocal", function(this::luaConnectLocal));
+        lua.set("findLocal", function(this::luaFindLocal));
+        lua.set("getScopeId", function(args -> value(scopeId())));
+        lua.set("getLocalId", function(args -> value(localId())));
 
         if (component instanceof ProgressBar progressBar) {
             lua.set("getStyle", function(args -> value(progressBar.getStyleName())));
@@ -281,6 +290,86 @@ public final class UiComponentApi {
                 progressBar.setValue(value.toint());
             }
         });
+    }
+
+    private LuaValue luaOn(Varargs args) {
+        return LuaValue.valueOf(context.subscribeComponent(
+                id(),
+                stringArg(args, 1, ""),
+                arg(args, 2)
+        ));
+    }
+
+    private LuaValue luaSend(Varargs args) {
+        return LuaValue.valueOf(context.send(
+                stringArg(args, 1, ""),
+                stringArg(args, 2, ""),
+                arg(args, 3)
+        ));
+    }
+
+    private LuaValue luaSendLocal(Varargs args) {
+        return LuaValue.valueOf(context.send(
+                qualifyLocal(stringArg(args, 1, "")),
+                stringArg(args, 2, ""),
+                arg(args, 3)
+        ));
+    }
+
+    private LuaValue luaConnect(Varargs args) {
+        String routeId = context.connect(
+                id(),
+                stringArg(args, 1, ""),
+                stringArg(args, 2, ""),
+                stringArg(args, 3, ""),
+                stringArg(args, 4, scopeId())
+        );
+        return value(routeId);
+    }
+
+    private LuaValue luaConnectLocal(Varargs args) {
+        String routeId = context.connect(
+                id(),
+                stringArg(args, 1, ""),
+                qualifyLocal(stringArg(args, 2, "")),
+                stringArg(args, 3, ""),
+                scopeId()
+        );
+        return value(routeId);
+    }
+
+    private LuaValue luaFindLocal(Varargs args) {
+        UiComponentApi api = context.findApi(qualifyLocal(stringArg(args, 1, "")));
+        return api == null
+                ? LuaValue.NIL
+                : context.componentTable(api.component(), api.attributes());
+    }
+
+    public String scopeId() {
+        Object value = component.getClientProperty(ConstructedCompositeComponent.SCOPE_PROPERTY);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    public String localId() {
+        Object value = component.getClientProperty(ConstructedCompositeComponent.LOCAL_ID_PROPERTY);
+        return value == null ? null : String.valueOf(value);
+    }
+
+    public String qualifyLocal(String targetLocalId) {
+        if (targetLocalId == null || targetLocalId.isBlank()) {
+            return targetLocalId;
+        }
+        String scope = scopeId();
+        String target = targetLocalId.trim();
+        if (scope == null || scope.isBlank()
+                || target.equals(scope)
+                || target.startsWith(scope + ".")) {
+            return target;
+        }
+        if ("$root".equals(target)) {
+            return scope;
+        }
+        return scope + "." + target;
     }
 
     private LuaValue luaSetText(Varargs args) {

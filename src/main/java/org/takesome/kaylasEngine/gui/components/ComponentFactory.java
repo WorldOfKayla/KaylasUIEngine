@@ -12,6 +12,7 @@ import org.takesome.kaylasEngine.gui.components.checkbox.CheckboxStyle;
 import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 import org.takesome.kaylasEngine.gui.components.combobox.ComboboxStyle;
 import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
+import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
 import org.takesome.kaylasEngine.gui.components.label.Label;
@@ -79,8 +80,8 @@ public class ComponentFactory extends JComponent {
     private final IconUtils iconUtils;
     private final LuaUiScriptEngine luaUiScriptEngine;
     private final Map<String, TooltipAttributes> tooltipCache = new ConcurrentHashMap<>();
-    private final Map<String, ComponentDefinition<? extends JComponent>> componentDefinitions = new ConcurrentHashMap<>();
-    private final Map<String, String> componentAliases = new ConcurrentHashMap<>();
+    private final ComponentCatalog componentCatalog = new ComponentCatalog();
+    private final ComponentConstructor componentConstructor;
     private final Map<String, Function<ComponentAttributes, JComponent>> legacyRegistry = new ConcurrentHashMap<>();
     private final ThreadLocal<Deque<ComponentCreationContext>> creationStack =
             ThreadLocal.withInitial(ArrayDeque::new);
@@ -96,6 +97,7 @@ public class ComponentFactory extends JComponent {
         this.langProvider = engine.getLANG();
         this.iconUtils = new IconUtils(engine);
         this.luaUiScriptEngine = new LuaUiScriptEngine(engine);
+        this.componentConstructor = new ComponentConstructor(this, componentCatalog);
         registerBuiltIns();
     }
 
@@ -113,9 +115,9 @@ public class ComponentFactory extends JComponent {
         registerComponent("combobox", this::createCombobox);
         registerComponent("dropBox", this::createCombobox);
         registerComponent("slider", this::createSlider);
-        registerComponent("compositeSlider", this::createCompositeSlider);
-        registerComponent("fileSelector", this::createFileSelector);
-        registerComponent("compositeComponent", this::createCompositeComponent);
+        registerComponent("compositeSlider", ComponentKind.COMPOSITE, this::createCompositeSlider);
+        registerComponent("fileSelector", ComponentKind.COMPOSITE, this::createFileSelector);
+        registerComponent("compositeComponent", ComponentKind.COMPOSITE, this::createCompositeComponent);
 
         registerAlias("checkbox", "checkBox");
         registerAlias("check-box", "checkBox");
@@ -133,9 +135,16 @@ public class ComponentFactory extends JComponent {
 
     /** Compatibility registration API. New integrations should prefer {@link #registerDefinition}. */
     public void registerComponent(String type, Function<ComponentAttributes, JComponent> creator) {
+        registerComponent(type, ComponentKind.BASIC, creator);
+    }
+
+    public void registerComponent(String type,
+                                  ComponentKind kind,
+                                  Function<ComponentAttributes, JComponent> creator) {
         Objects.requireNonNull(creator, "creator");
         String canonicalType = requireType(type, "component type");
         ComponentDefinition<JComponent> definition = ComponentDefinition.<JComponent>builder(canonicalType)
+                .kind(Objects.requireNonNull(kind, "kind"))
                 .applyBaseStyle(false)
                 .creator(context -> creator.apply(context.attributes()))
                 .build();
@@ -143,53 +152,54 @@ public class ComponentFactory extends JComponent {
         legacyRegistry.put(canonicalType, creator);
     }
 
-    public <T extends JComponent> void registerDefinition(ComponentDefinition<T> definition) {
+    public void registerDefinition(AbstractComponentDefinition<? extends JComponent> definition) {
         Objects.requireNonNull(definition, "definition");
-        String key = normalizeType(definition.type());
-        ComponentDefinition<? extends JComponent> previous = componentDefinitions.put(key, definition);
+        AbstractComponentDefinition<? extends JComponent> previous = componentCatalog.register(definition);
         if (previous != null) {
             Engine.LOGGER.warn("Component definition '{}' was replaced.", definition.type());
         }
-        for (String alias : definition.aliases()) {
-            registerAlias(alias, definition.type());
-        }
-        Engine.LOGGER.info("    - Registered component: {}", definition.type());
+        Engine.LOGGER.info(
+                "    - Registered {} component: {}",
+                definition.kind().name().toLowerCase(Locale.ROOT),
+                definition.type()
+        );
     }
 
     public void registerAlias(String alias, String componentType) {
-        String aliasKey = normalizeType(requireType(alias, "component alias"));
-        ComponentDefinition<? extends JComponent> target = findDefinition(componentType)
-                .orElseThrow(() -> new IllegalArgumentException(
-                        "Cannot register alias '" + alias + "' for unknown component type '" + componentType + "'"
-                ));
-        componentAliases.put(aliasKey, normalizeType(target.type()));
+        componentCatalog.registerAlias(alias, componentType);
     }
 
     public boolean unregisterComponent(String componentType) {
-        Optional<ComponentDefinition<? extends JComponent>> definition = findDefinition(componentType);
-        if (definition.isEmpty()) {
-            return false;
+        Optional<AbstractComponentDefinition<? extends JComponent>> definition =
+                findComponentDefinition(componentType);
+        if (definition.isPresent()) {
+            legacyRegistry.remove(definition.get().type());
         }
-        String canonicalKey = normalizeType(definition.get().type());
-        componentAliases.entrySet().removeIf(entry -> entry.getValue().equals(canonicalKey));
-        legacyRegistry.remove(definition.get().type());
-        return componentDefinitions.remove(canonicalKey) != null;
+        return componentCatalog.unregister(componentType);
     }
 
+    /** Returns any basic or composite definition. */
+    public Optional<AbstractComponentDefinition<? extends JComponent>> findComponentDefinition(
+            String componentType
+    ) {
+        return componentCatalog.find(componentType);
+    }
+
+    /**
+     * Legacy basic-definition lookup retained for source compatibility with 2.0 launchers.
+     */
     public Optional<ComponentDefinition<? extends JComponent>> findDefinition(String componentType) {
-        if (componentType == null || componentType.isBlank()) {
-            return Optional.empty();
-        }
-        String key = normalizeType(componentType);
-        String canonicalKey = componentAliases.getOrDefault(key, key);
-        return Optional.ofNullable(componentDefinitions.get(canonicalKey));
+        return findComponentDefinition(componentType)
+                .filter(ComponentDefinition.class::isInstance)
+                .map(definition -> (ComponentDefinition<? extends JComponent>) definition);
     }
 
     public JComponent createComponent(ComponentAttributes attributes) {
         Objects.requireNonNull(attributes, "attributes");
         attributes.validateForCreation();
 
-        ComponentDefinition<? extends JComponent> definition = findDefinition(attributes.getComponentType())
+        AbstractComponentDefinition<? extends JComponent> definition =
+                findComponentDefinition(attributes.getComponentType())
                 .orElseThrow(() -> new IllegalArgumentException(
                         "Unsupported component type: " + attributes.getComponentType()
                                 + ". Registered types: " + getRegisteredComponentTypes()
@@ -214,6 +224,14 @@ public class ComponentFactory extends JComponent {
         );
 
         Deque<ComponentCreationContext> stack = creationStack.get();
+        if (definition.kind() == ComponentKind.COMPOSITE
+                && stack.stream().anyMatch(parent ->
+                parent.definition().type().equalsIgnoreCase(definition.type()))) {
+            throw new IllegalStateException(
+                    "Recursive composite construction detected for type '"
+                            + definition.type() + "'"
+            );
+        }
         stack.push(context);
         lastComponentAttribute = attributes;
         try {
@@ -705,16 +723,31 @@ public class ComponentFactory extends JComponent {
 
     public Map<String, ComponentDefinition<? extends JComponent>> getComponentDefinitions() {
         Map<String, ComponentDefinition<? extends JComponent>> definitions = new LinkedHashMap<>();
-        componentDefinitions.values().forEach(definition -> definitions.put(definition.type(), definition));
+        componentCatalog.definitions().values().stream()
+                .filter(ComponentDefinition.class::isInstance)
+                .map(definition -> (ComponentDefinition<? extends JComponent>) definition)
+                .forEach(definition -> definitions.put(definition.type(), definition));
         return Collections.unmodifiableMap(definitions);
     }
 
+    public Map<String, AbstractComponentDefinition<? extends JComponent>> getAllComponentDefinitions() {
+        return componentCatalog.definitions();
+    }
+
     public List<String> getRegisteredComponentTypes() {
-        return componentDefinitions.values().stream()
-                .map(ComponentDefinition::type)
-                .distinct()
-                .sorted(String.CASE_INSENSITIVE_ORDER)
-                .toList();
+        return componentCatalog.types();
+    }
+
+    public List<String> getRegisteredComponentTypes(ComponentKind kind) {
+        return componentCatalog.types(kind);
+    }
+
+    public ComponentCatalog getComponentCatalog() {
+        return componentCatalog;
+    }
+
+    public ComponentConstructor getComponentConstructor() {
+        return componentConstructor;
     }
 
     public Map<String, Map<String, StyleAttributes>> getComponentStyles() {

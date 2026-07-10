@@ -11,6 +11,7 @@ import javax.swing.JComponent;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
+import javax.swing.SwingUtilities;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.JTextComponent;
@@ -39,7 +40,7 @@ import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.normaliz
  * component-specific extensions.</p>
  */
 @SuppressWarnings("unused")
-public final class LuaUiScriptEngine {
+public final class LuaUiScriptEngine implements UiSignalBridge {
     private static final String SCRIPT_BOUND_KEY = "kaylas.ui.lua.bound";
     private static final String SCRIPT_MAP_KEY = "kaylas.ui.lua.scripts";
     private static final String ATTRIBUTES_KEY = "kaylas.ui.lua.attributes";
@@ -49,11 +50,13 @@ public final class LuaUiScriptEngine {
 
     private final UiScriptContext context;
     private final LuaUiRuntime runtime;
+    private final ComponentSignalRouter signalRouter = new ComponentSignalRouter();
     private final ThreadLocal<Integer> eventDepth = ThreadLocal.withInitial(() -> 0);
 
     public LuaUiScriptEngine(Engine engine) {
         this.context = new UiScriptContext(Objects.requireNonNull(engine, "engine"));
         this.runtime = new LuaUiRuntime(context);
+        this.context.setSignalBridge(this);
     }
 
     /**
@@ -115,6 +118,71 @@ public final class LuaUiScriptEngine {
 
     public void emitComponentEvent(String eventName, JComponent component, Object rawEvent) {
         emit(eventName, component, rawEvent);
+    }
+
+    public ComponentSignalRouter.Connection connectComponents(String sourceId,
+                                                              String sourceEvent,
+                                                              String targetId,
+                                                              String targetEvent,
+                                                              String scopeId) {
+        return signalRouter.connect(sourceId, sourceEvent, targetId, targetEvent, scopeId);
+    }
+
+    public int disconnectSignalScope(String scopeId) {
+        return signalRouter.disconnectScope(scopeId);
+    }
+
+    public int releaseScope(String scopeId) {
+        int disconnectedRoutes = signalRouter.disconnectScope(scopeId);
+        int releasedSubscriptions = context.releaseScope(scopeId);
+        return disconnectedRoutes + releasedSubscriptions;
+    }
+
+    public ComponentSignalRouter getSignalRouter() {
+        return signalRouter;
+    }
+
+    @Override
+    public String connect(String sourceId,
+                          String sourceEvent,
+                          String targetId,
+                          String targetEvent,
+                          String scopeId) {
+        return connectComponents(sourceId, sourceEvent, targetId, targetEvent, scopeId).id();
+    }
+
+    @Override
+    public boolean disconnect(String routeId) {
+        return signalRouter.disconnect(routeId);
+    }
+
+    @Override
+    public boolean send(String targetId, String eventName, LuaValue payload) {
+        JComponent target = context.findComponent(targetId);
+        if (target == null || eventName == null || eventName.isBlank()) {
+            return false;
+        }
+        Runnable delivery = () -> emit(
+                eventName,
+                target,
+                attributesFor(target),
+                new UiRoutedEvent(
+                        "direct",
+                        null,
+                        null,
+                        "send",
+                        targetId,
+                        eventName
+                ),
+                payload == null ? LuaValue.NIL : payload,
+                new LinkedHashSet<>()
+        );
+        if (SwingUtilities.isEventDispatchThread()) {
+            delivery.run();
+        } else {
+            SwingUtilities.invokeLater(delivery);
+        }
+        return true;
     }
 
     @SuppressWarnings("unchecked")
@@ -265,30 +333,104 @@ public final class LuaUiScriptEngine {
     }
 
     private void emit(String eventName, JComponent component, Object rawEvent) {
-        ComponentAttributes attributes = attributesFor(component);
-        emit(eventName, component, attributes, rawEvent);
+        emit(
+                eventName,
+                component,
+                attributesFor(component),
+                rawEvent,
+                LuaValue.NIL,
+                new LinkedHashSet<>()
+        );
     }
 
-    private void emit(String eventName, JComponent component, ComponentAttributes attributes, Object rawEvent) {
+    private void emit(String eventName,
+                      JComponent component,
+                      ComponentAttributes attributes,
+                      Object rawEvent) {
+        emit(eventName, component, attributes, rawEvent, LuaValue.NIL, new LinkedHashSet<>());
+    }
+
+    private void emit(String eventName,
+                      JComponent component,
+                      ComponentAttributes attributes,
+                      Object rawEvent,
+                      LuaValue payload,
+                      Set<String> traversedRoutes) {
         UiComponentApi source = context.apiFor(component, attributes);
         Map<String, List<String>> scripts = scriptsFor(component);
+        LuaValue resolvedPayload = payload == null ? LuaValue.NIL : payload;
 
         int depth = eventDepth.get();
         if (depth >= MAX_REENTRANT_DEPTH) {
-            Engine.LOGGER.warn("Lua UI event '{}' ignored for component '{}' because max reentrant depth was reached.",
+            Engine.LOGGER.warn(
+                    "Lua UI event '{}' ignored for component '{}' because max reentrant depth was reached.",
                     eventName,
-                    source != null ? source.id() : null);
+                    source != null ? source.id() : null
+            );
             return;
         }
 
         eventDepth.set(depth + 1);
         try {
             for (String scriptPath : scriptsForEvent(scripts, eventName)) {
-                runScript(scriptPath, eventName, component, attributes, rawEvent);
+                runScript(
+                        scriptPath,
+                        eventName,
+                        component,
+                        attributes,
+                        rawEvent,
+                        resolvedPayload
+                );
             }
-            context.dispatch(eventName, source, rawEvent, LuaValue.NIL);
+            context.dispatch(eventName, source, rawEvent, resolvedPayload);
+            routeSignals(eventName, source, resolvedPayload, traversedRoutes);
         } finally {
             eventDepth.set(depth);
+        }
+    }
+
+    private void routeSignals(String eventName,
+                              UiComponentApi source,
+                              LuaValue payload,
+                              Set<String> traversedRoutes) {
+        if (source == null || source.id() == null || source.id().isBlank()) {
+            return;
+        }
+        LuaValue forwardedPayload = payload == null || payload.isnil()
+                ? source.getValue()
+                : payload;
+
+        for (ComponentSignalRoute route : signalRouter.routesFor(source.id(), eventName)) {
+            if (traversedRoutes.contains(route.id())) {
+                continue;
+            }
+            JComponent target = context.findComponent(route.targetId());
+            if (target == null) {
+                Engine.LOGGER.warn(
+                        "Signal route '{}' skipped because target component '{}' is not registered.",
+                        route.id(),
+                        route.targetId()
+                );
+                continue;
+            }
+
+            Set<String> nextPath = new LinkedHashSet<>(traversedRoutes);
+            nextPath.add(route.id());
+            emit(
+                    route.targetEvent(),
+                    target,
+                    attributesFor(target),
+                    new UiRoutedEvent(
+                            route.id(),
+                            route.scopeId(),
+                            route.sourceId(),
+                            route.sourceEvent(),
+                            route.targetId(),
+                            route.targetEvent()
+                    ),
+                    forwardedPayload,
+                    nextPath
+            );
         }
     }
 
@@ -320,12 +462,13 @@ public final class LuaUiScriptEngine {
                            String eventName,
                            JComponent component,
                            ComponentAttributes attributes,
-                           Object rawEvent) {
+                           Object rawEvent,
+                           LuaValue payload) {
         try {
             runtime.execute(
                     scriptPath,
                     context.componentTable(component, attributes),
-                    context.eventTable(eventName, component, attributes, rawEvent, LuaValue.NIL)
+                    context.eventTable(eventName, component, attributes, rawEvent, payload)
             );
         } catch (LuaError error) {
             Engine.LOGGER.error("Lua UI script failed: {}", scriptPath, error);

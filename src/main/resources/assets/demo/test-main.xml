@@ -72,6 +72,16 @@
                 </component>
 
                 <component
+                    type="linkedStatusControl"
+                    id="constructorRegression"
+                    style="default"
+                    enabled="true"
+                    opaque="false"
+                    visible="false">
+                    <bounds x="32" y="164" width="430" height="36" />
+                </component>
+
+                <component
                     type="compositeComponent"
                     style="default"
                     id="compositeDemo"

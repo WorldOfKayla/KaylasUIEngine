@@ -1,5 +1,42 @@
 # Changelog
 
+## 2.1.0-AURELIA — 2026-07-10
+
+### Added
+
+- Common `AbstractComponentDefinition` hierarchy for engine component definitions.
+- `ComponentKind.BASIC` and `ComponentKind.COMPOSITE` classification.
+- Central thread-safe `ComponentCatalog` for built-in and launcher-defined component types.
+- Launcher-facing `ComponentConstructor` API.
+- Declarative reusable `CompositeComponentDefinition` graphs.
+- Immutable `ComponentNode` prototypes with deep `ComponentAttributes` copies.
+- Scoped composite instance ids in the form `instance.child`.
+- Declarative `ComponentConnection` routes between composite nodes.
+- Directed `ComponentSignalRouter` integrated into the existing Lua event pipeline.
+- Targeted Lua listeners through `component:on(...)` and `ui.on(componentId, event, handler)`.
+- Lua APIs: `ui.connect`, `ui.disconnect`, `ui.send`, `component:connectLocal`, `component:sendLocal`, and `component:findLocal`.
+- Routed event metadata containing route, scope, source, target, and payload information.
+- Automatic route, targeted-listener, component-registry, and Lua-closure cleanup by composite scope.
+- Constructor runtime architecture and launcher integration documentation.
+
+### Improved
+
+- Built-in preassembled components are cataloged as `COMPOSITE`; atomic controls remain `BASIC`.
+- `ComponentFactory` now resolves all definitions through a single catalog source of truth.
+- `GuiBuilder` exposes `getComponentCatalog()` and `getComponentConstructor()`.
+- Component descriptors support deep copying and per-event script registration.
+- Definition replacement removes obsolete aliases.
+- Catalog aliases cannot hijack canonical component type names.
+- Composite registration validates unknown child types, duplicate nodes, missing connection endpoints, direct self-reference, and indirect dependency cycles.
+- Runtime creation detects recursive composite construction through the active creation stack.
+- Existing global Lua `ui.on` and `ui.emit` behavior remains compatible.
+
+### Verification
+
+- Added catalog, prototype isolation, definition inheritance, alias collision, cycle detection, and signal-router checks.
+- Added an end-to-end launcher fixture that registers a custom composite, instantiates it from XML, routes a checkbox event, and updates a linked label through a scoped Lua listener.
+- Existing slider, directory-selector, transparent-panel, and checkbox-panel regressions remain covered.
+
 ## 2.0.0-AURELIA — 2026-07-10
 
 ### Breaking
