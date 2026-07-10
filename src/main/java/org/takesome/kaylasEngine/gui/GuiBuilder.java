@@ -1,8 +1,7 @@
 package org.takesome.kaylasEngine.gui;
 
 import org.takesome.kaylasEngine.Engine;
-import org.takesome.kaylasEngine.gui.adapters.FrameAttributesLoader;
-import org.takesome.kaylasEngine.gui.adapters.FrameLoaderAdapters;
+import org.takesome.kaylasEngine.gui.descriptor.XmlUiDescriptorLoader;
 import org.takesome.kaylasEngine.gui.components.Attributes;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentCatalog;
@@ -23,11 +22,11 @@ import java.util.concurrent.CopyOnWriteArrayList;
 /**
  * Advanced class for building graphical user interfaces.
  *
- * Provides synchronous and asynchronous GUI construction with support for registering additional loaders,
+ * Provides synchronous and asynchronous construction from canonical XML UI descriptors,
  * multiple event listeners, and cancellation of asynchronous tasks.
  */
 public class GuiBuilder {
-    private final FrameLoaderAdapters frameLoaderAdapters;
+    private final XmlUiDescriptorLoader descriptorLoader;
     private final FrameConstructor frameConstructor;
     private final ComponentFactory componentFactory;
     private final Notification notification;
@@ -61,7 +60,7 @@ public class GuiBuilder {
             throw new IllegalArgumentException("Engine не может быть null");
         }
         this.engine = engine;
-        this.frameLoaderAdapters = new FrameLoaderAdapters(engine);
+        this.descriptorLoader = new XmlUiDescriptorLoader();
         this.frameConstructor = engine.getFrame();
         this.componentFactory = new ComponentFactory(engine);
         this.notification = new Notification();
@@ -167,20 +166,6 @@ public class GuiBuilder {
         this.onPanelsBuildTask = task;
     }
 
-    /**
-     * Allows registering a frame attributes loader for a new file type.
-     *
-     * @param fileExtension file extension (for example, "xml", "ini"); must not be empty.
-     * @param loader        attributes loader.
-     */
-    public void registerFrameAttributesLoader(String fileExtension, FrameAttributesLoader loader) {
-        if (fileExtension == null || fileExtension.isEmpty()) {
-            Engine.getLOGGER().error("File extension is empty.");
-            return;
-        }
-        frameLoaderAdapters.registerAdapter(fileExtension, loader);
-        Engine.getLOGGER().debug("Registered new FrameAttributesLoader for extension: {}", fileExtension);
-    }
 
     /**
      * Clears the internal state of the builder: panels map, components map, and parent-child relations.
@@ -195,42 +180,13 @@ public class GuiBuilder {
     }
 
     /**
-     * Loads frame attributes depending on the file type.
+     * Loads a canonical XML UI descriptor.
      *
-     * @param framePath path to the configuration file.
-     * @return Attributes object for the frame, or null if loading failed.
+     * @param framePath classpath resource ending in {@code .xml}.
+     * @return parsed descriptor attributes.
      */
     private Attributes loadFrameAttributes(String framePath) {
-        String fileType = getFileType(framePath);
-        FrameAttributesLoader loader = frameLoaderAdapters.getLoader(fileType);
-        if (loader == null) {
-            Engine.getLOGGER().error("No loader found for file type: {}", fileType);
-            return null;
-        }
-        return loader.getAttributes(framePath);
-    }
-
-    /**
-     * Determines the file type by its extension.
-     *
-     * @param framePath path to the file.
-     * @return string representing the file type.
-     */
-    private String getFileType(String framePath) {
-        String lowerCasePath = framePath.toLowerCase(Locale.ROOT);
-        if (lowerCasePath.endsWith(".json")) {
-            return "json";
-        } else if (lowerCasePath.endsWith(".json5")) {
-            return "json5";
-        } else if (lowerCasePath.endsWith(".xml")) {
-            return "xml";
-        } else if (lowerCasePath.endsWith(".yaml") || lowerCasePath.endsWith(".yml")) {
-            return "yaml";
-        } else if (lowerCasePath.endsWith(".fxml")) {
-            return "fxml";
-        }
-        // Default extension
-        return "json";
+        return descriptorLoader.load(framePath);
     }
 
     /**
@@ -533,14 +489,6 @@ public class GuiBuilder {
         return engine;
     }
 
-    /**
-     * Returns the frame loader adapters.
-     *
-     * @return frameLoaderAdapters.
-     */
-    public FrameLoaderAdapters getFrameLoaderAdapters() {
-        return frameLoaderAdapters;
-    }
 
     /**
      * Returns the Notification instance.

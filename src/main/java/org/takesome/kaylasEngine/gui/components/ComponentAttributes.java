@@ -13,7 +13,7 @@ import java.util.Map;
 import java.util.Objects;
 
 /**
- * Declarative component configuration shared by JSON, JSON5, XML and programmatic builders.
+ * Declarative component configuration shared by XML descriptors and programmatic builders.
  *
  * <p>The descriptor keeps optional values nullable where absence has different semantics from an
  * explicit false value. Common descriptors can compose multiple style classes and apply final

@@ -4,7 +4,7 @@
 **Runtime:** Java 17 / Swing
 **Кодовое имя:** `AURELIA 2 — Constructor Runtime`
 
-KaylasUI Engine — декларативный Swing UI runtime с JSON, JSON5 и XML-дескрипторами, наследуемыми стилями, Lua-сценариями и каталогом базовых и составных компонентов.
+KaylasUI Engine — декларативный Swing UI runtime с XML-дескрипторами, наследуемыми стилями, Lua-сценариями и каталогом базовых и составных компонентов.
 
 ## AURELIA 2.1
 

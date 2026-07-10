@@ -20,7 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
  * Registry of named listeners/behaviors that may be attached to declarative panels.
  *
  * <p>The registry removes behavior-specific branches from the panel renderer. Applications may
- * register additional installers and then reference them from XML, JSON or YAML through the
+ * register additional installers and then reference them from XML descriptors through the
  * panel {@code listeners} property.</p>
  */
 public final class PanelListenerRegistry {

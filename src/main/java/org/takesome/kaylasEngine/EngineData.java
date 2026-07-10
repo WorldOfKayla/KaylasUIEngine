@@ -13,7 +13,7 @@ import java.util.Map;
 @SuppressWarnings("unused")
 public class EngineData {
     private String logLevel,bindUrl,launcherBrand,launcherVersion,launcherBuild,appId,accessToken,programRuntime,groupDomain,vkAPIversion;
-    private String[] styles,loadAdapters;
+    private String[] styles;
     private DownloadManager downloadManager;
     private LoadManagerAttributes[] loadManager;
     private HTTPconf httpConf;
@@ -75,9 +75,6 @@ public class EngineData {
         return styles;
     }
 
-    public String[] getLoadAdapters() {
-        return loadAdapters;
-    }
 
     public static class BackendBinding {
         private boolean enabled = false;

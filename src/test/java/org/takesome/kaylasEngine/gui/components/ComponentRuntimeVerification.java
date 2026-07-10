@@ -3,6 +3,7 @@ package org.takesome.kaylasEngine.gui.components;
 import org.apache.logging.log4j.LogManager;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
+import org.takesome.kaylasEngine.gui.descriptor.XmlUiDescriptorLoader;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentNode;
 import org.takesome.kaylasEngine.gui.components.constructor.CompositeComponentDefinition;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
@@ -24,6 +25,7 @@ public final class ComponentRuntimeVerification {
         System.setProperty("log.level", "INFO");
         Engine.LOGGER = LogManager.getLogger(ComponentRuntimeVerification.class);
 
+        verifyXmlDescriptorPolicy();
         verifySelectionModes();
         verifyStyleComposition();
         verifyDescriptors();
@@ -32,6 +34,20 @@ public final class ComponentRuntimeVerification {
         verifySignalRouter();
 
         System.out.println("Component Constructor Runtime 2.1 verification passed.");
+    }
+
+    private static void verifyXmlDescriptorPolicy() {
+        XmlUiDescriptorLoader loader = new XmlUiDescriptorLoader();
+        require(loader.load("assets/demo/test-main.xml") != null,
+                "canonical XML UI descriptor did not load");
+
+        try {
+            loader.load("assets/demo/test-main.json");
+            throw new IllegalStateException("non-XML UI descriptor was accepted");
+        } catch (IllegalArgumentException expected) {
+            require(expected.getMessage().contains("XML UI descriptors only"),
+                    "non-XML descriptor rejection did not explain the XML-only policy");
+        }
     }
 
     private static void verifySelectionModes() {

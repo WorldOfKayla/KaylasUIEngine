@@ -2,6 +2,14 @@
 
 ## 2.1.0-AURELIA — 2026-07-10
 
+### Breaking
+
+- XML is now the only supported declarative UI descriptor format.
+- Removed the JSON, JSON5 and experimental YAML frame loaders and the runtime adapter registry.
+- Removed `EngineData.loadAdapters`, `GuiBuilder.registerFrameAttributesLoader(...)`, and `GuiBuilder.getFrameLoaderAdapters()`.
+- Replaced `XmlFrameAttributesLoader` with the canonical `XmlUiDescriptorLoader` API.
+
+
 ### Added
 
 - Common `AbstractComponentDefinition` hierarchy for engine component definitions.

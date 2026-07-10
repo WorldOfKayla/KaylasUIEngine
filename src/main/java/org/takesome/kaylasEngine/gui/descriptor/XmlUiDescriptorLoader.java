@@ -1,7 +1,6 @@
-package org.takesome.kaylasEngine.gui.adapters.xml;
+package org.takesome.kaylasEngine.gui.descriptor;
 
 import com.google.gson.JsonParser;
-import org.takesome.kaylasEngine.gui.adapters.FrameAttributesLoader;
 import org.takesome.kaylasEngine.gui.components.Attributes;
 import org.takesome.kaylasEngine.gui.components.Bounds;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
@@ -27,10 +26,10 @@ import java.util.Locale;
 import java.util.Map;
 
 /** XML UI descriptor loader with style composition and component property support. */
-public class XmlFrameAttributesLoader implements FrameAttributesLoader {
+public final class XmlUiDescriptorLoader {
     private final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 
-    public XmlFrameAttributesLoader() {
+    public XmlUiDescriptorLoader() {
         factory.setIgnoringComments(true);
         factory.setNamespaceAware(false);
         factory.setXIncludeAware(false);
@@ -47,15 +46,26 @@ public class XmlFrameAttributesLoader implements FrameAttributesLoader {
         }
     }
 
-    @Override
-    public Attributes getAttributes(String framePath) {
-        try (InputStream inputStream = XmlFrameAttributesLoader.class.getClassLoader().getResourceAsStream(framePath)) {
+    public Attributes load(String framePath) {
+        requireXmlResource(framePath);
+        try (InputStream inputStream = XmlUiDescriptorLoader.class.getClassLoader().getResourceAsStream(framePath)) {
             if (inputStream == null) {
                 throw new FileNotFoundException("Resource not found: " + framePath);
             }
             return parse(inputStream);
         } catch (Exception error) {
             throw new RuntimeException("Failed to load XML UI attributes from path: " + framePath, error);
+        }
+    }
+
+    private static void requireXmlResource(String resourcePath) {
+        if (resourcePath == null || resourcePath.isBlank()) {
+            throw new IllegalArgumentException("XML UI resource path must not be blank");
+        }
+        if (!resourcePath.toLowerCase(Locale.ROOT).endsWith(".xml")) {
+            throw new IllegalArgumentException(
+                    "KaylasUIEngine supports XML UI descriptors only: " + resourcePath
+            );
         }
     }
 

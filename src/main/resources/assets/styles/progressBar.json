@@ -6,7 +6,7 @@
       "fill",
       "text"
     ],
-    "componentOverrides": "Every property may be overridden directly on a progressBar component in XML, JSON, JSON5 or YAML.",
+    "componentOverrides": "Every property may be overridden directly on a progressBar component in XML.",
     "textTokens": [
       "{value}",
       "{min}",

@@ -1,9 +1,8 @@
 package org.takesome.kaylasEngine.gui.components.frame;
 
 import com.formdev.flatlaf.extras.FlatSVGIcon;
-import com.google.gson.Gson;
 import org.takesome.kaylasEngine.Engine;
-import org.takesome.kaylasEngine.gui.adapters.xml.XmlFrameAttributesLoader;
+import org.takesome.kaylasEngine.gui.descriptor.XmlUiDescriptorLoader;
 import org.takesome.kaylasEngine.gui.components.panel.Panel;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.w3c.dom.Attr;
@@ -15,10 +14,7 @@ import java.awt.*;
 import java.awt.event.WindowEvent;
 import java.awt.event.WindowFocusListener;
 import java.awt.geom.RoundRectangle2D;
-import java.io.InputStream;
-import java.io.InputStreamReader;
 import java.lang.reflect.Field;
-import java.nio.charset.StandardCharsets;
 import javax.xml.parsers.DocumentBuilder;
 import javax.xml.parsers.DocumentBuilderFactory;
 
@@ -33,6 +29,7 @@ import javax.xml.parsers.DocumentBuilderFactory;
  */
 public class FrameConstructor extends JFrame {
     private final Engine engine;
+    private final XmlUiDescriptorLoader descriptorLoader;
     private FocusStatusListener focusStatusListener;
     private Panel panel;
     private Dimension screenSize;
@@ -53,6 +50,7 @@ public class FrameConstructor extends JFrame {
     public FrameConstructor(Engine engine) {
         Engine.LOGGER.info("FrameConstructor: initialization started");
         this.engine = engine;
+        this.descriptorLoader = new XmlUiDescriptorLoader();
         this.LANG = engine.getLANG();
         this.hasFocus = false;
         this.focusStatusListener = engine;
@@ -68,28 +66,15 @@ public class FrameConstructor extends JFrame {
      * This method logs the path being loaded and any errors encountered while reading or parsing the template.
      * </p>
      *
-     * @param path resource path to the frame template (for example "assets/frame/frame.json")
+     * @param path resource path to the XML frame template (for example "assets/frame/frame.xml")
      */
     private void buildFrame(String path) {
         Engine.LOGGER.info("FrameConstructor: building AppFrame from '{}'", path);
-        Gson gson = new Gson();
 
-        try (InputStream in = this.getClass().getClassLoader().getResourceAsStream(path)) {
-            if (in == null) {
-                Engine.LOGGER.error("FrameConstructor: resource not found at path '{}'", path);
-                return;
-            }
-            FrameAttributes frameAttributes;
-            if (path.toLowerCase().endsWith(".xml")) {
-                frameAttributes = parseXmlFrame(in);
-            } else {
-                try (InputStreamReader reader = new InputStreamReader(in, StandardCharsets.UTF_8)) {
-                    frameAttributes = gson.fromJson(reader, FrameAttributes.class);
-                }
-            }
-            if (frameAttributes == null) {
-                Engine.LOGGER.error("FrameConstructor: parsed FrameAttributes is null for path '{}'", path);
-                return;
+        try {
+            var attributes = descriptorLoader.load(path);
+            if (!(attributes instanceof FrameAttributes frameAttributes)) {
+                throw new IllegalArgumentException("XML frame root must be <frame>: " + path);
             }
             Engine.LOGGER.debug("FrameConstructor: parsed FrameAttributes: width={}, height={}, resizable={}, undecorated={}, borderRadius={}",
                     frameAttributes.getWidth(), frameAttributes.getHeight(),
@@ -99,14 +84,6 @@ public class FrameConstructor extends JFrame {
         } catch (Exception ex) {
             Engine.LOGGER.error("FrameConstructor: failed to build frame from '{}'", path, ex);
         }
-    }
-
-    private FrameAttributes parseXmlFrame(InputStream inputStream) throws Exception {
-        var attributes = new XmlFrameAttributesLoader().parse(inputStream);
-        if (attributes instanceof FrameAttributes frameAttributes) {
-            return frameAttributes;
-        }
-        throw new IllegalArgumentException("XML frame root must be <frame>");
     }
 
     /**

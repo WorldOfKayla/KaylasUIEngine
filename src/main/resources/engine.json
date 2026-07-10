@@ -23,11 +23,6 @@
     "compositeSlider",
     "compositeComponent"
   ],
-  "loadAdapters": [
-    "json",
-    "json5",
-    "xml"
-  ],
   "downloadManager": {
     "downloadThreads": 4,
     "replaceMasks": []
@@ -41,8 +36,8 @@
   },
   "tweakClasses": [],
   "files": {
-    "frameTpl": "assets/demo/test-frame.json",
-    "mainFrame": "assets/demo/test-main.json",
+    "frameTpl": "assets/demo/test-frame.xml",
+    "mainFrame": "assets/demo/test-main.xml",
     "localeFile": "assets/demo/test-locale.json",
     "soundsFile": "assets/sounds/sounds.json"
   }

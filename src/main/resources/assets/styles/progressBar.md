@@ -114,31 +114,6 @@ Available `progressTextFormat` tokens:
 </component>
 ```
 
-## JSON5 example
-
-```json5
-{
-  type: "progressBar",
-  style: "progress",
-  id: "downloadProgress",
-  minValue: 0,
-  maxValue: 100,
-  initialValue: 0,
-  stringPainted: true,
-  showPercent: true,
-  progressTextFormat: "{value} / {max} — {percent}%",
-  textColor: "#ffffffff",
-  font: "mcfont",
-  fontSize: 11,
-  fontStyle: "bold",
-  fillColor: "#b0976bff",
-  trackColor: "#202720ff",
-  orientation: "horizontal",
-  animateValue: true,
-  bounds: { x: 5, y: 370, width: 790, height: 30 }
-}
-```
-
 ## Lua runtime API
 
 ```lua
