@@ -411,14 +411,14 @@ public final class UiScriptContext {
 
     private LuaTable createNotificationsTable() {
         LuaTable notifications = table();
-        notifications.set("show", function(this::luaNotificationShow));
-        notifications.set("clear", function(this::luaNotificationClear));
-        notifications.set("clearHold", function(this::luaNotificationClearHold));
+        notifications.set("show", function(args -> luaNotificationShow(notifications, args)));
+        notifications.set("clear", function(args -> luaNotificationClear(notifications, args)));
+        notifications.set("clearHold", function(args -> luaNotificationClearHold(notifications, args)));
         return notifications;
     }
 
-    private LuaValue luaNotificationShow(Varargs args) {
-        LuaValue options = arg(args, 1);
+    private LuaValue luaNotificationShow(LuaTable owner, Varargs args) {
+        LuaValue options = notificationArg(owner, args, 1);
         if (!options.istable()) {
             Engine.LOGGER.warn("engine.notifications.show(...) requires an options table.");
             return LuaValue.FALSE;
@@ -462,14 +462,14 @@ public final class UiScriptContext {
         return LuaValue.TRUE;
     }
 
-    private LuaValue luaNotificationClear(Varargs args) {
+    private LuaValue luaNotificationClear(LuaTable owner, Varargs args) {
         Notification notification = engine.getGuiBuilder() == null
                 ? null
                 : engine.getGuiBuilder().getNotification();
         if (notification == null) {
             return LuaValue.FALSE;
         }
-        String requested = stringArg(args, 1, "");
+        String requested = notificationArg(owner, args, 1).optjstring("");
         runOnEdt(() -> {
             if (requested.isBlank()) {
                 notification.clearAll();
@@ -484,14 +484,14 @@ public final class UiScriptContext {
         return LuaValue.TRUE;
     }
 
-    private LuaValue luaNotificationClearHold(Varargs args) {
+    private LuaValue luaNotificationClearHold(LuaTable owner, Varargs args) {
         Notification notification = engine.getGuiBuilder() == null
                 ? null
                 : engine.getGuiBuilder().getNotification();
         if (notification == null) {
             return LuaValue.FALSE;
         }
-        String requested = stringArg(args, 1, "");
+        String requested = notificationArg(owner, args, 1).optjstring("");
         runOnEdt(() -> {
             if (requested.isBlank()) {
                 notification.clearHold();
@@ -504,6 +504,16 @@ public final class UiScriptContext {
             }
         });
         return LuaValue.TRUE;
+    }
+
+
+    private static LuaValue notificationArg(LuaTable owner, Varargs args, int logicalIndex) {
+        if (args == null || logicalIndex < 1) {
+            return LuaValue.NIL;
+        }
+        int offset = args.narg() > 0 && args.arg1() == owner ? 1 : 0;
+        int actualIndex = logicalIndex + offset;
+        return args.narg() >= actualIndex ? args.arg(actualIndex) : LuaValue.NIL;
     }
 
     private static <E extends Enum<E>> E enumValue(Class<E> type, String value, E fallback) {
