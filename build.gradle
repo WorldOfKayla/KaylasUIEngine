@@ -20,9 +20,15 @@ def readSetting = { String key, String envKey, String fallback ->
 
 def packageUser = readSetting('github.package.username', 'GITHUB_ACTOR', '')
 def packagePassword = readSetting('github.package.password', 'GITHUB_TOKEN', '')
-def projectVersion = readSetting('project.version', 'PROJECT_VERSION', '1.18.0-AURELIA')
-def projectGroup = readSetting('project.group', 'PROJECT_GROUP', 'org.takesome')
-def projectArchivesBaseName = readSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'kaylas-ui-engine')
+def readCanonicalSetting = { String key, String envKey, String fallback ->
+    def gradleValue = findProperty(key)
+    def envValue = System.getenv(envKey)
+    return (gradleValue ?: envValue ?: fallback).toString()
+}
+
+def projectVersion = readCanonicalSetting('project.version', 'PROJECT_VERSION', '1.18.0-AURELIA')
+def projectGroup = readCanonicalSetting('project.group', 'PROJECT_GROUP', 'org.takesome')
+def projectArchivesBaseName = readCanonicalSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'kaylas-ui-engine')
 def diagnosticsProjectDir = layout.projectDirectory.asFile.absolutePath
 
 version = projectVersion
