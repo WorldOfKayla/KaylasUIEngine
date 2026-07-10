@@ -1,6 +1,7 @@
 package org.takesome.kaylasEngine.gui.scripting;
 
 import org.luaj.vm2.LuaError;
+import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
@@ -97,6 +98,14 @@ public final class LuaUiScriptEngine implements UiSignalBridge {
 
     public Map<String, JComponent> getComponentsById() {
         return context.componentsById();
+    }
+
+
+    public void executeScript(String scriptPath, Map<String, ?> payload) {
+        LuaTable event = new LuaTable();
+        event.set("name", LuaValue.valueOf("script"));
+        event.set("payload", LuaRuntimeSupport.toLuaValue(payload == null ? Map.of() : payload));
+        runtime.execute(scriptPath, new LuaTable(), event);
     }
 
     public void clearScriptCache() {

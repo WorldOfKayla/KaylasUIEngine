@@ -3,10 +3,12 @@ package org.takesome.kaylasEngine.gui.scripting;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
+import org.foxesworld.notification.Notification;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 
 import javax.swing.JComponent;
+import java.awt.Rectangle;
 import javax.swing.event.DocumentEvent;
 import java.awt.event.FocusEvent;
 import java.awt.event.KeyEvent;
@@ -31,6 +33,7 @@ import java.util.concurrent.atomic.AtomicLong;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.arg;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.booleanArg;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.function;
+import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.intArg;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.normalizeEventName;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.normalizeResourcePath;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.runOnEdt;
@@ -401,7 +404,118 @@ public final class UiScriptContext {
         result.set("langWith", function(this::luaLangWith));
         result.set("localeIndex", function(args -> LuaValue.valueOf(engine.getLANG().getLocaleIndex())));
         result.set("localeCount", function(args -> LuaValue.valueOf(engine.getLANG().getLocalesSet().length)));
+        result.set("notifications", createNotificationsTable());
         return result;
+    }
+
+
+    private LuaTable createNotificationsTable() {
+        LuaTable notifications = table();
+        notifications.set("show", function(this::luaNotificationShow));
+        notifications.set("clear", function(this::luaNotificationClear));
+        notifications.set("clearHold", function(this::luaNotificationClearHold));
+        return notifications;
+    }
+
+    private LuaValue luaNotificationShow(Varargs args) {
+        LuaValue options = arg(args, 1);
+        if (!options.istable()) {
+            Engine.LOGGER.warn("engine.notifications.show(...) requires an options table.");
+            return LuaValue.FALSE;
+        }
+
+        Notification notification = engine.getGuiBuilder() == null
+                ? null
+                : engine.getGuiBuilder().getNotification();
+        if (notification == null) {
+            Engine.LOGGER.warn("Notification API is unavailable because GuiBuilder is not initialized.");
+            return LuaValue.FALSE;
+        }
+
+        Notification.Type type = enumValue(
+                Notification.Type.class,
+                options.get("type").optjstring("INFO"),
+                Notification.Type.INFO
+        );
+        Notification.Location location = enumValue(
+                Notification.Location.class,
+                options.get("location").optjstring("BOTTOM_RIGHT"),
+                Notification.Location.BOTTOM_RIGHT
+        );
+        String message = options.get("message").optjstring("");
+        long duration = Math.max(0L, options.get("durationMs").optlong(3000L));
+
+        LuaValue bounds = options.get("bounds");
+        runOnEdt(() -> {
+            if (bounds.istable()) {
+                Rectangle rectangle = new Rectangle(
+                        bounds.get("x").optint(0),
+                        bounds.get("y").optint(0),
+                        Math.max(1, bounds.get("width").optint(320)),
+                        Math.max(1, bounds.get("height").optint(48))
+                );
+                notification.show(type, rectangle, duration, message);
+            } else {
+                notification.show(type, location, duration, message);
+            }
+        });
+        return LuaValue.TRUE;
+    }
+
+    private LuaValue luaNotificationClear(Varargs args) {
+        Notification notification = engine.getGuiBuilder() == null
+                ? null
+                : engine.getGuiBuilder().getNotification();
+        if (notification == null) {
+            return LuaValue.FALSE;
+        }
+        String requested = stringArg(args, 1, "");
+        runOnEdt(() -> {
+            if (requested.isBlank()) {
+                notification.clearAll();
+            } else {
+                notification.clear(enumValue(
+                        Notification.Location.class,
+                        requested,
+                        Notification.Location.BOTTOM_RIGHT
+                ));
+            }
+        });
+        return LuaValue.TRUE;
+    }
+
+    private LuaValue luaNotificationClearHold(Varargs args) {
+        Notification notification = engine.getGuiBuilder() == null
+                ? null
+                : engine.getGuiBuilder().getNotification();
+        if (notification == null) {
+            return LuaValue.FALSE;
+        }
+        String requested = stringArg(args, 1, "");
+        runOnEdt(() -> {
+            if (requested.isBlank()) {
+                notification.clearHold();
+            } else {
+                notification.clearHold(enumValue(
+                        Notification.Location.class,
+                        requested,
+                        Notification.Location.BOTTOM_RIGHT
+                ));
+            }
+        });
+        return LuaValue.TRUE;
+    }
+
+    private static <E extends Enum<E>> E enumValue(Class<E> type, String value, E fallback) {
+        if (value == null || value.isBlank()) {
+            return fallback;
+        }
+        try {
+            return Enum.valueOf(type, value.trim().toUpperCase(java.util.Locale.ROOT));
+        } catch (IllegalArgumentException error) {
+            Engine.LOGGER.warn("Unknown {} value '{}'; using '{}'.", type.getSimpleName(), value, fallback);
+            return fallback;
+        }
     }
 
     private LuaValue luaLang(Varargs args) {
