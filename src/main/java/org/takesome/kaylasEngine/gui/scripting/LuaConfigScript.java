@@ -3,7 +3,6 @@ package org.takesome.kaylasEngine.gui.scripting;
 import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
-import org.luaj.vm2.lib.jse.JsePlatform;
 import org.takesome.kaylasEngine.Engine;
 
 import java.util.LinkedHashMap;
@@ -21,7 +20,7 @@ public final class LuaConfigScript {
     public static Map<String, Object> load(UiScriptContext context, String scriptPath) {
         try {
             String source = context.scriptSource(scriptPath);
-            Globals globals = JsePlatform.standardGlobals();
+            Globals globals = LuaRuntimeFactory.createLightweightGlobals();
             globals.set("engine", context.engineTable());
             globals.set("ui", context.uiTable());
 

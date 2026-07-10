@@ -5,15 +5,16 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
 import org.luaj.vm2.lib.VarArgFunction;
-import org.luaj.vm2.lib.jse.JsePlatform;
 import org.takesome.kaylasEngine.Engine;
 
 import javax.swing.JPanel;
+import javax.swing.SwingUtilities;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Objects;
@@ -21,17 +22,29 @@ import java.util.Objects;
 /**
  * Script-backed render surface.
  *
- * <p>The engine provides drawing primitives and Lua execution. Applications provide the script and
- * render policy.</p>
+ * <p>The render context, state table and drawing functions are retained between frames. A paint no
+ * longer allocates a new Lua API graph and callback objects for every effect frame.</p>
  */
 public final class LuaRenderPanel extends JPanel {
+    private static final int MAX_CACHED_COLORS = 64;
+
     private final UiScriptContext context;
     private final String scriptPath;
     private final String renderFunctionPath;
-    private final Map<String, Object> state = new LinkedHashMap<>();
+    private final Map<String, Object> state = Collections.synchronizedMap(new LinkedHashMap<>());
+    private final Map<String, Color> colorCache = new LinkedHashMap<>(16, 0.75f, true) {
+        @Override
+        protected boolean removeEldestEntry(Map.Entry<String, Color> eldest) {
+            return size() > MAX_CACHED_COLORS;
+        }
+    };
+    private final LuaTable stateTable = new LuaTable();
+    private final LuaTable renderContext = new LuaTable();
+    private final LuaTable drawApi = new LuaTable();
 
     private LuaValue renderFunction = LuaValue.NIL;
     private LuaTable rootTable = new LuaTable();
+    private Graphics2D activeGraphics;
 
     public LuaRenderPanel(UiScriptContext context, String scriptPath, String renderFunctionPath) {
         this.context = Objects.requireNonNull(context, "context");
@@ -39,13 +52,15 @@ public final class LuaRenderPanel extends JPanel {
         this.renderFunctionPath = Objects.requireNonNull(renderFunctionPath, "renderFunctionPath");
         setOpaque(false);
         setDoubleBuffered(true);
+        initializeRenderContext();
+        initializeDrawApi();
         reloadScript();
     }
 
     public void reloadScript() {
         try {
             String source = context.scriptSource(scriptPath);
-            Globals globals = JsePlatform.standardGlobals();
+            Globals globals = LuaRuntimeFactory.createLightweightGlobals();
             globals.set("engine", context.engineTable());
             globals.set("ui", context.uiTable());
 
@@ -54,9 +69,11 @@ public final class LuaRenderPanel extends JPanel {
                 Engine.getLOGGER().warn("Lua render script did not return a table: {}", scriptPath);
                 rootTable = new LuaTable();
                 renderFunction = LuaValue.NIL;
+                renderContext.set("root", rootTable);
                 return;
             }
             rootTable = result.checktable();
+            renderContext.set("root", rootTable);
             renderFunction = resolveFunction(rootTable, renderFunctionPath);
             if (!renderFunction.isfunction()) {
                 Engine.getLOGGER().warn("Lua render function '{}' was not found in {}", renderFunctionPath, scriptPath);
@@ -65,6 +82,7 @@ public final class LuaRenderPanel extends JPanel {
             Engine.getLOGGER().warn("Unable to load Lua render script: {}", scriptPath, error);
             rootTable = new LuaTable();
             renderFunction = LuaValue.NIL;
+            renderContext.set("root", rootTable);
         }
     }
 
@@ -73,7 +91,15 @@ public final class LuaRenderPanel extends JPanel {
             return;
         }
         state.put(key, value);
-        repaint(0, 0, getWidth(), getHeight());
+        Runnable update = () -> {
+            stateTable.set(key, toLuaValue(value));
+            repaint(0, 0, getWidth(), getHeight());
+        };
+        if (SwingUtilities.isEventDispatchThread()) {
+            update.run();
+        } else {
+            SwingUtilities.invokeLater(update);
+        }
     }
 
     public Object getState(String key) {
@@ -90,55 +116,58 @@ public final class LuaRenderPanel extends JPanel {
         Graphics2D graphics2D = (Graphics2D) graphics.create();
         try {
             graphics2D.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-            LuaTable ctx = contextTable();
-            LuaTable draw = drawTable(graphics2D);
-            renderFunction.call(ctx, draw);
+            renderContext.set("width", LuaValue.valueOf(getWidth()));
+            renderContext.set("height", LuaValue.valueOf(getHeight()));
+            activeGraphics = graphics2D;
+            renderFunction.call(renderContext, drawApi);
         } catch (Exception error) {
             Engine.getLOGGER().warn("Lua render function '{}' failed.", renderFunctionPath, error);
         } finally {
+            activeGraphics = null;
             graphics2D.dispose();
         }
     }
 
-    private LuaTable contextTable() {
-        LuaTable ctx = new LuaTable();
-        ctx.set("width", LuaValue.valueOf(getWidth()));
-        ctx.set("height", LuaValue.valueOf(getHeight()));
-        ctx.set("script", LuaValue.valueOf(scriptPath));
-        ctx.set("state", stateTable());
-        ctx.set("root", rootTable);
-        return ctx;
+    private void initializeRenderContext() {
+        renderContext.set("width", LuaValue.valueOf(0));
+        renderContext.set("height", LuaValue.valueOf(0));
+        renderContext.set("script", LuaValue.valueOf(scriptPath));
+        renderContext.set("state", stateTable);
+        renderContext.set("root", rootTable);
     }
 
-    private LuaTable stateTable() {
-        LuaTable table = new LuaTable();
-        for (Map.Entry<String, Object> entry : state.entrySet()) {
-            table.set(entry.getKey(), toLuaValue(entry.getValue()));
-        }
-        return table;
-    }
-
-    private LuaTable drawTable(Graphics2D graphics2D) {
-        LuaTable draw = new LuaTable();
-        draw.set("fillRect", new VarArgFunction() {
+    private void initializeDrawApi() {
+        drawApi.set("fillRect", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
+                Graphics2D graphics = activeGraphics;
+                if (graphics == null) {
+                    return LuaValue.NIL;
+                }
                 int x = intArg(args, 1, 0);
                 int y = intArg(args, 2, 0);
                 int width = intArg(args, 3, getWidth());
                 int height = intArg(args, 4, getHeight());
                 Color color = colorArg(args, 5, Color.BLACK);
                 int alpha = alphaArg(args, 6, color.getAlpha());
-                paintWithAlpha(graphics2D, alpha, () -> {
-                    graphics2D.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
-                    graphics2D.fillRect(x, y, width, height);
-                });
+                var previousComposite = graphics.getComposite();
+                try {
+                    graphics.setComposite(AlphaComposite.SrcOver.derive(normalizedAlpha(alpha)));
+                    graphics.setColor(color);
+                    graphics.fillRect(x, y, width, height);
+                } finally {
+                    graphics.setComposite(previousComposite);
+                }
                 return LuaValue.NIL;
             }
         });
-        draw.set("fillRoundRect", new VarArgFunction() {
+        drawApi.set("fillRoundRect", new VarArgFunction() {
             @Override
             public Varargs invoke(Varargs args) {
+                Graphics2D graphics = activeGraphics;
+                if (graphics == null) {
+                    return LuaValue.NIL;
+                }
                 int x = intArg(args, 1, 0);
                 int y = intArg(args, 2, 0);
                 int width = intArg(args, 3, getWidth());
@@ -146,24 +175,21 @@ public final class LuaRenderPanel extends JPanel {
                 int arc = intArg(args, 5, 0);
                 Color color = colorArg(args, 6, Color.BLACK);
                 int alpha = alphaArg(args, 7, color.getAlpha());
-                paintWithAlpha(graphics2D, alpha, () -> {
-                    graphics2D.setColor(new Color(color.getRed(), color.getGreen(), color.getBlue(), alpha));
-                    graphics2D.fillRoundRect(x, y, width, height, arc, arc);
-                });
+                var previousComposite = graphics.getComposite();
+                try {
+                    graphics.setComposite(AlphaComposite.SrcOver.derive(normalizedAlpha(alpha)));
+                    graphics.setColor(color);
+                    graphics.fillRoundRect(x, y, width, height, arc, arc);
+                } finally {
+                    graphics.setComposite(previousComposite);
+                }
                 return LuaValue.NIL;
             }
         });
-        return draw;
     }
 
-    private void paintWithAlpha(Graphics2D graphics2D, int alpha, Runnable painter) {
-        var oldComposite = graphics2D.getComposite();
-        graphics2D.setComposite(AlphaComposite.SrcOver.derive(Math.max(0f, Math.min(1f, alpha / 255f))));
-        try {
-            painter.run();
-        } finally {
-            graphics2D.setComposite(oldComposite);
-        }
+    private static float normalizedAlpha(int alpha) {
+        return Math.max(0f, Math.min(1f, alpha / 255f));
     }
 
     private LuaValue resolveFunction(LuaTable root, String path) {
@@ -217,11 +243,17 @@ public final class LuaRenderPanel extends JPanel {
         if (args.narg() < index || args.arg(index).isnil()) {
             return fallback;
         }
+        String raw = args.arg(index).tojstring().trim();
         try {
-            String raw = args.arg(index).tojstring().trim();
-            return Color.decode(raw.startsWith("#") ? raw : "#" + raw);
+            Color cached = colorCache.get(raw);
+            if (cached != null) {
+                return cached;
+            }
+            Color parsed = Color.decode(raw.startsWith("#") ? raw : "#" + raw);
+            colorCache.put(raw, parsed);
+            return parsed;
         } catch (Exception error) {
-            Engine.getLOGGER().warn("Invalid Lua render color '{}'.", args.arg(index).tojstring());
+            Engine.getLOGGER().warn("Invalid Lua render color '{}'.", raw);
             return fallback;
         }
     }

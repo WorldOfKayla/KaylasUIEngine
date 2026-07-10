@@ -58,6 +58,10 @@ public class LibraryReader {
                 if (!isLibraryAllowed(libraryObject)) {
                     continue;
                 }
+                if (isDownloadOnly(libraryObject)) {
+                    Engine.LOGGER.debug("Skipping download-only library from runtime classpath: {}", libraryName(libraryObject));
+                    continue;
+                }
 
                 Library library = convertToLibrary(libraryObject);
                 if (!hasUsableArtifact(library)) {
@@ -90,6 +94,16 @@ public class LibraryReader {
             Engine.LOGGER.error("Error reading libraries file {}: {}", path, error.getMessage(), error);
         }
         return libraries;
+    }
+
+    private boolean isDownloadOnly(JsonObject libraryObject) {
+        JsonElement downloadOnly = libraryObject.get("downloadOnly");
+        return downloadOnly != null && !downloadOnly.isJsonNull() && downloadOnly.getAsBoolean();
+    }
+
+    private String libraryName(JsonObject libraryObject) {
+        JsonElement name = libraryObject.get("name");
+        return name == null || name.isJsonNull() ? "<unnamed>" : name.getAsString();
     }
 
     private boolean isValidHash(Library library, String libraryFullPath) {
@@ -148,7 +162,7 @@ public class LibraryReader {
             artifact = downloadsArtifact(libraryObject);
         }
         if (artifact == null) {
-            artifact = legacyArtifact(library, libraryObject);
+            artifact = coordinatesArtifact(library);
         }
         library.setArtifact(artifact);
         return library;
@@ -164,8 +178,8 @@ public class LibraryReader {
         JsonObject classifiers = downloads == null ? null : downloads.getAsJsonObject("classifiers");
         JsonObject artifactObject = classifiers == null ? null : classifiers.getAsJsonObject(classifier);
         if (artifactObject == null) {
-            JsonObject legacyClassifiers = libraryObject.getAsJsonObject("classifiers");
-            artifactObject = legacyClassifiers == null ? null : legacyClassifiers.getAsJsonObject(classifier);
+            JsonObject directClassifiers = libraryObject.getAsJsonObject("classifiers");
+            artifactObject = directClassifiers == null ? null : directClassifiers.getAsJsonObject(classifier);
         }
         return artifact(artifactObject);
     }
@@ -176,7 +190,7 @@ public class LibraryReader {
         return artifact(artifactObject);
     }
 
-    private Artifact legacyArtifact(Library library, JsonObject libraryObject) {
+    private Artifact coordinatesArtifact(Library library) {
         if (library.getArtifact() != null && library.getArtifact().getPath() != null && !library.getArtifact().getPath().isBlank()) {
             return library.getArtifact();
         }

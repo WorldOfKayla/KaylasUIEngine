@@ -20,7 +20,9 @@ import org.takesome.kaylasEngine.gui.components.panel.PanelVisibility;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.takesome.kaylasEngine.news.News;
+import org.takesome.kaylasEngine.resources.AsyncImageCache;
 import org.takesome.kaylasEngine.service.ExecutorServiceProvider;
+import org.takesome.kaylasEngine.service.ScheduledTaskService;
 import org.takesome.kaylasEngine.sound.Sound;
 import org.takesome.kaylasEngine.utils.*;
 import org.takesome.kaylasEngine.utils.Crypt.CryptUtils;
@@ -68,6 +70,12 @@ import java.util.concurrent.atomic.AtomicBoolean;
 public abstract class Engine implements ActionListener, GuiBuilderListener, FocusStatusListener {
     /** Background task provider. */
     private final ExecutorServiceProvider executorServiceProvider;
+
+    /** Engine-wide scheduler for periodic and delayed services. */
+    private final ScheduledTaskService scheduledTaskService;
+
+    /** Shared asynchronous memory/disk image cache. */
+    private final AsyncImageCache asyncImageCache;
 
     /** Unified HTTP/WS/WSS request dispatcher. */
     private final RequestClient requestClient;
@@ -188,6 +196,8 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         this.FONTUTILS = new FontUtils(this);
         setLogLevel(Level.valueOf(engineData.getLogLevel()));
         executorServiceProvider = new ExecutorServiceProvider(poolSize, worker);
+        scheduledTaskService = new ScheduledTaskService(1, worker + "-scheduler", LOGGER);
+        asyncImageCache = new AsyncImageCache(executorServiceProvider);
         eventBus = new EventBus(executorServiceProvider.getExecutorService(), LOGGER);
         requestClient = new RequestClient(this);
 
@@ -401,6 +411,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      * Forces shutdown on timeout.
      */
     public void shutdownExecutorService(){
+        scheduledTaskService.close();
         executorServiceProvider.shutdown();
     }
 
@@ -628,6 +639,15 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
     }
 
     /**
+     * Returns the engine-wide asynchronous image cache.
+     *
+     * @return shared image cache.
+     */
+    public AsyncImageCache getAsyncImageCache() {
+        return asyncImageCache;
+    }
+
+    /**
      * Returns cryptographic utilities.
      *
      * @return {@link CryptUtils} or {@code null}.
@@ -670,6 +690,15 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      */
     public ExecutorServiceProvider getExecutorServiceProvider() {
         return executorServiceProvider;
+    }
+
+    /**
+     * Returns the engine-wide scheduler.
+     *
+     * @return shared scheduled task service.
+     */
+    public ScheduledTaskService getScheduledTaskService() {
+        return scheduledTaskService;
     }
 
     /**

@@ -7,7 +7,9 @@ import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.passfield.PassField;
+import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
+import org.takesome.kaylasEngine.gui.components.spinner.Spinner;
 import org.takesome.kaylasEngine.gui.components.textfield.TextField;
 
 import javax.swing.*;
@@ -79,9 +81,11 @@ public class ComponentsAccessor {
             PassField.class, c -> new String(((PassField) c).getPassword()),
             Checkbox.class, c -> String.valueOf(((Checkbox) c).isSelected()),
             Slider.class, c -> String.valueOf(((Slider) c).getValue()),
+            Spinner.class, c -> String.valueOf(((Spinner) c).getValue()),
             Combobox.class, c -> String.valueOf(((Combobox) c).getSelectedIndex()),
             FileSelector.class, c -> ((FileSelector)c).getValue(),
             CompositeSlider.class, c -> String.valueOf(((CompositeSlider) c).getValue()),
+            ProgressBar.class, c -> String.valueOf(((ProgressBar) c).getValue()),
             CompositeComponent.class, c -> String.valueOf(((CompositeComponent) c).getValue())
     );
 

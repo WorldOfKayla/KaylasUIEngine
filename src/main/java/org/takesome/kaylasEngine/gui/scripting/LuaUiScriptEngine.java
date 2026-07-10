@@ -1,18 +1,16 @@
 package org.takesome.kaylasEngine.gui.scripting;
 
-import org.luaj.vm2.Globals;
 import org.luaj.vm2.LuaError;
 import org.luaj.vm2.LuaValue;
-import org.luaj.vm2.lib.jse.JsePlatform;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 
 import javax.swing.AbstractButton;
 import javax.swing.JComboBox;
 import javax.swing.JComponent;
+import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
-import javax.swing.JSlider;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import javax.swing.text.JTextComponent;
@@ -50,10 +48,12 @@ public final class LuaUiScriptEngine {
     private static final int MAX_REENTRANT_DEPTH = 8;
 
     private final UiScriptContext context;
+    private final LuaUiRuntime runtime;
     private final ThreadLocal<Integer> eventDepth = ThreadLocal.withInitial(() -> 0);
 
     public LuaUiScriptEngine(Engine engine) {
         this.context = new UiScriptContext(Objects.requireNonNull(engine, "engine"));
+        this.runtime = new LuaUiRuntime(context);
     }
 
     /**
@@ -98,6 +98,19 @@ public final class LuaUiScriptEngine {
 
     public void clearScriptCache() {
         context.clearScriptCache();
+        runtime.clearCompiledScripts();
+    }
+
+    public int getCompiledScriptCount() {
+        return runtime.compiledScriptCount();
+    }
+
+    public long getScriptExecutionCount() {
+        return runtime.executionCount();
+    }
+
+    public long getScriptCompilationCount() {
+        return runtime.compilationCount();
     }
 
     public void emitComponentEvent(String eventName, JComponent component, Object rawEvent) {
@@ -309,14 +322,11 @@ public final class LuaUiScriptEngine {
                            ComponentAttributes attributes,
                            Object rawEvent) {
         try {
-            Globals globals = JsePlatform.standardGlobals();
-            globals.set("component", context.componentTable(component, attributes));
-            globals.set("event", context.eventTable(eventName, component, attributes, rawEvent, LuaValue.NIL));
-            globals.set("ui", context.uiTable());
-            globals.set("engine", context.engineTable());
-
-            String scriptSource = context.scriptSource(scriptPath);
-            globals.load(scriptSource, scriptPath).call();
+            runtime.execute(
+                    scriptPath,
+                    context.componentTable(component, attributes),
+                    context.eventTable(eventName, component, attributes, rawEvent, LuaValue.NIL)
+            );
         } catch (LuaError error) {
             Engine.LOGGER.error("Lua UI script failed: {}", scriptPath, error);
         } catch (Exception error) {

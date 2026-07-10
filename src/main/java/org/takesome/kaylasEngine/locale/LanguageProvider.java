@@ -336,6 +336,38 @@ public class LanguageProvider {
         return langLine;
     }
 
+    /**
+     * Returns all localized primitive values from a section in declaration order.
+     *
+     * <p>This is intended for localized pools such as {@code progressMessages}, where callers need
+     * the complete section rather than a single dotted key.</p>
+     */
+    public List<String> getSectionValues(String section) {
+        if (section == null || section.isBlank()) {
+            return List.of();
+        }
+        Map<String, String> values = localizationData.get(section.trim());
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        return values.values().stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(String::trim)
+                .toList();
+    }
+
+    /** Returns an immutable copy of a localized section keyed by its entry names. */
+    public Map<String, String> getSection(String section) {
+        if (section == null || section.isBlank()) {
+            return Map.of();
+        }
+        Map<String, String> values = localizationData.get(section.trim());
+        if (values == null || values.isEmpty()) {
+            return Map.of();
+        }
+        return Collections.unmodifiableMap(new LinkedHashMap<>(values));
+    }
+
     public String[] getSectionsSet() {
         return sectionsSet.toArray(new String[0]);
     }

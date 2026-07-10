@@ -2,17 +2,18 @@ package org.takesome.kaylasEngine.gui.components.fileSelector;
 
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
-import org.takesome.kaylasEngine.gui.components.CompositeComponent;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
+import org.takesome.kaylasEngine.gui.components.CompositeComponent;
 import org.takesome.kaylasEngine.gui.components.button.Button;
 import org.takesome.kaylasEngine.gui.components.button.ButtonStyle;
 import org.takesome.kaylasEngine.gui.components.textfield.TextField;
 import org.takesome.kaylasEngine.gui.components.textfield.TextFieldStyle;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 
-import javax.swing.*;
+import javax.swing.JFileChooser;
 import javax.swing.filechooser.FileNameExtensionFilter;
-import java.awt.*;
+import java.awt.Dimension;
+import java.awt.Rectangle;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.File;
@@ -20,36 +21,111 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
+/**
+ * Engine-native file selector: textured {@link TextField} + textured {@link Button}.
+ *
+ * <p>No internal Swing panel is used, so the component remains transparent and layoutConfig-friendly.</p>
+ */
 public class FileSelector extends CompositeComponent {
+    private static final int DEFAULT_BUTTON_WIDTH = 42;
+    private static final int FIELD_BUTTON_GAP = 4;
+
     private final ComponentFactory componentFactory;
-    private final JTextField filePathField;
+    private final ComponentAttributes attributes;
+    private final TextField filePathField;
     private final Button browseButton;
     private final JFileChooser fileChooser;
 
     public FileSelector(ComponentFactory componentFactory, SelectionMode selectionMode) {
+        super(LayoutMode.ABSOLUTE);
         this.componentFactory = componentFactory;
-        List<String> fileExtensions = componentFactory.getComponentAttribute().getFileExtensions();
-        Map<String, String> styles = componentFactory.getComponentAttribute().getStyles();
+        this.attributes = componentFactory.getComponentAttribute();
+        super.componentFactory = componentFactory;
 
-        filePathField = createStyledTextFieldWithTexture(styleName(styles, "textField"));
-        browseButton = new Button(componentFactory,
-                componentFactory.getEngine().getIconUtils().getIcon(componentFactory.getComponentAttribute()),
-                this.componentFactory.getEngine().getLANG().getString(componentFactory.getComponentAttribute().getLocaleKey()));
-        StyleAttributes attributes = componentFactory.getEngine().getStyleProvider().getStyle("button", styleName(styles, "button"));
-        componentFactory.setStyle(attributes);
-        ButtonStyle buttonStyle = new ButtonStyle(componentFactory);
-        buttonStyle.apply(browseButton);
+        setName(attributes.getComponentId());
+        setOpaque(false);
+        setVisible(true);
+        setLayoutConfig(attributes.getLayoutConfig());
+        applyRootSize();
 
+        Map<String, String> styles = attributes.getStyles();
+        this.filePathField = createTextField(styleName(styles, "textField"));
+        this.browseButton = createBrowseButton(styleName(styles, "button"));
+        this.fileChooser = new JFileChooser();
+
+        configureFileChooser(attributes.getFileExtensions(), selectionMode);
+        configureLayout();
         browseButton.addActionListener(new BrowseButtonListener());
-        fileChooser = new JFileChooser();
-        configureFileChooser(fileExtensions, selectionMode);
-
-        JPanel container = new JPanel(new BorderLayout());
-        container.add(filePathField, BorderLayout.CENTER);
-        container.add(browseButton, BorderLayout.EAST);
-        addSubComponent(container);
     }
 
+    private void applyRootSize() {
+        Rectangle bounds = attributes.getBounds();
+        int width = Math.max(1, bounds.width);
+        int height = Math.max(1, bounds.height);
+        Dimension size = new Dimension(width, height);
+        setBounds(bounds);
+        setPreferredSize(size);
+        setMinimumSize(size);
+        setSize(size);
+    }
+
+    private TextField createTextField(String styleName) {
+        StyleAttributes style = componentFactory.getEngine().getStyleProvider().getStyle("textField", styleName);
+        componentFactory.setStyle(style);
+        TextField textField = new TextField(componentFactory);
+        new TextFieldStyle(componentFactory).apply(textField);
+        textField.setName(childName("Text"));
+        textField.setOpaque(false);
+        textField.setEditable(false);
+        textField.setFocusable(false);
+        return textField;
+    }
+
+    private Button createBrowseButton(String styleName) {
+        StyleAttributes style = componentFactory.getEngine().getStyleProvider().getStyle("button", styleName);
+        componentFactory.setStyle(style);
+        Button button = new Button(
+                componentFactory,
+                componentFactory.getEngine().getIconUtils().getIcon(attributes),
+                ""
+        );
+        new ButtonStyle(componentFactory).apply(button);
+        button.setName(childName("Button"));
+        button.setOpaque(false);
+        return button;
+    }
+
+    private void configureLayout() {
+        ComponentAttributes.LayoutConfig config = attributes.getLayoutConfig();
+        if (config != null) {
+            applyLayoutConfig(filePathField, config.getTextField());
+            applyLayoutConfig(browseButton, config.getButton());
+        }
+        if (filePathField.getWidth() <= 0 || filePathField.getHeight() <= 0
+                || browseButton.getWidth() <= 0 || browseButton.getHeight() <= 0) {
+            applyDefaultBounds();
+        }
+        addSubComponent(filePathField);
+        addSubComponent(browseButton);
+    }
+
+    private void applyDefaultBounds() {
+        Rectangle bounds = attributes.getBounds();
+        int width = Math.max(1, bounds.width);
+        int height = Math.max(1, bounds.height);
+        int buttonWidth = resolveButtonWidth(height);
+        int fieldWidth = Math.max(1, width - buttonWidth - FIELD_BUTTON_GAP);
+        filePathField.setBounds(0, 0, fieldWidth, height);
+        browseButton.setBounds(fieldWidth + FIELD_BUTTON_GAP, 0, buttonWidth, height);
+    }
+
+    private int resolveButtonWidth(int height) {
+        int iconWidth = Math.max(0, attributes.getIconWidth());
+        if (iconWidth > 0) {
+            return Math.max(height, iconWidth + 18);
+        }
+        return Math.max(height, DEFAULT_BUTTON_WIDTH);
+    }
 
     private String styleName(Map<String, String> styles, String key) {
         if (styles == null || key == null) {
@@ -59,15 +135,6 @@ public class FileSelector extends CompositeComponent {
         return value == null || value.isBlank() ? "default" : value;
     }
 
-    private TextField createStyledTextFieldWithTexture(String style) {
-        StyleAttributes attributes = componentFactory.getEngine().getStyleProvider().getStyle("textField", style);
-        this.componentFactory.setStyle(attributes);
-        TextFieldStyle textFieldStyle = new TextFieldStyle(this.componentFactory);
-        TextField textField = new TextField(this.componentFactory);
-        textFieldStyle.apply(textField);
-        return textField;
-    }
-
     public String getValue() {
         return filePathField.getText();
     }
@@ -75,49 +142,55 @@ public class FileSelector extends CompositeComponent {
     public void setValue(String path) {
         if (path == null || path.isBlank()) {
             filePathField.setText("");
+            super.setValue((Object) "");
             return;
         }
-        File file = new File(path);
 
+        File file = new File(path);
         if (!file.exists()) {
-            try {
-                if (fileChooser.getFileSelectionMode() == JFileChooser.DIRECTORIES_ONLY) {
-                    // Создание директории
-                    if (file.mkdirs()) {
-                        Engine.LOGGER.info("Created missing directory: " + path);
-                    } else {
-                        throw new RuntimeException("Failed to create directory: " + path);
-                    }
-                } else if (fileChooser.getFileSelectionMode() == JFileChooser.FILES_ONLY) {
-                    if (file.getParentFile() != null && file.getParentFile().mkdirs()) {
-                        Engine.LOGGER.info("Created parent directories for file: " + path);
-                    }
-                    if (file.createNewFile()) {
-                        Engine.LOGGER.info("Created missing file: " + path);
-                    } else {
-                        throw new RuntimeException("Failed to create file: " + path);
-                    }
-                }
-            } catch (Exception e) {
-                throw new RuntimeException("Error while creating path: " + path, e);
-            }
+            createMissingPath(file, path);
         }
 
-        // Проверка соответствия режиму
-        if ((file.isFile() && fileChooser.getFileSelectionMode() == JFileChooser.FILES_ONLY) ||
-                (file.isDirectory() && fileChooser.getFileSelectionMode() == JFileChooser.DIRECTORIES_ONLY)) {
+        if ((file.isFile() && fileChooser.getFileSelectionMode() == JFileChooser.FILES_ONLY)
+                || (file.isDirectory() && fileChooser.getFileSelectionMode() == JFileChooser.DIRECTORIES_ONLY)) {
             filePathField.setText(path);
-        } else {
-            throw new IllegalArgumentException("The provided path does not match the current selection mode.");
+            super.setValue((Object) path);
+            return;
+        }
+
+        throw new IllegalArgumentException("The provided path does not match the current selection mode: " + path);
+    }
+
+    @Override
+    public void setValue(Object value) {
+        setValue(value == null ? "" : String.valueOf(value));
+    }
+
+    private void createMissingPath(File file, String path) {
+        try {
+            if (fileChooser.getFileSelectionMode() == JFileChooser.DIRECTORIES_ONLY) {
+                if (file.mkdirs()) {
+                    Engine.LOGGER.info("Created missing directory: {}", path);
+                } else if (!file.isDirectory()) {
+                    throw new RuntimeException("Failed to create directory: " + path);
+                }
+            } else if (fileChooser.getFileSelectionMode() == JFileChooser.FILES_ONLY) {
+                File parent = file.getParentFile();
+                if (parent != null && !parent.isDirectory() && parent.mkdirs()) {
+                    Engine.LOGGER.info("Created parent directories for file: {}", path);
+                }
+                if (file.createNewFile()) {
+                    Engine.LOGGER.info("Created missing file: {}", path);
+                } else if (!file.isFile()) {
+                    throw new RuntimeException("Failed to create file: " + path);
+                }
+            }
+        } catch (Exception error) {
+            throw new RuntimeException("Error while creating path: " + path, error);
         }
     }
 
-    /**
-     * Настраивает JFileChooser для работы с файлами или директориями.
-     */
     private void configureFileChooser(List<String> fileExtensions, SelectionMode selectionMode) {
-        // Сопоставляем режим выбора с константами JFileChooser
-        ComponentAttributes componentAttribute = componentFactory.getComponentAttribute();
         Map<SelectionMode, Integer> modeMap = Map.of(
                 SelectionMode.DIRECTORIES_ONLY, JFileChooser.DIRECTORIES_ONLY,
                 SelectionMode.FILES_ONLY, JFileChooser.FILES_ONLY
@@ -127,16 +200,18 @@ public class FileSelector extends CompositeComponent {
         Optional.ofNullable(fileExtensions)
                 .filter(ext -> !ext.isEmpty())
                 .ifPresent(ext -> {
-                    String localeString = componentFactory.getEngine().getLANG()
-                            .getString(componentAttribute.getLocaleKey());
-                    Object initialValue = componentAttribute.getInitialValue();
+                    String localeString = componentFactory.getEngine().getLANG().getString(attributes.getLocaleKey());
+                    Object initialValue = attributes.getInitialValue();
                     String description = String.join(", ", ext) + " " + localeString + " " + (initialValue != null ? initialValue : "");
                     FileNameExtensionFilter filter = new FileNameExtensionFilter(description, ext.toArray(new String[0]));
                     fileChooser.setFileFilter(filter);
                 });
     }
 
-
+    private String childName(String suffix) {
+        String base = attributes.getComponentId();
+        return (base == null || base.isBlank() ? "fileSelector" : base) + suffix;
+    }
 
     private class BrowseButtonListener implements ActionListener {
         @Override
@@ -156,7 +231,9 @@ public class FileSelector extends CompositeComponent {
             int returnValue = fileChooser.showOpenDialog(FileSelector.this);
             if (returnValue == JFileChooser.APPROVE_OPTION) {
                 File selectedFile = fileChooser.getSelectedFile();
-                filePathField.setText(selectedFile.getAbsolutePath());
+                String selectedPath = selectedFile.getAbsolutePath();
+                filePathField.setText(selectedPath);
+                FileSelector.super.setValue((Object) selectedPath);
             }
         }
     }

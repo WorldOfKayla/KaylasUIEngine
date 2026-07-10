@@ -4,6 +4,9 @@ import org.luaj.vm2.LuaTable;
 import org.luaj.vm2.LuaValue;
 import org.luaj.vm2.Varargs;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
+import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
+import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyle;
+import org.takesome.kaylasEngine.utils.FontUtils;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
 
 import javax.swing.AbstractButton;
@@ -15,6 +18,7 @@ import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.text.JTextComponent;
 import java.awt.Color;
+import java.awt.Font;
 import java.util.Objects;
 
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.arg;
@@ -99,10 +103,111 @@ public final class UiComponentApi {
         lua.set("requestFocus", function(this::luaRequestFocus));
         lua.set("repaint", function(this::luaRepaint));
         lua.set("emit", function(this::luaEmit));
+
+        if (component instanceof ProgressBar progressBar) {
+            lua.set("getStyle", function(args -> value(progressBar.getStyleName())));
+            lua.set("setStyle", function(args -> {
+                String styleName = stringArg(args, 1, "default");
+                String appliedStyle = ProgressBarStyle.applyNamedStyle(
+                        context.engine().getGuiBuilder().getComponentFactory(),
+                        progressBar,
+                        styleName
+                );
+                return value(appliedStyle);
+            }));
+            lua.set("getFontName", function(args -> value(progressBar.getTextFont().getFamily())));
+            lua.set("getFontSize", function(args -> LuaValue.valueOf(progressBar.getTextFont().getSize2D())));
+            lua.set("getFontStyle", function(args -> value(FontUtils.styleName(progressBar.getTextFont().getStyle()))));
+            lua.set("setFont", function(args -> {
+                Font currentFont = progressBar.getTextFont();
+                String fontName = stringArg(args, 1, currentFont.getFamily());
+                int fontSize = intArg(args, 2, currentFont.getSize());
+                String fontStyle = stringArg(args, 3, FontUtils.styleName(currentFont.getStyle()));
+                Font resolvedFont = context.engine().getFONTUTILS().getFont(fontName, fontSize, fontStyle);
+                runOnEdt(() -> progressBar.setTextFont(resolvedFont));
+                return LuaValue.NIL;
+            }));
+            lua.set("getMinimum", function(args -> LuaValue.valueOf(progressBar.getMinimum())));
+            lua.set("setMinimum", function(args -> {
+                int minimum = intArg(args, 1, progressBar.getMinimum());
+                runOnEdt(() -> progressBar.setMinimum(minimum));
+                return LuaValue.NIL;
+            }));
+            lua.set("getMaximum", function(args -> LuaValue.valueOf(progressBar.getMaximum())));
+            lua.set("setMaximum", function(args -> {
+                int maximum = intArg(args, 1, progressBar.getMaximum());
+                runOnEdt(() -> progressBar.setMaximum(maximum));
+                return LuaValue.NIL;
+            }));
+            lua.set("getPercent", function(args -> LuaValue.valueOf(progressBar.getPercentComplete())));
+            lua.set("getString", function(args -> value(progressBar.getString())));
+            lua.set("setString", function(args -> {
+                String progressString = stringArg(args, 1, "");
+                runOnEdt(() -> progressBar.setString(progressString));
+                return LuaValue.NIL;
+            }));
+            lua.set("isStringPainted", function(args -> LuaValue.valueOf(progressBar.isStringPainted())));
+            lua.set("setStringPainted", function(args -> {
+                boolean painted = booleanArg(args, 1, true);
+                runOnEdt(() -> progressBar.setStringPainted(painted));
+                return LuaValue.NIL;
+            }));
+            lua.set("isShowPercent", function(args -> LuaValue.valueOf(progressBar.isShowPercent())));
+            lua.set("setShowPercent", function(args -> {
+                boolean showPercent = booleanArg(args, 1, true);
+                runOnEdt(() -> progressBar.setShowPercent(showPercent));
+                return LuaValue.NIL;
+            }));
+            lua.set("isIndeterminate", function(args -> LuaValue.valueOf(progressBar.isIndeterminate())));
+            lua.set("setIndeterminate", function(args -> {
+                boolean indeterminate = booleanArg(args, 1, true);
+                runOnEdt(() -> progressBar.setIndeterminate(indeterminate));
+                return LuaValue.NIL;
+            }));
+            lua.set("isInverted", function(args -> LuaValue.valueOf(progressBar.isInverted())));
+            lua.set("setInverted", function(args -> {
+                boolean inverted = booleanArg(args, 1, true);
+                runOnEdt(() -> progressBar.setInverted(inverted));
+                return LuaValue.NIL;
+            }));
+            lua.set("getOrientation", function(args -> value(
+                    progressBar.getOrientation() == javax.swing.SwingConstants.VERTICAL ? "vertical" : "horizontal")));
+            lua.set("setOrientation", function(args -> {
+                String orientation = stringArg(args, 1, "horizontal");
+                int resolved = "vertical".equalsIgnoreCase(orientation)
+                        ? javax.swing.SwingConstants.VERTICAL
+                        : javax.swing.SwingConstants.HORIZONTAL;
+                runOnEdt(() -> progressBar.setOrientation(resolved));
+                return LuaValue.NIL;
+            }));
+            lua.set("setTextColor", function(args -> {
+                Color color = colorArg(args, 1, progressBar.getTextColor());
+                runOnEdt(() -> progressBar.setTextColor(color));
+                return LuaValue.NIL;
+            }));
+            lua.set("setTrackColor", function(args -> {
+                Color color = colorArg(args, 1, progressBar.getTrackColor());
+                runOnEdt(() -> progressBar.setTrackColor(color));
+                return LuaValue.NIL;
+            }));
+            lua.set("setFillColor", function(args -> {
+                Color color = colorArg(args, 1, progressBar.getFillColor());
+                runOnEdt(() -> progressBar.setFillColor(color));
+                return LuaValue.NIL;
+            }));
+            lua.set("setTextFormat", function(args -> {
+                String format = stringArg(args, 1, "{percent}%");
+                runOnEdt(() -> progressBar.setTextFormat(format));
+                return LuaValue.NIL;
+            }));
+        }
         return lua;
     }
 
     public String getText() {
+        if (component instanceof ProgressBar progressBar) {
+            return progressBar.getString();
+        }
         if (component instanceof JLabel label) {
             return label.getText();
         }
@@ -117,7 +222,9 @@ public final class UiComponentApi {
 
     public void setText(String text) {
         runOnEdt(() -> {
-            if (component instanceof JLabel label) {
+            if (component instanceof ProgressBar progressBar) {
+                progressBar.setString(text);
+            } else if (component instanceof JLabel label) {
                 label.setText(text);
             } else if (component instanceof AbstractButton button) {
                 button.setText(text);
@@ -130,6 +237,9 @@ public final class UiComponentApi {
     }
 
     public LuaValue getValue() {
+        if (component instanceof ProgressBar progressBar) {
+            return LuaValue.valueOf(progressBar.getValue());
+        }
         if (component instanceof AbstractButton button) {
             return LuaValue.valueOf(button.isSelected());
         }
@@ -153,7 +263,9 @@ public final class UiComponentApi {
 
     public void setValue(LuaValue value) {
         runOnEdt(() -> {
-            if (component instanceof AbstractButton button) {
+            if (component instanceof ProgressBar progressBar) {
+                progressBar.setValue(value.toint());
+            } else if (component instanceof AbstractButton button) {
                 button.setSelected(value.toboolean());
             } else if (component instanceof JTextComponent textComponent) {
                 textComponent.setText(value.isnil() ? "" : value.tojstring());
@@ -237,14 +349,32 @@ public final class UiComponentApi {
     }
 
     private LuaValue luaSetForeground(Varargs args) {
-        Color color = colorArg(args, 1, component.getForeground());
-        runOnEdt(() -> component.setForeground(color));
+        Color fallback = component instanceof ProgressBar progressBar
+                ? progressBar.getTextColor()
+                : component.getForeground();
+        Color color = colorArg(args, 1, fallback);
+        runOnEdt(() -> {
+            if (component instanceof ProgressBar progressBar) {
+                progressBar.setTextColor(color);
+            } else {
+                component.setForeground(color);
+            }
+        });
         return LuaValue.NIL;
     }
 
     private LuaValue luaSetBackground(Varargs args) {
-        Color color = colorArg(args, 1, component.getBackground());
-        runOnEdt(() -> component.setBackground(color));
+        Color fallback = component instanceof ProgressBar progressBar
+                ? progressBar.getTrackColor()
+                : component.getBackground();
+        Color color = colorArg(args, 1, fallback);
+        runOnEdt(() -> {
+            if (component instanceof ProgressBar progressBar) {
+                progressBar.setTrackColor(color);
+            } else {
+                component.setBackground(color);
+            }
+        });
         return LuaValue.NIL;
     }
 

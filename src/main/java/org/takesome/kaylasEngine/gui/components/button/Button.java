@@ -1,32 +1,43 @@
 package org.takesome.kaylasEngine.gui.components.button;
 
-import org.takesome.kaylasEngine.Engine;
+import org.takesome.kaylasEngine.gui.animation.AnimationPulse;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 
-import javax.swing.*;
-import java.awt.*;
-import java.awt.event.*;
+import javax.swing.Icon;
+import javax.swing.ImageIcon;
+import javax.swing.JButton;
+import java.awt.AlphaComposite;
+import java.awt.Color;
+import java.awt.Cursor;
+import java.awt.FontMetrics;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.event.MouseMotionListener;
 import java.awt.image.BufferedImage;
+import java.awt.geom.AffineTransform;
 import java.util.Objects;
 
 public class Button extends JButton implements MouseListener, MouseMotionListener {
 
-    // Возможные положения иконки относительно текста
     public enum IconFloat {
         LEFT, RIGHT, CENTER
     }
 
+    private static final int ANIMATION_INTERVAL_MS = 16;
+    private static final int HOVER_DURATION_MS = 140;
+
     private Color hoverColor;
-    private boolean entered = false, pressed = false;
+    private boolean entered;
+    private boolean pressed;
     public BufferedImage defaultTX, rolloverTX, pressedTX, lockedTX;
     private final ComponentFactory componentFactory;
     private final ComponentAttributes buttonAttributes;
 
-    private float hoverProgress = 0f;
-    private Timer animationTimer;
-    private static final float ANIMATION_SPEED = 0.2f;
-    private static final int ANIMATION_INTERVAL = 16;
+    private float hoverProgress;
+    private AnimationPulse.Subscription hoverAnimation;
     private IconFloat iconFloat = IconFloat.LEFT;
 
     public Button(ComponentFactory componentFactory, String text) {
@@ -41,38 +52,16 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
         setFocusPainted(false);
         setOpaque(componentFactory.getStyle().isOpaque());
         setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-
-        initAnimationTimer();
     }
 
     public Button(ComponentFactory componentFactory, ImageIcon icon, String text) {
         this(componentFactory, text);
         setIcon(icon);
-        if(buttonAttributes.getIconFloat() != null) {
+        if (buttonAttributes.getIconFloat() != null) {
             iconFloat = IconFloat.valueOf(buttonAttributes.getIconFloat());
         }
     }
 
-    private void initAnimationTimer() {
-        animationTimer = new Timer(ANIMATION_INTERVAL, e -> {
-            float target = entered ? 1f : 0f;
-            float delta = (target - hoverProgress) * ANIMATION_SPEED;
-
-            if (Math.abs(delta) > 0.0001f) {
-                hoverProgress += delta;
-                repaint();
-            } else {
-                hoverProgress = target;
-                animationTimer.stop();
-            }
-        });
-    }
-
-    /**
-     * Позволяет задать расположение иконки относительно текста.
-     *
-     * @param iconFloat Значение Enum: LEFT, RIGHT, CENTER.
-     */
     public void setIconFloat(IconFloat iconFloat) {
         this.iconFloat = Objects.requireNonNull(iconFloat);
         repaint();
@@ -87,9 +76,9 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
         super.paintComponent(g);
 
         int shiftY = 0;
-        int w = getWidth();
-        int h = getHeight();
-        int leftOffset = 15; // Сдвиг влево; можно изменить по необходимости
+        int width = getWidth();
+        int height = getHeight();
+        int leftOffset = 15;
 
         BufferedImage imageToDraw = defaultTX;
         if (!isEnabled()) {
@@ -97,115 +86,113 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
         } else if (pressed) {
             imageToDraw = pressedTX;
         } else if (entered) {
-            g.setColor(this.hoverColor);
+            if (hoverColor != null) {
+                g.setColor(hoverColor);
+            }
             imageToDraw = rolloverTX;
         }
 
-        g.drawImage(imageToDraw, 0, shiftY, w, h, null);
+        if (imageToDraw != null) {
+            g.drawImage(imageToDraw, 0, shiftY, width, height, null);
+        }
 
-        //if (isEnabled()) {
-            shiftY = entered ? 1 : 0; // Анимация смещения по Y при наведении
-            Color textColor = interpolateColor(getForeground(), getForeground().brighter(), hoverProgress);
-            String text = getText();
-            Icon icon = getIcon();
+        shiftY = entered ? 1 : 0;
+        Color foreground = getForeground() == null ? Color.WHITE : getForeground();
+        Color textColor = interpolateColor(foreground, foreground.brighter(), hoverProgress);
+        String text = getText();
+        Icon icon = getIcon();
 
-            float scaleFactor = 1.0f + (hoverProgress * 0.1f); // Увеличение до 110%
-            float alpha = 0.8f + (hoverProgress * 0.2f); // Прозрачность от 0.8 до 1.0
+        float scaleFactor = 1.0f + hoverProgress * 0.1f;
+        float alpha = 0.8f + hoverProgress * 0.2f;
 
-            Graphics2D g2d = (Graphics2D) g.create();
-            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+        Graphics2D graphics2D = (Graphics2D) g.create();
+        try {
+            graphics2D.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
 
             if (text != null && !text.isEmpty() && icon != null) {
-                FontMetrics fm = g.getFontMetrics();
-                int textWidth = fm.stringWidth(text);
+                FontMetrics metrics = g.getFontMetrics();
+                int textWidth = metrics.stringWidth(text);
                 int iconWidth = icon.getIconWidth();
-                int totalWidth = iconWidth + textWidth; // без дополнительного отступа
+                int totalWidth = iconWidth + textWidth;
 
                 int groupX;
-                int textX, textY;
-                int iconX, iconY;
+                int textX;
+                int textY;
+                int iconX;
+                int iconY;
 
                 switch (iconFloat) {
                     case LEFT -> {
                         groupX = leftOffset;
                         iconX = groupX;
-                        iconY = (h - icon.getIconHeight()) / 2 + shiftY;
-                        // Рисуем иконку слева
-                        // Рисуем текст сразу после иконки с дополнительным отступом (например, 20 пикселей)
+                        iconY = (height - icon.getIconHeight()) / 2 + shiftY;
                         textX = groupX + iconWidth + 20;
-                        textY = (h + fm.getAscent() - fm.getDescent()) / 2 + shiftY;
-                        g.setColor(textColor);
-                        g.drawString(text, textX, textY);
-                        drawScaledIcon(g2d, icon, iconX, iconY, scaleFactor);
+                        textY = (height + metrics.getAscent() - metrics.getDescent()) / 2 + shiftY;
+                        graphics2D.setColor(textColor);
+                        graphics2D.drawString(text, textX, textY);
+                        drawScaledIcon(graphics2D, icon, iconX, iconY, scaleFactor);
                     }
                     case RIGHT -> {
-                        // Выравнивание по правому краю с учётом сдвига
-                        groupX = w - totalWidth + leftOffset;
-                        // Рисуем текст слева от иконки
+                        groupX = width - totalWidth + leftOffset;
                         textX = groupX;
-                        textY = (h + fm.getAscent() - fm.getDescent()) / 2 + shiftY;
+                        textY = (height + metrics.getAscent() - metrics.getDescent()) / 2 + shiftY;
                         iconX = textX + textWidth;
-                        iconY = (h - icon.getIconHeight()) / 2 + shiftY;
-                        g.setColor(textColor);
-                        g.drawString(text, textX, textY);
-                        // Рисуем иконку сразу после текста
-                        drawScaledIcon(g2d, icon, iconX, iconY, scaleFactor);
+                        iconY = (height - icon.getIconHeight()) / 2 + shiftY;
+                        graphics2D.setColor(textColor);
+                        graphics2D.drawString(text, textX, textY);
+                        drawScaledIcon(graphics2D, icon, iconX, iconY, scaleFactor);
                     }
                     case CENTER -> {
-                        // Центрируем группу (иконка + текст) и затем смещаем влево
-                        groupX = (w - totalWidth) / 2 + leftOffset;
+                        groupX = (width - totalWidth) / 2 + leftOffset;
                         iconX = groupX;
-                        iconY = (h - icon.getIconHeight()) / 2 + shiftY;
-                        // Рисуем иконку
-                        // Рисуем текст сразу после иконки
+                        iconY = (height - icon.getIconHeight()) / 2 + shiftY;
                         textX = groupX + iconWidth;
-                        textY = (h + fm.getAscent() - fm.getDescent()) / 2 + shiftY;
-                        g.setColor(textColor);
-                        g.drawString(text, textX, textY);
-                        drawScaledIcon(g2d, icon, iconX, iconY, scaleFactor);
+                        textY = (height + metrics.getAscent() - metrics.getDescent()) / 2 + shiftY;
+                        graphics2D.setColor(textColor);
+                        graphics2D.drawString(text, textX, textY);
+                        drawScaledIcon(graphics2D, icon, iconX, iconY, scaleFactor);
                     }
-                    default -> System.err.println("Button icon float is not set!");
                 }
             } else if (text != null && !text.isEmpty()) {
-                // Если задан только текст – центрируем его по горизонтали
-                FontMetrics fm = g.getFontMetrics();
-                int textWidth = fm.stringWidth(text);
-                int textX = (w - textWidth) / 2;
-                int textY = (h + fm.getAscent() - fm.getDescent()) / 2 + shiftY;
-                g.setColor(textColor);
-                g.drawString(text, textX, textY);
+                FontMetrics metrics = g.getFontMetrics();
+                int textWidth = metrics.stringWidth(text);
+                int textX = (width - textWidth) / 2;
+                int textY = (height + metrics.getAscent() - metrics.getDescent()) / 2 + shiftY;
+                graphics2D.setColor(textColor);
+                graphics2D.drawString(text, textX, textY);
             } else if (icon != null) {
-                // Если задана только иконка – центрируем её
-                int iconX = (w - icon.getIconWidth()) / 2;
-                int iconY = (h - icon.getIconHeight()) / 2 + shiftY;
-                icon.paintIcon(this, g, iconX, iconY);
+                int iconX = (width - icon.getIconWidth()) / 2;
+                int iconY = (height - icon.getIconHeight()) / 2 + shiftY;
+                drawScaledIcon(graphics2D, icon, iconX, iconY, scaleFactor);
             }
-            g2d.dispose();
-        //}
+        } finally {
+            graphics2D.dispose();
+        }
     }
-
 
     private Color interpolateColor(Color start, Color end, float progress) {
-        float[] startHSB = Color.RGBtoHSB(start.getRed(), start.getGreen(), start.getBlue(), null);
-        float[] endHSB = Color.RGBtoHSB(end.getRed(), end.getGreen(), end.getBlue(), null);
-
-        float hue = interpolate(startHSB[0], endHSB[0], progress);
-        float saturation = interpolate(startHSB[1], endHSB[1], progress);
-        float brightness = interpolate(startHSB[2], endHSB[2], progress);
-
-        return Color.getHSBColor(hue, saturation, brightness);
+        float eased = easeInOutQuad(progress);
+        int red = Math.round(start.getRed() + (end.getRed() - start.getRed()) * eased);
+        int green = Math.round(start.getGreen() + (end.getGreen() - start.getGreen()) * eased);
+        int blue = Math.round(start.getBlue() + (end.getBlue() - start.getBlue()) * eased);
+        int alpha = Math.round(start.getAlpha() + (end.getAlpha() - start.getAlpha()) * eased);
+        return new Color(clampColor(red), clampColor(green), clampColor(blue), clampColor(alpha));
     }
 
-    private float interpolate(float start, float end, float progress) {
-        return start + (end - start) * easeInOutQuad(progress);
+    private static int clampColor(int value) {
+        return Math.max(0, Math.min(255, value));
     }
 
-    private float easeInOutQuad(float x) {
-        return x < 0.5f ? 2 * x * x : 1 - (float)Math.pow(-2 * x + 2, 2) / 2;
+    private float easeInOutQuad(float value) {
+        if (value < 0.5f) {
+            return 2f * value * value;
+        }
+        float inverse = -2f * value + 2f;
+        return 1f - inverse * inverse / 2f;
     }
 
     @Override
-    public void mouseEntered(MouseEvent e) {
+    public void mouseEntered(MouseEvent event) {
         if (isEnabled()) {
             entered = true;
             startAnimation();
@@ -215,63 +202,108 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
     }
 
     @Override
-    public void mouseExited(MouseEvent e) {
+    public void mouseExited(MouseEvent event) {
         entered = false;
         startAnimation();
         repaint();
     }
 
     private void startAnimation() {
-        if (!animationTimer.isRunning()) {
-            animationTimer.start();
+        float target = entered ? 1f : 0f;
+        if (Math.abs(target - hoverProgress) <= 0.0001f) {
+            hoverProgress = target;
+            cancelHoverAnimation();
+            return;
+        }
+
+        cancelHoverAnimation();
+        float start = hoverProgress;
+        float distance = Math.abs(target - start);
+        long durationNanos = Math.max(1_000_000L, (long) (HOVER_DURATION_MS * distance * 1_000_000L));
+        long startedAt = System.nanoTime();
+
+        hoverAnimation = AnimationPulse.shared().schedule(ANIMATION_INTERVAL_MS, (nowNanos, deltaNanos) -> {
+            if (!isDisplayable()) {
+                hoverAnimation = null;
+                return false;
+            }
+
+            float progress = Math.min(1f, (nowNanos - startedAt) / (float) durationNanos);
+            float eased = easeInOutQuad(progress);
+            hoverProgress = start + (target - start) * eased;
+            repaint();
+
+            if (progress >= 1f) {
+                hoverProgress = target;
+                hoverAnimation = null;
+                return false;
+            }
+            return true;
+        });
+    }
+
+    private void cancelHoverAnimation() {
+        if (hoverAnimation != null) {
+            hoverAnimation.cancel();
+            hoverAnimation = null;
         }
     }
 
     @Override
-    public void mousePressed(MouseEvent e) {
-        if (isEnabled() && e.getButton() == MouseEvent.BUTTON1) {
+    public void removeNotify() {
+        cancelHoverAnimation();
+        super.removeNotify();
+    }
+
+    @Override
+    public void mousePressed(MouseEvent event) {
+        if (isEnabled() && event.getButton() == MouseEvent.BUTTON1) {
             ButtonClick();
         }
     }
 
     @Override
-    public void mouseReleased(MouseEvent e) {
-        if (pressed && e.getButton() == MouseEvent.BUTTON1) {
+    public void mouseReleased(MouseEvent event) {
+        if (pressed && event.getButton() == MouseEvent.BUTTON1) {
             pressed = false;
             repaint();
         }
     }
 
     @Override
-    public void mouseClicked(MouseEvent e) { }
+    public void mouseClicked(MouseEvent event) {
+    }
 
     @Override
-    public void mouseDragged(MouseEvent e) { }
+    public void mouseDragged(MouseEvent event) {
+    }
 
     @Override
-    public void mouseMoved(MouseEvent e) { }
+    public void mouseMoved(MouseEvent event) {
+    }
 
-    private void drawScaledIcon(Graphics2D g2d, Icon icon, int x, int y, float scale) {
+    private void drawScaledIcon(Graphics2D graphics2D, Icon icon, int x, int y, float scale) {
         int iconWidth = icon.getIconWidth();
         int iconHeight = icon.getIconHeight();
 
         int scaledWidth = Math.round(iconWidth * scale);
         int scaledHeight = Math.round(iconHeight * scale);
-
         int offsetX = (scaledWidth - iconWidth) / 2;
         int offsetY = (scaledHeight - iconHeight) / 2;
 
-        g2d.translate(x - offsetX, y - offsetY);
-        g2d.scale(scale, scale);
-        icon.paintIcon(this, g2d, 0, 0);
-        g2d.scale(1.0 / scale, 1.0 / scale);
-        g2d.translate(-(x - offsetX), -(y - offsetY));
+        AffineTransform previousTransform = graphics2D.getTransform();
+        try {
+            graphics2D.translate(x - offsetX, y - offsetY);
+            graphics2D.scale(scale, scale);
+            icon.paintIcon(this, graphics2D, 0, 0);
+        } finally {
+            graphics2D.setTransform(previousTransform);
+        }
     }
-
 
     public void ButtonClick() {
         String sound;
-        String componentId = this.buttonAttributes.getComponentId() == null ? "" : this.buttonAttributes.getComponentId();
+        String componentId = buttonAttributes.getComponentId() == null ? "" : buttonAttributes.getComponentId();
         if (componentId.contains("back")) {
             sound = "back";
         } else if (componentId.contains("small")) {

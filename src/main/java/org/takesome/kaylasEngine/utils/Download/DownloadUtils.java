@@ -2,6 +2,7 @@ package org.takesome.kaylasEngine.utils.Download;
 
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.button.Button;
+import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 import org.takesome.kaylasEngine.utils.HTTP.HTTPrequest;
 
 import javax.swing.*;
@@ -13,6 +14,7 @@ import java.util.Enumeration;
 import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
+import java.util.function.IntConsumer;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -25,7 +27,7 @@ public class DownloadUtils extends HTTPrequest {
 
     private final Engine engine;
     private JLabel progressLabel;
-    private JProgressBar progressBar;
+    private IntConsumer progressValueSetter;
     private Button cancelButton;
     private final AtomicLong downloaded = new AtomicLong(0L);
     private final AtomicLong lastUiUpdateMillis = new AtomicLong(0L);
@@ -105,8 +107,8 @@ public class DownloadUtils extends HTTPrequest {
 
         String progressText = formatFileSize(currentDownloaded) + " / " + formatFileSize(total);
         SwingUtilities.invokeLater(() -> {
-            if (progressBar != null) {
-                progressBar.setValue(nextPercent);
+            if (progressValueSetter != null) {
+                progressValueSetter.accept(nextPercent);
             }
             if (progressLabel != null) {
                 progressLabel.setText(progressText);
@@ -188,7 +190,11 @@ public class DownloadUtils extends HTTPrequest {
     }
 
     public void setProgressBar(JProgressBar progressBar) {
-        this.progressBar = progressBar;
+        this.progressValueSetter = progressBar == null ? null : progressBar::setValue;
+    }
+
+    public void setProgressBar(ProgressBar progressBar) {
+        this.progressValueSetter = progressBar == null ? null : progressBar::setValue;
     }
 
     public void setCancelButton(Button cancelButton) {

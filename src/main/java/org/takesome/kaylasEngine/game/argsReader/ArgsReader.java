@@ -66,14 +66,14 @@ public class ArgsReader {
                 jvmArguments = applyRules(arrayOrEmpty(argumentsObject, "jvm"));
                 gameArguments = applyRules(arrayOrEmpty(argumentsObject, "game"));
             } else {
-                gameArguments = legacyGameArguments(jsonObject);
+                gameArguments = minecraftArgumentsArray(jsonObject);
             }
         } catch (IOException error) {
             Engine.LOGGER.error("Error reading args file {}: {}", path, error.getMessage(), error);
         }
     }
 
-    private JsonArray legacyGameArguments(JsonObject jsonObject) {
+    private JsonArray minecraftArgumentsArray(JsonObject jsonObject) {
         JsonArray arguments = new JsonArray();
         String minecraftArguments = stringOrDefault(jsonObject, "minecraftArguments", "");
         if (!minecraftArguments.isBlank()) {

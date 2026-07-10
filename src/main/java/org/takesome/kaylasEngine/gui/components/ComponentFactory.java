@@ -21,6 +21,7 @@ import org.takesome.kaylasEngine.gui.components.multiButton.MultiButtonStyle;
 import org.takesome.kaylasEngine.gui.components.passfield.PassField;
 import org.takesome.kaylasEngine.gui.components.passfield.PassFieldStyle;
 import org.takesome.kaylasEngine.gui.components.progressBar.HearthstoneProgressBar;
+import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyle;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
 import org.takesome.kaylasEngine.gui.components.slider.TexturedSliderUI;
@@ -290,7 +291,11 @@ public class ComponentFactory extends JComponent {
         label.setIcon(iconUtils.getIcon(componentAttributes));
         label.setText(localizedTextWithInitial(componentAttributes));
         label.setForeground(hexToColor(valueOr(componentAttributes.getColor(), style.getColor())));
-        label.setFont(engine.getFONTUTILS().getFont(style.getFont(), effectiveFontSize(componentAttributes)));
+        label.setFont(engine.getFONTUTILS().getFont(
+                valueOr(componentAttributes.getFont(), style.getFont()),
+                effectiveFontSize(componentAttributes),
+                valueOr(componentAttributes.getFontStyle(), style.getFontStyle())
+        ));
         return label;
     }
 
@@ -304,10 +309,9 @@ public class ComponentFactory extends JComponent {
     }
 
     private JComponent createProgressBar(ComponentAttributes componentAttributes) {
-        ProgressBarStyle progressBarStyle = new ProgressBarStyle(this);
-        JProgressBar progressBar = new JProgressBar();
+        ProgressBar progressBar = new ProgressBar();
+        ProgressBarStyle progressBarStyle = new ProgressBarStyle(this, componentAttributes);
         progressBarStyle.apply(progressBar);
-        progressBar.setBounds(bounds);
         return progressBar;
     }
     private JComponent createButton(ComponentAttributes componentAttributes) {
@@ -448,14 +452,14 @@ public class ComponentFactory extends JComponent {
                 ? componentAttributes.getMinorSpacing()
                 : Math.max(1, (maxValue - minValue) / 10));
 
-        if (style != null && style.getTrackImage() != null && style.getThumbImage() != null) {
-            slider.setUI(new TexturedSliderUI(this, slider, style));
-        }
+        slider.setUI(new TexturedSliderUI(this, slider, style));
         return slider;
     }
     private JComponent createCompositeSlider(ComponentAttributes componentAttributes) {
         CompositeSlider compositeSlider = new CompositeSlider(this);
-        compositeSlider.setValue(intValue(componentAttributes.getInitialValue(), componentAttributes.getMinValue()));
+        if (componentAttributes.getInitialValue() != null) {
+            compositeSlider.setValue(intValue(componentAttributes.getInitialValue(), componentAttributes.getMinValue()));
+        }
         return compositeSlider;
     }
 

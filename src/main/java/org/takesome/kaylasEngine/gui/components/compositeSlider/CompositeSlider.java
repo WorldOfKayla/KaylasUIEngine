@@ -1,92 +1,285 @@
 package org.takesome.kaylasEngine.gui.components.compositeSlider;
 
-import com.sun.management.OperatingSystemMXBean;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 import org.takesome.kaylasEngine.gui.components.CompositeComponent;
 import org.takesome.kaylasEngine.gui.components.label.Label;
 import org.takesome.kaylasEngine.gui.components.label.LabelStyle;
+import org.takesome.kaylasEngine.gui.components.slider.Slider;
 import org.takesome.kaylasEngine.gui.components.slider.TexturedSliderUI;
 import org.takesome.kaylasEngine.gui.components.spinner.Spinner;
+import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.utils.RamRangeCalculator;
 
-import javax.swing.*;
-import java.awt.*;
-import java.lang.management.ManagementFactory;
+import java.awt.Cursor;
+import java.awt.Dimension;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
 
+/**
+ * Engine-native composite slider: label + textured slider + spinner.
+ *
+ * <p>Uses only KaylasUIEngine components internally. The root is a {@link CompositeComponent}
+ * with absolute layout, so layoutConfig can address child engine components directly without an
+ * extra Swing JPanel wrapper.</p>
+ */
 public class CompositeSlider extends CompositeComponent {
-    private LabelStyle labelStyle;
     private final ComponentAttributes componentAttribute;
+    private final ComponentFactory componentFactory;
+    private LabelStyle labelStyle;
     private Label label;
-    private JSlider slider;
-    private JSpinner spinner;
+    private Slider slider;
+    private Spinner spinner;
     private SliderListener sliderListener;
+    private boolean syncing;
 
     public CompositeSlider(ComponentFactory componentFactory) {
+        super(LayoutMode.ABSOLUTE);
         this.componentFactory = componentFactory;
         this.componentAttribute = componentFactory.getComponentAttribute();
+        super.componentFactory = componentFactory;
+        setOpaque(componentFactory.isOpaque());
+        setVisible(true);
+        setName(componentAttribute.getComponentId());
+        setLayoutConfig(componentAttribute.getLayoutConfig());
         initializeComponents();
         configureLayout();
         addListeners();
-        setOpaque(componentFactory.isOpaque());
     }
 
     private void initializeComponents() {
-        int minValue, maxValue, initialValue;
+        SliderRangeModel range = resolveRange();
+
+        label = new Label(componentFactory);
+        label.setName(childName("Label"));
+        configureLabel();
+
+        slider = new Slider(componentFactory);
+        slider.setName(childName("Slider"));
+        configureSlider(range);
+
+        spinner = new Spinner(range.initialValue(), range.minValue(), range.maxValue(), spinnerStep(range));
+        spinner.setName(childName("Text"));
+        spinner.setOpaque(false);
+        setValue(range.initialValue());
+    }
+
+    private SliderRangeModel resolveRange() {
+        int minValue;
+        int maxValue;
+        int initialValue;
         List<Integer> values;
 
         if (isRamComponent()) {
             RamRangeCalculator calculator = new RamRangeCalculator();
-            RamRangeCalculator.SliderRange sliderRange = calculator.calculateSliderRange(componentAttribute.getStepSize());
+            RamRangeCalculator.SliderRange sliderRange = calculator.calculateSliderRange(safeStepCount());
             minValue = sliderRange.minValue();
             maxValue = sliderRange.maxValue();
-            initialValue = getInitialValue(sliderRange.initialValue());
+            initialValue = intValue(componentAttribute.getInitialValue(), sliderRange.initialValue());
             values = sliderRange.values();
         } else {
             minValue = componentAttribute.getMinValue();
             maxValue = componentAttribute.getMaxValue();
-            initialValue = getInitialValue(minValue);
-            values = getValues(minValue, maxValue, componentAttribute.getStepSize());
+            if (maxValue <= minValue) {
+                maxValue = minValue + 100;
+                Engine.LOGGER.warn("CompositeSlider '{}' had invalid range, normalized to {}..{}",
+                        componentAttribute.getComponentId(), minValue, maxValue);
+            }
+            initialValue = intValue(componentAttribute.getInitialValue(), minValue);
+            values = getValues(minValue, maxValue, safeStepCount());
         }
 
-        if (minValue >= maxValue) {
-            throw new IllegalArgumentException("Invalid range: minValue (" + minValue + ") must be less than maxValue (" + maxValue + ")");
+        initialValue = clamp(initialValue, minValue, maxValue);
+        if (values == null || values.size() < 2) {
+            values = getValues(minValue, maxValue, 2);
         }
-        if (initialValue < minValue || initialValue > maxValue) {
-            throw new IllegalArgumentException("Initial value (" + initialValue + ") must be within range: [" + minValue + ", " + maxValue + "]");
-        }
-
-        label = new Label(componentFactory);
-        configureLabel();
-
-        slider = new JSlider(minValue, maxValue, initialValue);
-        configureSlider(values);
-
-        spinner = new Spinner(initialValue, minValue, maxValue, componentAttribute.getMinorSpacing());
-    }
-
-    private int getInitialValue(int defaultValue) {
-        Object initialValue = componentAttribute.getInitialValue();
-        if (initialValue == null) {
-            return defaultValue;
-        }
-        try {
-            return (int) Math.round(Double.parseDouble(String.valueOf(initialValue)));
-        } catch (NumberFormatException e) {
-            Engine.LOGGER.warn("Invalid initial slider value '{}', using default: {}", initialValue, defaultValue);
-            return defaultValue;
-        }
+        return new SliderRangeModel(minValue, maxValue, initialValue, values);
     }
 
     private void configureLabel() {
         labelStyle = new LabelStyle(componentFactory);
         labelStyle.setStyle(componentFactory.getEngine().getStyleProvider().getStyle("label", styleName("label")));
         labelStyle.apply(label);
-        label.setFont(componentFactory.getEngine().getFONTUTILS().getFont(labelStyle.getFontName(), componentAttribute.getFontSize()));
+        float fontSize = componentAttribute.getFontSize() > 0 ? componentAttribute.getFontSize() : labelStyle.getFontSize();
+        label.setFont(componentFactory.getEngine().getFONTUTILS().getFont(labelStyle.getFontName(), fontSize));
+    }
+
+    private void configureSlider(SliderRangeModel range) {
+        slider.setMinimum(range.minValue());
+        slider.setMaximum(range.maxValue());
+        slider.setValue(range.initialValue());
+        slider.setPaintTicks(true);
+        slider.setPaintLabels(true);
+        slider.setMajorTickSpacing(majorTickSpacing(range));
+        slider.setMinorTickSpacing(minorTickSpacing(range));
+        slider.setOpaque(false);
+
+        StyleAttributes sliderStyle = componentFactory.getEngine().getStyleProvider().getStyle("slider", styleName("slider"));
+        slider.setUI(new TexturedSliderUI(componentFactory, slider, sliderStyle));
+        slider.setLabelTable(createLabelTable(range.values()));
+    }
+
+    private Hashtable<Integer, Label> createLabelTable(List<Integer> values) {
+        Hashtable<Integer, Label> labelTable = new Hashtable<>();
+        int fontSize = Math.max(8, componentAttribute.getFontSize() - 3);
+        for (int value : values) {
+            Label tickLabel = new Label(componentFactory);
+            tickLabel.setName(childName("Tick" + value));
+            tickLabel.setText(String.valueOf(value));
+            tickLabel.setOpaque(false);
+            tickLabel.setFont(componentFactory.getEngine().getFONTUTILS().getFont(labelStyle.getFontName(), fontSize));
+            tickLabel.setForeground(labelStyle.getActiveColor());
+            labelTable.put(value, tickLabel);
+        }
+        return labelTable;
+    }
+
+    private void configureLayout() {
+        Dimension size = resolveSize();
+        setPreferredSize(size);
+        setMinimumSize(size);
+        setSize(size);
+        setBounds(componentAttribute.getBounds());
+
+        ComponentAttributes.LayoutConfig config = componentAttribute.getLayoutConfig();
+        if (config != null) {
+            applyLayoutConfig(label, config.getLabel());
+            applyLayoutConfig(slider, config.getSlider());
+            applyLayoutConfig(spinner, config.getSpinner());
+        } else {
+            applyDefaultBounds(size.width, size.height);
+        }
+
+        addSubComponent(label);
+        addSubComponent(slider);
+        addSubComponent(spinner);
+    }
+
+    private Dimension resolveSize() {
+        int width = Math.max(320, componentAttribute.getBounds().width);
+        int height = Math.max(76, componentAttribute.getBounds().height);
+        return new Dimension(width, height);
+    }
+
+    private void applyDefaultBounds(int width, int height) {
+        int labelHeight = Math.min(26, Math.max(20, height / 3));
+        int spinnerWidth = Math.min(96, Math.max(72, width / 4));
+        int sliderY = labelHeight + 4;
+        int sliderHeight = Math.max(42, height - sliderY);
+        label.setBounds(0, 0, width, labelHeight);
+        slider.setBounds(0, sliderY, Math.max(120, width - spinnerWidth - 8), sliderHeight);
+        spinner.setBounds(Math.max(0, width - spinnerWidth), sliderY + 4, spinnerWidth, Math.max(28, sliderHeight - 12));
+    }
+
+    private void addListeners() {
+        slider.setSliderListener(source -> syncFromSlider());
+        slider.addChangeListener(event -> syncFromSlider());
+
+        spinner.setSpinnerListener(source -> syncFromSpinner());
+        spinner.init();
+    }
+
+    private void syncFromSlider() {
+        if (syncing) {
+            return;
+        }
+        syncing = true;
+        try {
+            int value = slider.getValue();
+            if (!spinner.getValue().equals(value)) {
+                spinner.setValue(value);
+            }
+            super.setValue(value);
+        } finally {
+            syncing = false;
+        }
+        notifyListeners();
+    }
+
+    private void syncFromSpinner() {
+        if (syncing) {
+            return;
+        }
+        syncing = true;
+        try {
+            int value = clamp(((Number) spinner.getValue()).intValue(), slider.getMinimum(), slider.getMaximum());
+            if (value != slider.getValue()) {
+                slider.setValue(value);
+            }
+            if (!spinner.getValue().equals(value)) {
+                spinner.setValue(value);
+            }
+            super.setValue(value);
+        } finally {
+            syncing = false;
+        }
+        notifyListeners();
+    }
+
+    public void setSliderListener(SliderListener sliderListener) {
+        this.sliderListener = sliderListener;
+        slider.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
+    }
+
+    private void notifyListeners() {
+        if (sliderListener != null) {
+            sliderListener.onSliderChange(this);
+        }
+    }
+
+    public Slider getSlider() {
+        return slider;
+    }
+
+    public Label getLabel() {
+        return label;
+    }
+
+    public Spinner getSpinner() {
+        return spinner;
+    }
+
+    public List<Integer> getValues(int minValue, int maxValue, int steps) {
+        int safeSteps = Math.max(2, steps);
+        List<Integer> values = new ArrayList<>();
+        double step = (double) (maxValue - minValue) / (safeSteps - 1);
+        for (int index = 0; index < safeSteps; index++) {
+            values.add(minValue + (int) Math.round(index * step));
+        }
+        return values;
+    }
+
+    @Override
+    public Object getValue() {
+        return slider == null ? super.getValue() : slider.getValue();
+    }
+
+    public void setValue(int value) {
+        if (slider == null || spinner == null) {
+            super.setValue(value);
+            return;
+        }
+        int clamped = clamp(value, slider.getMinimum(), slider.getMaximum());
+        syncing = true;
+        try {
+            slider.setValue(clamped);
+            spinner.setValue(clamped);
+            super.setValue(clamped);
+        } finally {
+            syncing = false;
+        }
+    }
+
+    @Override
+    public void setValue(Object value) {
+        setValue(intValue(value, slider == null ? 0 : slider.getValue()));
+    }
+
+    private String childName(String suffix) {
+        String base = componentAttribute.getComponentId();
+        return (base == null || base.isBlank() ? "compositeSlider" : base) + suffix;
     }
 
     private boolean isRamComponent() {
@@ -102,178 +295,46 @@ public class CompositeSlider extends CompositeComponent {
         return value == null || value.isBlank() ? "default" : value;
     }
 
-    private void configureSlider(List<Integer> values) {
-        slider.setPaintTicks(true);
-        slider.setPaintLabels(true);
-        slider.setBounds(componentAttribute.getBounds());
-        slider.setMajorTickSpacing(Math.max(1, (values.get(values.size() - 1) - values.get(0)) / 9));
-        slider.setMinorTickSpacing(Math.max(1, (values.get(1) - values.get(0)) / 2));
-        slider.setOpaque(false);
-        slider.setUI(new TexturedSliderUI(componentFactory, slider,
-                componentFactory.getEngine().getStyleProvider().getStyle("slider", styleName("slider"))));
+    private int safeStepCount() {
+        return Math.max(2, componentAttribute.getStepSize());
+    }
 
-        Hashtable<Integer, JLabel> labelTable = new Hashtable<>();
-        for (int value : values) {
-            JLabel tableLabel = new JLabel(String.valueOf(value));
-            tableLabel.setFont(componentFactory.getEngine().getFONTUTILS().getFont(labelStyle.getFontName(), componentAttribute.getFontSize() - 3f));
-            tableLabel.setForeground(labelStyle.getActiveColor());
-            labelTable.put(value, tableLabel);
+    private int spinnerStep(SliderRangeModel range) {
+        if (componentAttribute.getMinorSpacing() > 0) {
+            return componentAttribute.getMinorSpacing();
         }
-        slider.setLabelTable(labelTable);
+        return Math.max(1, (range.maxValue() - range.minValue()) / Math.max(1, safeStepCount() - 1));
     }
 
-    /**
-     * Создаем контейнер с абсолютным позиционированием для расположения метки, слайдера и спиннера,
-     * затем добавляем его в наш CompositeComponent.
-     */
-    private void configureLayout() {
-        // Создаем контейнер с null layout для абсолютного позиционирования
-        JPanel container = new JPanel(null);
-        // Задаем предпочтительный размер контейнера, можно использовать размеры из конфигурации
-        container.setPreferredSize(new Dimension(
-                componentAttribute.getBounds().width,
-                componentAttribute.getBounds().height
-        ));
-
-        ComponentAttributes.LayoutConfig config = componentAttribute.getLayoutConfig();
-        if (config != null) {
-            applyConfiguredBounds(label, config.getLabel());
-            applyConfiguredBounds(slider, config.getSlider());
-            applyConfiguredBounds(spinner, config.getSpinner());
-        } else {
-            applyDefaultBounds();
+    private int majorTickSpacing(SliderRangeModel range) {
+        if (componentAttribute.getMajorSpacing() > 0) {
+            return componentAttribute.getMajorSpacing();
         }
-
-        container.add(label);
-        container.add(slider);
-        container.add(spinner);
-        container.setOpaque(false);
-
-        addSubComponent(container);
+        return Math.max(1, (range.maxValue() - range.minValue()) / Math.min(9, Math.max(1, range.values().size() - 1)));
     }
 
-    private void applyConfiguredBounds(JComponent component, ComponentAttributes.ComponentConfig config) {
-        if (component == null) {
-            return;
+    private int minorTickSpacing(SliderRangeModel range) {
+        if (componentAttribute.getMinorSpacing() > 0) {
+            return componentAttribute.getMinorSpacing();
         }
-        if (config == null) {
-            return;
+        return Math.max(1, (range.maxValue() - range.minValue()) / Math.max(10, safeStepCount() * 2));
+    }
+
+    private int intValue(Object value, int fallback) {
+        if (value == null) {
+            return fallback;
         }
-        component.setBounds(config.getX(), config.getY(), config.getWidth(), config.getHeight());
-    }
-
-    private void applyDefaultBounds() {
-        int width = Math.max(320, componentAttribute.getBounds().width);
-        label.setBounds(0, 0, width, 24);
-        slider.setBounds(0, 26, Math.max(120, width - 96), 44);
-        spinner.setBounds(Math.max(0, width - 90), 30, 90, 32);
-    }
-
-    private void addListeners() {
-        slider.addChangeListener(e -> {
-            if (!slider.getValueIsAdjusting()) {
-                spinner.setValue(slider.getValue());
-                notifyListeners();
-            }
-        });
-
-        spinner.addChangeListener(e -> {
-            int newValue = (Integer) spinner.getValue();
-            if (newValue >= slider.getMinimum() && newValue <= slider.getMaximum()) {
-                slider.setValue(newValue);
-                notifyListeners();
-            }
-        });
-    }
-
-    public void setSliderListener(SliderListener sliderListener) {
-        this.sliderListener = sliderListener;
-        slider.setCursor(Cursor.getPredefinedCursor(Cursor.HAND_CURSOR));
-    }
-
-    private void notifyListeners() {
-        if (sliderListener != null) {
-            sliderListener.onSliderChange(this);
+        try {
+            return (int) Math.round(Double.parseDouble(String.valueOf(value)));
+        } catch (NumberFormatException error) {
+            Engine.LOGGER.warn("Invalid composite slider value '{}', using fallback: {}", value, fallback);
+            return fallback;
         }
     }
 
-    public JSlider getSlider() {
-        return slider;
+    private int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(max, value));
     }
 
-    public Label getLabel() {
-        return label;
-    }
-
-    public JSpinner getSpinner() {
-        return spinner;
-    }
-
-    private int roundUpToPowerOfTwo(int value) {
-        return value <= 0 ? 1 : Integer.highestOneBit(value - 1) << 1;
-    }
-
-    private int roundDownToPowerOfTwo(int value) {
-        return value <= 0 ? 1 : Integer.highestOneBit(value);
-    }
-
-    private int roundToNearestPowerOfTwo(int value) {
-        int lower = roundDownToPowerOfTwo(value);
-        int upper = roundUpToPowerOfTwo(value);
-        return (value - lower < upper - value) ? lower : upper;
-    }
-
-    private List<Integer> getPowerOfTwoValues(int minValue, int maxValue) {
-        List<Integer> values = new ArrayList<>();
-        for (int value = minValue; value <= maxValue; value <<= 1) {
-            values.add(value);
-        }
-        return values;
-    }
-
-    private SliderRange getSliderRangeBasedOnRam() {
-        OperatingSystemMXBean osBean = (OperatingSystemMXBean) ManagementFactory.getOperatingSystemMXBean();
-        long totalMemory = osBean.getTotalMemorySize();
-
-        int minValue = Math.max(1024, (int) (totalMemory * 0.10 / (1024 * 1024)));
-        int maxValue = Math.min(64 * 1024, (int) (totalMemory * 0.75 / (1024 * 1024)));
-
-        minValue = roundUpToPowerOfTwo(minValue);
-        maxValue = roundDownToPowerOfTwo(maxValue);
-
-        Engine.LOGGER.info("Calculated RAM range: minValue=" + minValue + ", maxValue=" + maxValue);
-
-        if (maxValue <= minValue) {
-            throw new IllegalArgumentException("Invalid range properties: maxValue (" + maxValue + ") must be greater than minValue (" + minValue + ")");
-        }
-
-        List<Integer> values = getPowerOfTwoValues(minValue, maxValue);
-
-        int initialValue = Math.min(Math.max(roundToNearestPowerOfTwo((int) (totalMemory * 0.25 / (1024 * 1024))), minValue), maxValue);
-
-        Engine.LOGGER.info("RAM-based initial value: " + initialValue);
-
-        return new SliderRange(minValue, maxValue, initialValue, values);
-    }
-
-    public List<Integer> getValues(int minValue, int maxValue, int steps) {
-        int safeSteps = Math.max(2, steps);
-        List<Integer> values = new ArrayList<>();
-        double step = (double) (maxValue - minValue) / (safeSteps - 1);
-
-        for (int i = 0; i < safeSteps; i++) {
-            int value = minValue + (int) Math.round(i * step);
-            values.add(value);
-        }
-
-        return values;
-    }
-
-    public Object getValue(){
-        return this.slider.getValue();
-    }
-
-    public void setValue(int value) {
-        this.slider.setValue(value);
-    }
+    private record SliderRangeModel(int minValue, int maxValue, int initialValue, List<Integer> values) {}
 }

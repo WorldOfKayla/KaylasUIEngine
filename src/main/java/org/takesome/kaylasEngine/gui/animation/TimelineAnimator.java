@@ -1,7 +1,6 @@
 package org.takesome.kaylasEngine.gui.animation;
 
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
@@ -11,9 +10,9 @@ import java.util.function.Consumer;
 /**
  * Generic EDT timeline runner for small Swing animations.
  *
- * <p>The runner samples sorted {@link TimelineKeyFrame} values using {@code System.nanoTime()} and
- * delegates the actual component mutation to the caller. That keeps interpolation and timer lifecycle
- * in the engine, while applications keep their visual policy in JSON/Lua resources.</p>
+ * <p>Animations share the engine-wide {@link AnimationPulse}. Timeline sampling keeps a monotonic
+ * segment cursor and evaluates easing once per frame instead of repeating trigonometric work for
+ * every animated property.</p>
  */
 public final class TimelineAnimator {
     private final SwingTimerGroup timers;
@@ -53,52 +52,61 @@ public final class TimelineAnimator {
                             Runnable onComplete) {
         final long startedAt = System.nanoTime();
         final long durationNanos = durationMs * 1_000_000L;
-        Timer timer = new Timer(frameDelayMs, null);
-        timer.setInitialDelay(0);
-        timer.setCoalesce(true);
-        timer.addActionListener(event -> {
-            double progress = clamp01((System.nanoTime() - startedAt) / (double) durationNanos);
-            updater.accept(sample(frames, progress));
+        final int[] segmentIndex = {0};
+        final AnimationPulse.Subscription[] subscription = {null};
+
+        subscription[0] = timers.track(AnimationPulse.shared().schedule(frameDelayMs, (nowNanos, deltaNanos) -> {
+            double progress = clamp01((nowNanos - startedAt) / (double) durationNanos);
+            updater.accept(sample(frames, progress, segmentIndex));
             if (progress >= 1.0) {
-                timers.stop(timer);
+                timers.forget(subscription[0]);
                 runCompletion(onComplete);
+                return false;
             }
-        });
-        timers.start(timer);
+            return true;
+        }));
     }
 
-    private static TimelineFrameState sample(List<TimelineKeyFrame> frames, double progress) {
+    private static TimelineFrameState sample(List<TimelineKeyFrame> frames,
+                                             double progress,
+                                             int[] segmentIndex) {
         TimelineKeyFrame first = frames.get(0);
         if (progress <= first.time()) {
+            segmentIndex[0] = 0;
             return stateFrom(first, progress);
         }
 
         TimelineKeyFrame last = frames.get(frames.size() - 1);
         if (progress >= last.time()) {
+            segmentIndex[0] = Math.max(0, frames.size() - 2);
             return stateFrom(last, progress);
         }
 
-        for (int i = 0; i < frames.size() - 1; i++) {
-            TimelineKeyFrame current = frames.get(i);
-            TimelineKeyFrame next = frames.get(i + 1);
-            if (progress >= current.time() && progress <= next.time()) {
-                double duration = next.time() - current.time();
-                double segmentProgress = duration <= 0.0 ? 1.0 : (progress - current.time()) / duration;
-                return interpolate(current, next, clamp01(segmentProgress), progress);
-            }
+        int index = Math.max(0, Math.min(segmentIndex[0], frames.size() - 2));
+        while (index < frames.size() - 2 && progress > frames.get(index + 1).time()) {
+            index++;
         }
-        return stateFrom(last, progress);
+        while (index > 0 && progress < frames.get(index).time()) {
+            index--;
+        }
+        segmentIndex[0] = index;
+
+        TimelineKeyFrame current = frames.get(index);
+        TimelineKeyFrame next = frames.get(index + 1);
+        double duration = next.time() - current.time();
+        double segmentProgress = duration <= 0.0 ? 1.0 : (progress - current.time()) / duration;
+        return interpolate(current, next, clamp01(segmentProgress), progress);
     }
 
     private static TimelineFrameState interpolate(TimelineKeyFrame current,
-                                                  TimelineKeyFrame next,
-                                                  double ratio,
-                                                  double progress) {
-        String interpolation = next.interpolation();
-        double scaleX = interpolate(current.scaleX(), next.scaleX(), ratio, interpolation);
-        double scaleY = interpolate(current.scaleY(), next.scaleY(), ratio, interpolation);
-        int offsetX = (int) Math.round(interpolate(current.offsetX(), next.offsetX(), ratio, interpolation));
-        int offsetY = (int) Math.round(interpolate(current.offsetY(), next.offsetY(), ratio, interpolation));
+                                                   TimelineKeyFrame next,
+                                                   double ratio,
+                                                   double progress) {
+        double easedRatio = applyEasing(ratio, next.interpolation());
+        double scaleX = lerp(current.scaleX(), next.scaleX(), easedRatio);
+        double scaleY = lerp(current.scaleY(), next.scaleY(), easedRatio);
+        int offsetX = (int) Math.round(lerp(current.offsetX(), next.offsetX(), easedRatio));
+        int offsetY = (int) Math.round(lerp(current.offsetY(), next.offsetY(), easedRatio));
         return new TimelineFrameState(progress, scaleX, scaleY, offsetX, offsetY);
     }
 
@@ -106,13 +114,17 @@ public final class TimelineAnimator {
         return new TimelineFrameState(progress, frame.scaleX(), frame.scaleY(), frame.offsetX(), frame.offsetY());
     }
 
-    private static double interpolate(double start, double end, double ratio, String interpolation) {
+    private static double applyEasing(double ratio, String interpolation) {
         return switch (interpolation == null ? "linear" : interpolation) {
-            case "easeIn" -> start + (end - start) * (1.0 - Math.cos(ratio * Math.PI / 2.0));
-            case "easeOut" -> start + (end - start) * Math.sin(ratio * Math.PI / 2.0);
-            case "easeInOut" -> start + (end - start) * (0.5 - Math.cos(ratio * Math.PI) / 2.0);
-            default -> start + (end - start) * ratio;
+            case "easeIn" -> 1.0 - Math.cos(ratio * Math.PI / 2.0);
+            case "easeOut" -> Math.sin(ratio * Math.PI / 2.0);
+            case "easeInOut" -> 0.5 - Math.cos(ratio * Math.PI) / 2.0;
+            default -> ratio;
         };
+    }
+
+    private static double lerp(double start, double end, double ratio) {
+        return start + (end - start) * ratio;
     }
 
     private static double clamp01(double value) {

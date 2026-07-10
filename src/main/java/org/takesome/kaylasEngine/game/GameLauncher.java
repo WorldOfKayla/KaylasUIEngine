@@ -5,6 +5,7 @@ import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.config.Config;
 import org.takesome.kaylasEngine.game.argsReader.ArgsReader;
 import org.takesome.kaylasEngine.server.ServerAttributes;
+import org.takesome.kaylasEngine.server.ServerIdentity;
 
 import java.net.URL;
 import java.net.URLClassLoader;
@@ -27,31 +28,35 @@ public abstract class GameLauncher {
     private final String[] toTest = {"_JAVA_OPTIONS", "_JAVA_OPTS", "JAVA_OPTS", "JAVA_OPTIONS"};
     protected URLClassLoader classLoader;
     protected final List<String> processArgs = new ArrayList<>();
+
     public void createClassLoader(List<URL> libraryURLs) {
-        URL[] urls = libraryURLs.toArray(new URL[0]);
+        URL[] urls = libraryURLs == null ? new URL[0] : libraryURLs.toArray(new URL[0]);
         this.classLoader = new URLClassLoader(urls, getClass().getClassLoader());
     }
+
     protected abstract void setJreArgs();
     protected abstract void setGameArgs();
     protected abstract String addTweakClass();
     protected abstract void launchGame();
+
     public Logger getLogger() {
         return logger;
     }
 
-    protected  void printDebug(){
+    protected void printDebug() {
         this.getLogger().debug("#############################");
-        this.logger.debug("GameDir " + getPathBuilders().buildGameDir());
-        this.logger.debug("ClientDir " + getPathBuilders().buildClientDir());
-        this.logger.debug("VersionRootDir " + getPathBuilders().buildVersionRootDir());
-        this.logger.debug("CoreType " + getPathBuilders().coreTypeName());
-        this.logger.debug("VersionsDir " + getPathBuilders().buildVersionDir());
-        this.logger.debug("JarFile " + getPathBuilders().buildMinecraftJarPath());
-        this.logger.debug("Natives " + getPathBuilders().buildNativesPath());
-        this.logger.debug("Libraries " + getPathBuilders().buildLibrariesPath());
-        this.logger.debug("Assets " + getPathBuilders().buildAssetsPath());
+        this.logger.debug("GameDir {}", getPathBuilders().buildGameDir());
+        this.logger.debug("ClientDir {}", getPathBuilders().buildClientDir());
+        this.logger.debug("VersionRootDir {}", getPathBuilders().buildVersionRootDir());
+        this.logger.debug("CoreType {}", getPathBuilders().coreTypeName());
+        this.logger.debug("VersionsDir {}", getPathBuilders().buildVersionDir());
+        this.logger.debug("JarFile {}", getPathBuilders().buildMinecraftJarPath());
+        this.logger.debug("Natives {}", getPathBuilders().buildNativesPath());
+        this.logger.debug("Libraries {}", getPathBuilders().buildLibrariesPath());
+        this.logger.debug("Assets {}", getPathBuilders().buildAssetsPath());
         this.logger.debug("#############################");
     }
+
     protected void checkDangerousParams() {
         for (String t : toTest) {
             String env = System.getenv(t);
@@ -64,12 +69,15 @@ public abstract class GameLauncher {
             }
         }
     }
+
     public void setGameListener(GameListener gameListener) {
         this.gameListener = gameListener;
     }
+
     protected int getIntVer() {
         return intVer;
     }
+
     public String getCurrentJre() {
         return this.gameClient.getJreVersion();
     }
@@ -86,22 +94,43 @@ public abstract class GameLauncher {
         return engine;
     }
 
-    protected void addArgsToProcess(List<String> args){
-        processArgs.addAll(args);
+    protected void addArgsToProcess(List<String> args) {
+        if (args != null && !args.isEmpty()) {
+            processArgs.addAll(args);
+        }
     }
 
-    protected String getVersion(){
-        String version = gameClient.getServerVersion();
-        if (gameClient.getServerVersion().contains("-")) {
-            version = gameClient.getServerVersion().split("-")[0];
+    protected void resetProcessArgs() {
+        processArgs.clear();
+    }
+
+    protected void notifyGameStart() {
+        if (gameListener != null) {
+            gameListener.onGameStart(gameClient);
         }
-        return  version;
+    }
+
+    protected void notifyGameExit() {
+        if (gameListener != null) {
+            gameListener.onGameExit(gameClient);
+        }
+    }
+
+    protected void notifyGameFailed(Throwable throwable, int exitCode) {
+        if (gameListener != null) {
+            gameListener.onGameFailed(gameClient, throwable, exitCode);
+        }
+    }
+
+    protected String getVersion() {
+        String version = gameClient == null ? "" : ServerIdentity.safe(gameClient.getServerVersion());
+        if (version.contains("-")) {
+            version = version.split("-")[0];
+        }
+        return version;
     }
 
     public static class PathBuilders {
-        private static final String DEFAULT_CORE_TYPE = "Vanilla";
-        private static final String DEFAULT_CLIENT = "Default";
-
         private final GameLauncher gameLauncher;
         private final Path homeDir;
 
@@ -115,7 +144,7 @@ public abstract class GameLauncher {
         }
 
         public Path buildVersionRootDir() {
-            return buildGameDir().resolve("versions").resolve(gameLauncher.gameClient.getServerVersion());
+            return buildGameDir().resolve("versions").resolve(serverVersion());
         }
 
         public Path buildVersionDir() {
@@ -123,7 +152,7 @@ public abstract class GameLauncher {
         }
 
         public Path getArgsFile() {
-            return buildVersionDir().resolve(String.format("%s.json", gameLauncher.gameClient.getServerVersion()));
+            return buildVersionDir().resolve(String.format("%s.json", serverVersion()));
         }
 
         public Path buildLibrariesPath() {
@@ -139,7 +168,7 @@ public abstract class GameLauncher {
         }
 
         public Path buildMinecraftJarPath() {
-            return buildVersionDir().resolve(String.format("%s.jar", gameLauncher.gameClient.getServerVersion()));
+            return buildVersionDir().resolve(String.format("%s.jar", serverVersion()));
         }
 
         public Path buildClientDir() {
@@ -155,44 +184,22 @@ public abstract class GameLauncher {
         }
 
         public String coreTypeName() {
-            String coreType = gameLauncher.gameClient.getCoreType();
-            if (coreType != null && !coreType.isBlank()) {
-                return coreType.trim();
-            }
-
-            String legacyClient = gameLauncher.gameClient.getClient();
-            if (looksLikeCoreType(legacyClient)) {
-                return legacyClient.trim();
-            }
-
-            return DEFAULT_CORE_TYPE;
+            return ServerIdentity.safePathSegment(
+                    ServerIdentity.coreType(gameLauncher.gameClient),
+                    ServerIdentity.DEFAULT_CORE_TYPE
+            );
         }
 
         public String clientName() {
-            String client = gameLauncher.gameClient.getClient();
-            if (client != null && !client.isBlank() && !looksLikeCoreType(client)) {
-                return client.trim();
-            }
-
-            String serverName = gameLauncher.gameClient.getServerName();
-            if (serverName != null && !serverName.isBlank()) {
-                return serverName.trim();
-            }
-
-            return DEFAULT_CLIENT;
+            return ServerIdentity.safePathSegment(
+                    ServerIdentity.clientName(gameLauncher.gameClient),
+                    ServerIdentity.DEFAULT_CLIENT
+            );
         }
 
-        private boolean looksLikeCoreType(String value) {
-            if (value == null || value.isBlank()) {
-                return false;
-            }
-            String normalized = value.trim().toLowerCase(Locale.ROOT);
-            return normalized.equals("vanilla")
-                    || normalized.equals("forge")
-                    || normalized.equals("fabric")
-                    || normalized.equals("quilt")
-                    || normalized.equals("neoforge")
-                    || normalized.equals("runtime");
+        private String serverVersion() {
+            String version = gameLauncher.gameClient == null ? "" : ServerIdentity.safe(gameLauncher.gameClient.getServerVersion());
+            return version.isBlank() ? "unknown" : version;
         }
 
         /**
@@ -210,6 +217,7 @@ public abstract class GameLauncher {
             }
         }
     }
+
     public void setArgsReader(ArgsReader argsReader) {
         this.argsReader = argsReader;
     }
@@ -217,6 +225,7 @@ public abstract class GameLauncher {
     public ArgsReader getArgsReader() {
         return argsReader;
     }
+
     public PathBuilders getPathBuilders() {
         return pathBuilders;
     }

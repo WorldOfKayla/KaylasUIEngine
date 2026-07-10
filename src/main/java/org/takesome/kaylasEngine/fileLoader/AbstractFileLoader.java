@@ -7,6 +7,7 @@ import java.io.File;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
 import java.util.Queue;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -53,14 +54,18 @@ public abstract class AbstractFileLoader {
                               String homeDir,
                               String client,
                               String version) {
-        this.engine = engine;
-        this.loadingManager = loadingManager;
-        this.fileFetcher = fileFetcher;
-        this.fileValidator = fileValidator;
-        this.downloadUtils = downloadUtils;
-        this.homeDir = homeDir.endsWith(File.separator) ? homeDir : homeDir + File.separator;
-        this.client = client;
-        this.version = version;
+        this.engine = Objects.requireNonNull(engine, "engine");
+        this.loadingManager = Objects.requireNonNull(loadingManager, "loadingManager");
+        this.fileFetcher = Objects.requireNonNull(fileFetcher, "fileFetcher");
+        this.fileValidator = Objects.requireNonNull(fileValidator, "fileValidator");
+        this.downloadUtils = Objects.requireNonNull(downloadUtils, "downloadUtils");
+        this.homeDir = normalizeHomeDir(Objects.requireNonNull(homeDir, "homeDir"));
+        this.client = client == null ? "" : client.trim();
+        this.version = version == null ? "" : version.trim();
+    }
+
+    private String normalizeHomeDir(String value) {
+        return value.endsWith(File.separator) ? value : value + File.separator;
     }
 
     /**
@@ -91,8 +96,9 @@ public abstract class AbstractFileLoader {
     }
 
     protected void processFileAttributes(FileAttributes[] attributes, boolean forceUpdate) {
+        FileAttributes[] safeAttributes = sanitizeAttributes(attributes);
         fileListRetries.set(0);
-        for (FileAttributes attribute : attributes) {
+        for (FileAttributes attribute : safeAttributes) {
             fileLoaderListener.onFileAdd(attribute);
         }
 
@@ -101,13 +107,22 @@ public abstract class AbstractFileLoader {
 
         Set<FileAttributes> nextAttributes = ConcurrentHashMap.newKeySet();
         if (forceUpdate) {
-            nextAttributes.addAll(Arrays.asList(attributes));
+            nextAttributes.addAll(Arrays.asList(safeAttributes));
         } else {
-            nextAttributes.addAll(filterFileAttributes(attributes));
+            nextAttributes.addAll(filterFileAttributes(safeAttributes));
         }
         this.fileAttributes = nextAttributes;
 
         fileLoaderListener.onFilesRead();
+    }
+
+    private FileAttributes[] sanitizeAttributes(FileAttributes[] attributes) {
+        if (attributes == null || attributes.length == 0) {
+            return new FileAttributes[0];
+        }
+        return Arrays.stream(attributes)
+                .filter(Objects::nonNull)
+                .toArray(FileAttributes[]::new);
     }
 
     protected Set<FileAttributes> filterFileAttributes(FileAttributes[] attributes) {
@@ -280,11 +295,13 @@ public abstract class AbstractFileLoader {
     }
 
     public void addFileToDownload(FileAttributes attribute) {
-        this.fileAttributes.add(attribute);
+        if (attribute != null) {
+            this.fileAttributes.add(attribute);
+        }
     }
 
     public void setLoaderListener(IFileLoaderListener listener) {
-        this.fileLoaderListener = listener;
+        this.fileLoaderListener = Objects.requireNonNull(listener, "listener");
     }
 
     // Handles file list retrieval errors.

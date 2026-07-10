@@ -26,6 +26,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.arg;
 import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.booleanArg;
@@ -46,15 +47,22 @@ import static org.takesome.kaylasEngine.gui.scripting.LuaRuntimeSupport.value;
  */
 public final class UiScriptContext {
     private static final int MAX_EVENT_DEPTH = 8;
+    private static final String COMPONENT_API_KEY = "kaylas.ui.lua.api";
+    private static final String COMPONENT_TABLE_KEY = "kaylas.ui.lua.table";
 
     private final Engine engine;
     private final Map<String, JComponent> componentsById = new ConcurrentHashMap<>();
     private final Map<String, UiComponentApi> componentApisById = new ConcurrentHashMap<>();
     private final Map<String, String> scriptSourceCache = new ConcurrentHashMap<>();
+    private final Map<String, Boolean> scriptExistsCache = new ConcurrentHashMap<>();
+    private final AtomicLong scriptCacheGeneration = new AtomicLong();
     private final Map<String, List<LuaValue>> eventSubscribers = new ConcurrentHashMap<>();
     private final Map<String, List<UiScriptEventListener>> javaEventSubscribers = new ConcurrentHashMap<>();
     private final Map<String, Map<String, UiScriptEventListener>> namedJavaEventSubscribers = new ConcurrentHashMap<>();
     private final ThreadLocal<Integer> eventDepth = ThreadLocal.withInitial(() -> 0);
+
+    private volatile LuaTable cachedUiTable;
+    private volatile LuaTable cachedEngineTable;
 
     public UiScriptContext(Engine engine) {
         this.engine = Objects.requireNonNull(engine, "engine");
@@ -66,6 +74,9 @@ public final class UiScriptContext {
 
     public UiComponentApi registerComponent(JComponent component, ComponentAttributes attributes) {
         UiComponentApi api = new UiComponentApi(this, component, attributes);
+        component.putClientProperty(COMPONENT_API_KEY, api);
+        component.putClientProperty(COMPONENT_TABLE_KEY, api.toLuaTable());
+
         String id = api.id();
         if (id != null && !id.isBlank()) {
             componentsById.put(id, component);
@@ -86,16 +97,39 @@ public final class UiScriptContext {
         if (component == null) {
             return null;
         }
-        String componentId = componentId(component, attributes);
-        if (componentId != null && componentApisById.containsKey(componentId)) {
-            return componentApisById.get(componentId);
+
+        Object cachedValue = component.getClientProperty(COMPONENT_API_KEY);
+        if (cachedValue instanceof UiComponentApi cached) {
+            return cached;
         }
-        return new UiComponentApi(this, component, attributes);
+
+        String componentId = componentId(component, attributes);
+        if (componentId != null) {
+            UiComponentApi byId = componentApisById.get(componentId);
+            if (byId != null) {
+                component.putClientProperty(COMPONENT_API_KEY, byId);
+                return byId;
+            }
+        }
+
+        UiComponentApi created = new UiComponentApi(this, component, attributes);
+        component.putClientProperty(COMPONENT_API_KEY, created);
+        return created;
     }
 
     public LuaTable componentTable(JComponent component, ComponentAttributes attributes) {
+        if (component == null) {
+            return table();
+        }
+        Object cachedValue = component.getClientProperty(COMPONENT_TABLE_KEY);
+        if (cachedValue instanceof LuaTable cached) {
+            return cached;
+        }
+
         UiComponentApi api = apiFor(component, attributes);
-        return api == null ? table() : api.toLuaTable();
+        LuaTable created = api == null ? table() : api.toLuaTable();
+        component.putClientProperty(COMPONENT_TABLE_KEY, created);
+        return created;
     }
 
     public Map<String, JComponent> componentsById() {
@@ -104,6 +138,12 @@ public final class UiScriptContext {
 
     public void clearScriptCache() {
         scriptSourceCache.clear();
+        scriptExistsCache.clear();
+        scriptCacheGeneration.incrementAndGet();
+    }
+
+    long scriptCacheGeneration() {
+        return scriptCacheGeneration.get();
     }
 
     public AutoCloseable on(String eventName, UiScriptEventListener listener) {
@@ -140,22 +180,7 @@ public final class UiScriptContext {
             return false;
         }
         String normalized = normalizeResourcePath(scriptPath);
-        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-        if (classLoader == null) {
-            classLoader = UiScriptContext.class.getClassLoader();
-        }
-        try (InputStream resource = classLoader.getResourceAsStream(normalized)) {
-            if (resource != null) {
-                return true;
-            }
-        } catch (IOException ignored) {
-            return false;
-        }
-        Path path = Path.of(scriptPath);
-        if (!path.isAbsolute()) {
-            path = Path.of(System.getProperty("user.dir", ".")).resolve(path).normalize();
-        }
-        return Files.isRegularFile(path);
+        return scriptExistsCache.computeIfAbsent(normalized, key -> locateScript(scriptPath, normalized));
     }
 
     public void emit(String eventName, UiComponentApi source, LuaValue payload) {
@@ -196,7 +221,9 @@ public final class UiScriptContext {
 
             if (!luaSubscribers.isEmpty()) {
                 LuaTable event = eventTable(normalized, source, rawEvent, resolvedPayload);
-                LuaValue component = source == null ? LuaValue.NIL : source.toLuaTable();
+                LuaValue component = source == null
+                        ? LuaValue.NIL
+                        : componentTable(source.component(), source.attributes());
                 for (LuaValue subscriber : luaSubscribers) {
                     if (subscriber != null && subscriber.isfunction()) {
                         subscriber.call(event, component);
@@ -222,6 +249,7 @@ public final class UiScriptContext {
         LuaTable event = table();
         event.set("name", value(eventName));
         event.set("time", LuaValue.valueOf(Instant.now().toString()));
+        event.set("timeMillis", LuaValue.valueOf(System.currentTimeMillis()));
         event.set("payload", payload == null ? LuaValue.NIL : payload);
 
         if (source != null) {
@@ -255,6 +283,32 @@ public final class UiScriptContext {
     }
 
     public LuaTable uiTable() {
+        LuaTable cached = cachedUiTable;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            if (cachedUiTable == null) {
+                cachedUiTable = createUiTable();
+            }
+            return cachedUiTable;
+        }
+    }
+
+    public LuaTable engineTable() {
+        LuaTable cached = cachedEngineTable;
+        if (cached != null) {
+            return cached;
+        }
+        synchronized (this) {
+            if (cachedEngineTable == null) {
+                cachedEngineTable = createEngineTable();
+            }
+            return cachedEngineTable;
+        }
+    }
+
+    private LuaTable createUiTable() {
         LuaTable ui = table();
         ui.set("log", function(args -> {
             Engine.LOGGER.info("[lua-ui] {}", stringArg(args, 1, ""));
@@ -290,19 +344,19 @@ public final class UiScriptContext {
         return ui;
     }
 
-    public LuaTable engineTable() {
-        LuaTable table = table();
-        table.set("appTitle", value(engine.getAppTitle()));
-        table.set("runtime", value("KaylasUIEngine"));
-        table.set("log", function(args -> {
+    private LuaTable createEngineTable() {
+        LuaTable result = table();
+        result.set("appTitle", value(engine.getAppTitle()));
+        result.set("runtime", value("KaylasUIEngine"));
+        result.set("log", function(args -> {
             Engine.LOGGER.info("[lua-engine] {}", stringArg(args, 1, ""));
             return LuaValue.NIL;
         }));
-        table.set("lang", function(this::luaLang));
-        table.set("langWith", function(this::luaLangWith));
-        table.set("localeIndex", function(args -> LuaValue.valueOf(engine.getLANG().getLocaleIndex())));
-        table.set("localeCount", function(args -> LuaValue.valueOf(engine.getLANG().getLocalesSet().length)));
-        return table;
+        result.set("lang", function(this::luaLang));
+        result.set("langWith", function(this::luaLangWith));
+        result.set("localeIndex", function(args -> LuaValue.valueOf(engine.getLANG().getLocaleIndex())));
+        result.set("localeCount", function(args -> LuaValue.valueOf(engine.getLANG().getLocalesSet().length)));
+        return result;
     }
 
     private LuaValue luaLang(Varargs args) {
@@ -345,7 +399,7 @@ public final class UiScriptContext {
 
     private LuaValue luaFind(Varargs args) {
         UiComponentApi api = findApi(stringArg(args, 1, ""));
-        return api == null ? LuaValue.NIL : api.toLuaTable();
+        return api == null ? LuaValue.NIL : componentTable(api.component(), api.attributes());
     }
 
     private LuaValue luaHas(Varargs args) {
@@ -473,6 +527,25 @@ public final class UiScriptContext {
             return Collections.emptyList();
         }
         return new ArrayList<>(namedSubscribers.values());
+    }
+
+    private boolean locateScript(String scriptPath, String normalized) {
+        ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
+        if (classLoader == null) {
+            classLoader = UiScriptContext.class.getClassLoader();
+        }
+        try (InputStream resource = classLoader.getResourceAsStream(normalized)) {
+            if (resource != null) {
+                return true;
+            }
+        } catch (IOException ignored) {
+            return false;
+        }
+        Path path = Path.of(scriptPath);
+        if (!path.isAbsolute()) {
+            path = Path.of(System.getProperty("user.dir", ".")).resolve(path).normalize();
+        }
+        return Files.isRegularFile(path);
     }
 
     private String loadScriptSource(String scriptPath) {
