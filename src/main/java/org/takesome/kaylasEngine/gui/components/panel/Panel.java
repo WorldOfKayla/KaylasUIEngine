@@ -5,7 +5,6 @@ import org.takesome.kaylasEngine.gui.components.Bounds;
 import org.takesome.kaylasEngine.gui.components.frame.FrameAttributes;
 import org.takesome.kaylasEngine.gui.components.frame.FrameConstructor;
 import org.takesome.kaylasEngine.utils.CurrentMonth;
-import org.takesome.kaylasEngine.utils.DragListener;
 
 import javax.swing.*;
 import javax.swing.border.MatteBorder;
@@ -201,7 +200,7 @@ public class Panel extends JPanel {
      *     <li>Optional background texture or image (darkened by provided color).</li>
      *     <li>Rounded corners controlled by {@code cornerRadius}.</li>
      *     <li>Custom border parsed from a comma-separated string.</li>
-     *     <li>Focusable and dragger listener support.</li>
+     *     <li>Focusable and registry-driven named listener support.</li>
      *     <li>Bounds and layout application.</li>
      * </ul>
      *
@@ -307,10 +306,9 @@ public class Panel extends JPanel {
             createBorder(panel, options.getBorder());
         }
 
-        if ("dragger".equalsIgnoreCase(options.getListener())) {
-            DragListener dragListener = new DragListener(frameConstructor);
-            dragListener.apply(panel, this.frameConstructor.getAppFrame().getFrame());
-        }
+        frameConstructor.getAppFrame()
+                .getPanelListenerRegistry()
+                .install(options.getListeners(), panel, frameConstructor, options);
 
         if (options.isFocusable()) {
             panel.setFocusable(true);

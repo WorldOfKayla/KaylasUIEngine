@@ -8,6 +8,7 @@ import org.apache.logging.log4j.Logger;
 import org.apache.logging.log4j.core.config.Configurator;
 import org.takesome.kaylasEngine.config.Config;
 import org.takesome.kaylasEngine.discord.Discord;
+import org.takesome.kaylasEngine.desktop.SystemFileManager;
 import org.takesome.kaylasEngine.events.EventBus;
 import org.takesome.kaylasEngine.events.EventDispatchResult;
 import org.takesome.kaylasEngine.events.SoundEvent;
@@ -16,6 +17,7 @@ import org.takesome.kaylasEngine.gui.components.ComponentFactoryListener;
 import org.takesome.kaylasEngine.gui.components.frame.FocusStatusListener;
 import org.takesome.kaylasEngine.gui.components.frame.FrameConstructor;
 import org.takesome.kaylasEngine.gui.components.frame.OptionGroups;
+import org.takesome.kaylasEngine.gui.components.panel.listener.PanelListenerRegistry;
 import org.takesome.kaylasEngine.gui.components.panel.PanelVisibility;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
@@ -74,6 +76,9 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
     /** Engine-wide scheduler for periodic and delayed services. */
     private final ScheduledTaskService scheduledTaskService;
 
+    /** Native desktop and system file-manager integration. */
+    private final SystemFileManager systemFileManager;
+
     /** Shared asynchronous memory/disk image cache. */
     private final AsyncImageCache asyncImageCache;
 
@@ -131,6 +136,9 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
     protected FrameConstructor frameConstructor;
 
     private final PanelVisibility panelVisibility;
+
+    /** Registry of named listeners installable from declarative panel definitions. */
+    private final PanelListenerRegistry panelListenerRegistry = PanelListenerRegistry.createDefault();
 
     private GuiBuilder guiBuilder;
 
@@ -197,6 +205,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         setLogLevel(Level.valueOf(engineData.getLogLevel()));
         executorServiceProvider = new ExecutorServiceProvider(poolSize, worker);
         scheduledTaskService = new ScheduledTaskService(1, worker + "-scheduler", LOGGER);
+        systemFileManager = new SystemFileManager(executorServiceProvider, LOGGER);
         asyncImageCache = new AsyncImageCache(executorServiceProvider);
         eventBus = new EventBus(executorServiceProvider.getExecutorService(), LOGGER);
         requestClient = new RequestClient(this);
@@ -459,6 +468,14 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
     }
 
     /**
+     * Returns the engine-scoped registry used to resolve panel listener names.
+     * Applications may register custom listeners before their panels are built.
+     */
+    public PanelListenerRegistry getPanelListenerRegistry() {
+        return panelListenerRegistry;
+    }
+
+    /**
      * Returns the GUI builder used by the engine.
      *
      * @return current {@link GuiBuilder}.
@@ -699,6 +716,15 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      */
     public ScheduledTaskService getScheduledTaskService() {
         return scheduledTaskService;
+    }
+
+    /**
+     * Returns native desktop and file-manager integration.
+     *
+     * @return system file-manager service.
+     */
+    public SystemFileManager getSystemFileManager() {
+        return systemFileManager;
     }
 
     /**

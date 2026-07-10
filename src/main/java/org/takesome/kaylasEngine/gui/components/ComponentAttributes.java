@@ -184,6 +184,22 @@ public class ComponentAttributes extends Attributes {
         return this;
     }
 
+    /**
+     * Adds an instance-level style override for a child node of a constructed composite.
+     *
+     * <p>The target may be a local node id ({@code label}), an explicit node selector
+     * ({@code node:label}), a component type selector ({@code type:label}), or {@code *}.</p>
+     */
+    public ComponentAttributes putTargetStyle(String target, String styleName) {
+        if (target != null && !target.isBlank() && styleName != null && !styleName.isBlank()) {
+            if (styles == null) {
+                styles = new LinkedHashMap<>();
+            }
+            styles.put(target.trim(), styleName.trim());
+        }
+        return this;
+    }
+
     public ComponentAttributes addStyleClass(String styleClass) {
         if (styleClass != null && !styleClass.isBlank()) {
             if (styleClasses == null) {
@@ -422,6 +438,11 @@ public class ComponentAttributes extends Attributes {
 
         public Builder styleClass(String styleClass) {
             attributes.addStyleClass(styleClass);
+            return this;
+        }
+
+        public Builder targetStyle(String target, String styleName) {
+            attributes.putTargetStyle(target, styleName);
             return this;
         }
 

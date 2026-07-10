@@ -83,6 +83,7 @@ public final class CompositeComponentDefinition
 
         for (ComponentNode node : nodes) {
             ComponentAttributes childAttributes = node.instantiate();
+            applyInstanceStyleOverride(context.attributes(), node, childAttributes);
             childAttributes.setComponentId(composite.qualify(node.localId()));
             childAttributes.putProperty(ConstructedCompositeComponent.SCOPE_PROPERTY, instanceId);
             childAttributes.putProperty(ConstructedCompositeComponent.LOCAL_ID_PROPERTY, node.localId());
@@ -106,6 +107,121 @@ public final class CompositeComponentDefinition
                 () -> context.factory().getLuaUiScriptEngine().releaseScope(instanceId)
         );
         return composite;
+    }
+
+    /**
+     * Resolves an instance-level style override for one child node.
+     *
+     * <p>Lookup priority is local node id, explicit type selector, raw component type, wildcard,
+     * then the style stored in the immutable prototype. This keeps old composite XML syntax such as
+     * {@code <style target="label" name="titleBold"/>} while also supporting unambiguous
+     * selectors such as {@code node:caption} and {@code type:label}.</p>
+     */
+    public String resolveNodeStyle(ComponentAttributes instanceAttributes, ComponentNode node) {
+        Objects.requireNonNull(instanceAttributes, "instanceAttributes");
+        Objects.requireNonNull(node, "node");
+
+        ComponentAttributes prototype = node.prototype();
+        Map<String, String> overrides = instanceAttributes.getStyles();
+        String componentType = prototype.getComponentType();
+
+        String resolved = firstNonBlank(
+                overrides.get(node.localId()),
+                overrides.get("node:" + node.localId()),
+                componentType == null ? null : overrides.get("type:" + componentType),
+                componentType == null ? null : overrides.get(componentType),
+                overrides.get("*")
+        );
+        return resolved == null ? prototype.getComponentStyle() : resolved;
+    }
+
+    private void applyInstanceStyleOverride(ComponentAttributes instanceAttributes,
+                                            ComponentNode node,
+                                            ComponentAttributes childAttributes) {
+        String resolvedStyle = resolveNodeStyle(instanceAttributes, node);
+        if (resolvedStyle != null && !resolvedStyle.isBlank()) {
+            childAttributes.setComponentStyle(resolvedStyle);
+        }
+        applyNestedTargetStyles(instanceAttributes, node, childAttributes);
+    }
+
+    /**
+     * Forwards hierarchical selectors such as {@code slider.tickLabel} to the selected child
+     * descriptor as {@code tickLabel}. This allows a basic component to expose named internal style
+     * slots without turning those internal render objects into catalog nodes.
+     */
+    private void applyNestedTargetStyles(ComponentAttributes instanceAttributes,
+                                         ComponentNode node,
+                                         ComponentAttributes childAttributes) {
+        resolveNestedNodeStyles(instanceAttributes, node).forEach(
+                childAttributes::putTargetStyle
+        );
+    }
+
+    /**
+     * Resolves style slots addressed below one child node, for example
+     * {@code slider.tickLabel -> tickLabel}. The returned map is an immutable snapshot.
+     */
+    public Map<String, String> resolveNestedNodeStyles(ComponentAttributes instanceAttributes,
+                                                       ComponentNode node) {
+        Objects.requireNonNull(instanceAttributes, "instanceAttributes");
+        Objects.requireNonNull(node, "node");
+
+        Map<String, String> styles = instanceAttributes.getStyles();
+        if (styles.isEmpty()) {
+            return Map.of();
+        }
+
+        String componentType = node.prototype().getComponentType();
+        Map<String, String> resolved = new LinkedHashMap<>();
+        for (Map.Entry<String, String> entry : styles.entrySet()) {
+            String nestedTarget = nestedTarget(entry.getKey(), node.localId(), componentType);
+            if (nestedTarget != null
+                    && !nestedTarget.isBlank()
+                    && entry.getValue() != null
+                    && !entry.getValue().isBlank()) {
+                resolved.put(nestedTarget, entry.getValue().trim());
+            }
+        }
+        return Map.copyOf(resolved);
+    }
+
+    private static String nestedTarget(String selector,
+                                       String localId,
+                                       String componentType) {
+        if (selector == null || selector.isBlank()) {
+            return null;
+        }
+        String value = selector.trim();
+        return firstMatchingSuffix(
+                value,
+                localId + ".",
+                "node:" + localId + ".",
+                componentType == null ? null : "type:" + componentType + ".",
+                componentType == null ? null : componentType + ".",
+                "*."
+        );
+    }
+
+    private static String firstMatchingSuffix(String value, String... prefixes) {
+        for (String prefix : prefixes) {
+            if (prefix != null && value.startsWith(prefix) && value.length() > prefix.length()) {
+                return value.substring(prefix.length()).trim();
+            }
+        }
+        return null;
+    }
+
+    private static String firstNonBlank(String... values) {
+        if (values == null) {
+            return null;
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private String resolveInstanceId(ComponentAttributes attributes) {

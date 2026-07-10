@@ -5,7 +5,17 @@ public class ServerAttributes {
     @SuppressWarnings("unused")
     private int id, port;
     @SuppressWarnings("unused")
-    private String serverName, serverVersion, jreVersion, coreType, serverImage, serverDescription, client, host, ignoreDirs, modsInfo;
+    private String serverName,
+            serverVersion,
+            jreVersion,
+            coreType,
+            serverImage,
+            discordImageKey,
+            serverDescription,
+            client,
+            host,
+            ignoreDirs,
+            modsInfo;
     private boolean checkLib;
     //mainClass, forgeVersion, forgeGroup, mcpVersion
 
@@ -52,6 +62,14 @@ public class ServerAttributes {
     @SuppressWarnings("unused")
     public String getServerImage() {
         return serverImage;
+    }
+
+    /**
+     * Discord Developer Portal application asset key for this server image.
+     */
+    @SuppressWarnings("unused")
+    public String getDiscordImageKey() {
+        return discordImageKey;
     }
 
     @SuppressWarnings("unused")

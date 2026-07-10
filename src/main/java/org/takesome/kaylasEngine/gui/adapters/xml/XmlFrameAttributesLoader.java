@@ -113,6 +113,19 @@ public class XmlFrameAttributesLoader implements FrameAttributesLoader {
     private PanelAttributes parsePanelOptions(Element panelOptionsElement) throws ReflectiveOperationException {
         PanelAttributes panelAttributes = new PanelAttributes();
         populateAttributes(panelOptionsElement, panelAttributes);
+
+        Element listenersElement = firstDirectChild(panelOptionsElement, "listeners");
+        if (listenersElement != null) {
+            List<String> listeners = new ArrayList<>(panelAttributes.getListeners());
+            for (Element listenerElement : directChildren(listenersElement, "listener")) {
+                String name = valueOr(listenerElement.getAttribute("name"), listenerElement.getTextContent());
+                if (name != null && !name.isBlank()) {
+                    listeners.add(name.trim());
+                }
+            }
+            setField(panelAttributes, "listeners", listeners);
+        }
+
         Element boundsElement = firstDirectChild(panelOptionsElement, "bounds");
         if (boundsElement != null) {
             setField(panelAttributes, "bounds", parseBounds(boundsElement));

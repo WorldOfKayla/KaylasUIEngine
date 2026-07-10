@@ -3,6 +3,7 @@ package org.takesome.kaylasEngine.gui.components;
 import org.apache.logging.log4j.LogManager;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
+import org.takesome.kaylasEngine.gui.components.constructor.ComponentNode;
 import org.takesome.kaylasEngine.gui.components.constructor.CompositeComponentDefinition;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
 import org.takesome.kaylasEngine.gui.scripting.ComponentSignalRouter;
@@ -146,6 +147,32 @@ public final class ComponentRuntimeVerification {
                 "composite component alias was not resolved");
         require(composite.nodes().size() == 2 && composite.connections().size() == 1,
                 "composite graph metadata is invalid");
+
+        ComponentAttributes styledInstance = ComponentAttributes.builder("catalogComposite")
+                .targetStyle("status", "titleBold")
+                .targetStyle("type:checkBox", "solid1")
+                .targetStyle("status.tickLabel", "promptLabel")
+                .targetStyle("*", "default")
+                .bounds(0, 0, 300, 30)
+                .build();
+        ComponentNode statusNode = composite.nodes().stream()
+                .filter(node -> "status".equals(node.localId()))
+                .findFirst()
+                .orElseThrow();
+        ComponentNode toggleNode = composite.nodes().stream()
+                .filter(node -> "toggle".equals(node.localId()))
+                .findFirst()
+                .orElseThrow();
+        require("titleBold".equals(composite.resolveNodeStyle(styledInstance, statusNode)),
+                "local node style override was not resolved");
+        require("solid1".equals(composite.resolveNodeStyle(styledInstance, toggleNode)),
+                "component type style override was not resolved");
+        require("titleBold".equals(styledInstance.getStyles().get("status")),
+                "targetStyle builder did not retain the child style override");
+        require("promptLabel".equals(
+                        composite.resolveNestedNodeStyles(styledInstance, statusNode).get("tickLabel")
+                ),
+                "nested child style selector was not forwarded to the child descriptor");
 
         expectThrows(
                 IllegalArgumentException.class,

@@ -1,84 +1,214 @@
 package org.takesome.kaylasEngine.utils;
 
+import javax.swing.AbstractButton;
+import javax.swing.JComboBox;
+import javax.swing.JComponent;
+import javax.swing.JList;
+import javax.swing.JScrollBar;
+import javax.swing.JSlider;
+import javax.swing.JSpinner;
+import javax.swing.JTable;
+import javax.swing.JTree;
 import javax.swing.SwingUtilities;
+import javax.swing.text.JTextComponent;
 import java.awt.Component;
+import java.awt.Container;
+import java.awt.IllegalComponentStateException;
 import java.awt.Point;
 import java.awt.Window;
+import java.awt.event.ContainerEvent;
+import java.awt.event.ContainerListener;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
+import java.awt.event.MouseListener;
+import java.awt.event.MouseMotionListener;
+import java.util.Objects;
 
 /**
- * A smooth and responsive drag listener for moving windows (JFrame, JDialog, etc.).
+ * Reusable drag listener for moving undecorated windows.
  *
- * Improvements over the basic version:
- * - Keeps offset between cursor and window position (prevents "jumping").
- * - Provides smoother control, feels more natural when dragging.
- * - Encapsulated and reusable via apply() methods.
- *
- * @author Foxes
+ * <p>When applied to a container, dragging is installed across its complete non-interactive
+ * component hierarchy. Children added later are registered automatically. Interactive controls
+ * such as buttons, selectors and text components remain fully clickable and are never used as
+ * drag handles.</p>
  */
-public class DragListener extends MouseAdapter {
+public class DragListener extends MouseAdapter implements ContainerListener {
+
+    /** Client property that disables inherited window dragging for a component subtree. */
+    public static final String DRAG_DISABLED_PROPERTY = "windowDragDisabled";
 
     private final Window targetWindow;
-    private Point clickOffset; // difference between click and window's top-left
+    private Point clickOffset;
 
-    /**
-     * Constructor.
-     *
-     * @param targetWindow The window to be moved.
-     */
     public DragListener(Window targetWindow) {
-        this.targetWindow = targetWindow;
+        this.targetWindow = Objects.requireNonNull(targetWindow, "targetWindow");
     }
 
     /**
-     * Apply drag behavior to a component, automatically resolving its window ancestor.
+     * Applies drag behavior to a component hierarchy, even before it is attached to a window.
      *
-     * @param component The component to use as drag handle.
+     * @param component root drag-handle component
      */
     public void apply(Component component) {
-        Window window = SwingUtilities.getWindowAncestor(component);
-        if (window != null) {
-            component.addMouseListener(this);
-            component.addMouseMotionListener(this);
+        if (component == null) {
+            return;
         }
+        installRecursively(component);
     }
 
     /**
-     * Apply drag behavior explicitly to a given window.
+     * Applies drag behavior to a component hierarchy for the supplied window.
      *
-     * @param component    The component to use as drag handle.
-     * @param targetWindow The window to move.
+     * @param component    root drag-handle component
+     * @param targetWindow window being moved
      */
     public void apply(Component component, Window targetWindow) {
-        if (targetWindow != null) {
-            component.addMouseListener(this);
-            component.addMouseMotionListener(this);
+        if (component == null || targetWindow == null) {
+            return;
+        }
+        if (this.targetWindow != targetWindow) {
+            new DragListener(targetWindow).apply(component);
+            return;
+        }
+        installRecursively(component);
+    }
+
+    @Override
+    public void mousePressed(MouseEvent event) {
+        if (!SwingUtilities.isLeftMouseButton(event) || !targetWindow.isShowing()) {
+            return;
+        }
+        try {
+            Point windowLocation = targetWindow.getLocationOnScreen();
+            Point clickLocation = event.getLocationOnScreen();
+            clickOffset = new Point(
+                    clickLocation.x - windowLocation.x,
+                    clickLocation.y - windowLocation.y
+            );
+            event.consume();
+        } catch (IllegalComponentStateException ignored) {
+            clickOffset = null;
         }
     }
 
     @Override
-    public void mousePressed(MouseEvent e) {
-        Point windowLocation = targetWindow.getLocationOnScreen();
-        Point clickLocation = e.getLocationOnScreen();
-        // store offset between click and window's position
-        clickOffset = new Point(clickLocation.x - windowLocation.x,
-                clickLocation.y - windowLocation.y);
-    }
-
-    @Override
-    public void mouseReleased(MouseEvent e) {
+    public void mouseReleased(MouseEvent event) {
         clickOffset = null;
     }
 
     @Override
-    public void mouseDragged(MouseEvent e) {
-        if (clickOffset == null) return;
+    public void mouseDragged(MouseEvent event) {
+        if (clickOffset == null || !targetWindow.isShowing()) {
+            return;
+        }
+        try {
+            Point cursor = event.getLocationOnScreen();
+            targetWindow.setLocation(cursor.x - clickOffset.x, cursor.y - clickOffset.y);
+            event.consume();
+        } catch (IllegalComponentStateException ignored) {
+            clickOffset = null;
+        }
+    }
 
-        Point cursor = e.getLocationOnScreen();
-        int newX = cursor.x - clickOffset.x;
-        int newY = cursor.y - clickOffset.y;
+    @Override
+    public void componentAdded(ContainerEvent event) {
+        installRecursively(event.getChild());
+    }
 
-        targetWindow.setLocation(newX, newY);
+    @Override
+    public void componentRemoved(ContainerEvent event) {
+        uninstallRecursively(event.getChild());
+    }
+
+    private void installRecursively(Component component) {
+        if (component == null || isDragDisabled(component)) {
+            return;
+        }
+
+        removeOtherDragListeners(component);
+        addMouseListeners(component);
+
+        if (component instanceof Container container) {
+            addContainerListener(container);
+            for (Component child : container.getComponents()) {
+                installRecursively(child);
+            }
+        }
+    }
+
+    private void uninstallRecursively(Component component) {
+        if (component == null) {
+            return;
+        }
+
+        component.removeMouseListener(this);
+        component.removeMouseMotionListener(this);
+
+        if (component instanceof Container container) {
+            container.removeContainerListener(this);
+            for (Component child : container.getComponents()) {
+                uninstallRecursively(child);
+            }
+        }
+    }
+
+    private void addMouseListeners(Component component) {
+        if (!containsIdentity(component.getMouseListeners(), this)) {
+            component.addMouseListener(this);
+        }
+        if (!containsIdentity(component.getMouseMotionListeners(), this)) {
+            component.addMouseMotionListener(this);
+        }
+    }
+
+    private void addContainerListener(Container container) {
+        if (!containsIdentity(container.getContainerListeners(), this)) {
+            container.addContainerListener(this);
+        }
+    }
+
+    private void removeOtherDragListeners(Component component) {
+        for (MouseListener listener : component.getMouseListeners()) {
+            if (listener instanceof DragListener && listener != this) {
+                component.removeMouseListener(listener);
+            }
+        }
+        for (MouseMotionListener listener : component.getMouseMotionListeners()) {
+            if (listener instanceof DragListener && listener != this) {
+                component.removeMouseMotionListener(listener);
+            }
+        }
+        if (component instanceof Container container) {
+            for (ContainerListener listener : container.getContainerListeners()) {
+                if (listener instanceof DragListener && listener != this) {
+                    container.removeContainerListener(listener);
+                }
+            }
+        }
+    }
+
+    private boolean isDragDisabled(Component component) {
+        if (component instanceof JComponent swingComponent
+                && Boolean.TRUE.equals(swingComponent.getClientProperty(DRAG_DISABLED_PROPERTY))) {
+            return true;
+        }
+        return component instanceof AbstractButton
+                || component instanceof JTextComponent
+                || component instanceof JComboBox<?>
+                || component instanceof JList<?>
+                || component instanceof JTable
+                || component instanceof JTree
+                || component instanceof JSlider
+                || component instanceof JSpinner
+                || component instanceof JScrollBar;
+    }
+
+    private static boolean containsIdentity(Object[] values, Object expected) {
+        for (Object value : values) {
+            if (value == expected) {
+                return true;
+            }
+        }
+        return false;
     }
 }

@@ -22,6 +22,8 @@ import java.util.function.Supplier;
  * Callers only provide visual configuration and completion hooks.</p>
  */
 public final class LayeredPaneOverlay {
+    private static final AnimationCurve DEFAULT_FADE_CURVE = AnimationCurve.named("easeOutQuad");
+
     private final JLayeredPane layeredPane;
     private final Supplier<Rectangle> boundsSupplier;
     private final Color color;
@@ -47,16 +49,38 @@ public final class LayeredPaneOverlay {
         this.boundsSupplier = Objects.requireNonNull(boundsSupplier, "boundsSupplier");
         this.color = Objects.requireNonNull(color, "color");
         this.name = name == null || name.isBlank() ? "engineOverlay" : name.trim();
-        this.frameDelayMs = Math.max(16, frameDelayMs);
+        this.frameDelayMs = Math.max(1, frameDelayMs);
         this.logger = Objects.requireNonNull(logger, "logger");
         this.logPrefix = logPrefix == null || logPrefix.isBlank() ? "[OVERLAY]" : logPrefix.trim();
     }
 
     public void fadeIn(int targetAlpha, int durationMs, Runnable onComplete) {
-        runOnEdt(() -> fadeTo(clampAlpha(targetAlpha), durationMs, false, onComplete));
+        fadeIn(targetAlpha, durationMs, frameDelayMs, DEFAULT_FADE_CURVE, onComplete);
+    }
+
+    public void fadeIn(int targetAlpha,
+                       int durationMs,
+                       int requestedFrameDelayMs,
+                       AnimationCurve curve,
+                       Runnable onComplete) {
+        runOnEdt(() -> fadeTo(
+                clampAlpha(targetAlpha),
+                durationMs,
+                requestedFrameDelayMs,
+                curve,
+                false,
+                onComplete
+        ));
     }
 
     public void fadeOut(int durationMs, Runnable onComplete) {
+        fadeOut(durationMs, frameDelayMs, DEFAULT_FADE_CURVE, onComplete);
+    }
+
+    public void fadeOut(int durationMs,
+                        int requestedFrameDelayMs,
+                        AnimationCurve curve,
+                        Runnable onComplete) {
         runOnEdt(() -> {
             if (overlay == null) {
                 if (onComplete != null) {
@@ -64,7 +88,7 @@ public final class LayeredPaneOverlay {
                 }
                 return;
             }
-            fadeTo(0, durationMs, true, onComplete);
+            fadeTo(0, durationMs, requestedFrameDelayMs, curve, true, onComplete);
         });
     }
 
@@ -89,13 +113,20 @@ public final class LayeredPaneOverlay {
         return overlay != null && overlay.isVisible();
     }
 
-    private void fadeTo(int targetAlpha, int durationMs, boolean removeAfterFade, Runnable onComplete) {
+    private void fadeTo(int targetAlpha,
+                        int durationMs,
+                        int requestedFrameDelayMs,
+                        AnimationCurve requestedCurve,
+                        boolean removeAfterFade,
+                        Runnable onComplete) {
         ensureOverlay();
         stopTimer();
 
         int startAlpha = alpha;
         int delta = targetAlpha - startAlpha;
         int safeDurationMs = Math.max(0, durationMs);
+        int safeFrameDelayMs = Math.max(1, requestedFrameDelayMs);
+        AnimationCurve curve = requestedCurve == null ? DEFAULT_FADE_CURVE : requestedCurve;
         if (safeDurationMs == 0 || delta == 0) {
             setAlpha(targetAlpha);
             complete(removeAfterFade, onComplete);
@@ -104,11 +135,19 @@ public final class LayeredPaneOverlay {
 
         long startedAt = System.nanoTime();
         long durationNanos = safeDurationMs * 1_000_000L;
-        logger.debug("{} fade start: alpha {} -> {}, duration={} ms", logPrefix, startAlpha, targetAlpha, safeDurationMs);
+        logger.debug(
+                "{} fade start: alpha {} -> {}, duration={} ms, frameDelay={} ms, easing={}",
+                logPrefix,
+                startAlpha,
+                targetAlpha,
+                safeDurationMs,
+                safeFrameDelayMs,
+                curve.name()
+        );
 
-        fadeTimer = new Timer(frameDelayMs, event -> {
+        fadeTimer = new Timer(safeFrameDelayMs, event -> {
             float progress = Math.min(1f, (System.nanoTime() - startedAt) / (float) durationNanos);
-            float eased = 1f - (1f - progress) * (1f - progress);
+            float eased = curve.apply(progress);
             setAlpha(Math.round(startAlpha + delta * eased));
             if (progress >= 1f) {
                 stopTimer();
