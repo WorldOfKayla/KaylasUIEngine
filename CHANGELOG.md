@@ -18,6 +18,12 @@
 - Routed event metadata containing route, scope, source, target, and payload information.
 - Automatic route, targeted-listener, component-registry, and Lua-closure cleanup by composite scope.
 - Constructor runtime architecture and launcher integration documentation.
+- Refreshable `ComponentsAccessor` index with global nested lookup and selected panel views.
+- `ComponentAccessSource` abstraction for `GuiBuilder`, tests, and alternate UI registries.
+- Extensible `ComponentValueRegistry` with typed read/write adapters.
+- Scoped constructor lookup through `findLocal(...)` and `requireLocal(...)`.
+- Immutable `ComponentAccessSnapshot` and detailed `IndexedComponent` metadata.
+- Configurable duplicate, unsupported-value, traversal, refresh, and value-representation policies.
 
 ### Improved
 
@@ -30,12 +36,18 @@
 - Composite registration validates unknown child types, duplicate nodes, missing connection endpoints, direct self-reference, and indirect dependency cycles.
 - Runtime creation detects recursive composite construction through the active creation stack.
 - Existing global Lua `ui.on` and `ui.emit` behavior remains compatible.
+- `@Component` binding now supports inherited fields, optional bindings, and composite scope/local ids.
+- Component traversal now detects panel cycles, guards maximum depth, and indexes named descendants by identity.
+- Form values are read live instead of retaining constructor-time snapshots.
+- Legacy string form semantics remain the default while native values are available explicitly.
 
 ### Verification
 
 - Added catalog, prototype isolation, definition inheritance, alias collision, cycle detection, and signal-router checks.
 - Added an end-to-end launcher fixture that registers a custom composite, instantiates it from XML, routes a checkbox event, and updates a linked label through a scoped Lua listener.
 - Existing slider, directory-selector, transparent-panel, and checkbox-panel regressions remain covered.
+- Added `componentAccessorCheck` for traversal, scoped lookup, inherited/optional binding, adapters, refresh, form modes, and duplicate policies.
+- Added `componentAccessorJavadoc` to generate and validate the complete accessor API documentation.
 
 ## 2.0.0-AURELIA — 2026-07-10
 

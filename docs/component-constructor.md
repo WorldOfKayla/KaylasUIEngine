@@ -147,6 +147,59 @@ catalog prototype
 
 `ComponentAttributes.copy()` performs a deep descriptor copy, including child components, scripts, styles, properties, bounds, and layout configuration.
 
+## Instance-level child style overrides
+
+A constructor prototype defines defaults, but each composite instance can override child styles without redefining the graph.
+
+```xml
+<component type="launcherVolumeControl" id="volume">
+    <bounds x="35" y="160" width="430" height="65" />
+    <styles>
+        <style target="label" name="titleBold" />
+        <style target="slider" name="slidingOut" />
+        <style target="slider.tickLabel" name="promptLabel" />
+    </styles>
+</component>
+```
+
+Resolution priority:
+
+```text
+local node id
+    -> node:<localId>
+        -> type:<componentType>
+            -> raw component type
+                -> wildcard *
+                    -> prototype style
+```
+
+Examples:
+
+```xml
+<style target="label" name="titleBold" />
+<style target="node:caption" name="warning" />
+<style target="type:label" name="promptLabel" />
+<style target="slider.tickLabel" name="titleBold" />
+<style target="*" name="compact" />
+```
+
+For programmatic descriptors:
+
+```java
+ComponentAttributes instance = ComponentAttributes.builder("launcherVolumeControl")
+        .targetStyle("label", "titleBold")
+        .targetStyle("type:launcherSliderTrack", "slidingOut")
+        .targetStyle("slider.tickLabel", "promptLabel")
+        .bounds(35, 160, 430, 65)
+        .build();
+```
+
+The override affects only that runtime instance. Catalog prototypes and other instances remain unchanged.
+
+Hierarchical selectors expose internal style slots of a child component. For example,
+`slider.tickLabel` selects the `slider` node and forwards `tickLabel` into that child's descriptor.
+This is useful for render-only internals such as slider scale labels that are not separate catalog nodes.
+
 ## Scoped runtime identifiers
 
 A composite instance id becomes its signal and lookup scope:

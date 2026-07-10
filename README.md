@@ -26,7 +26,39 @@ KaylasUI Engine — декларативный Swing UI runtime с JSON, JSON5 �
 Документация:
 
 - [Component Constructor Runtime 2.1](docs/component-constructor.md)
+- [Component Accessor Runtime](docs/component-accessor.md)
 - [Components Runtime 2.0](docs/components.md)
+
+## Component Accessor Runtime
+
+`componentAccessor` предоставляет refreshable index для обычных и составных Swing-компонентов:
+
+```java
+ComponentsAccessor accessor = new ComponentsAccessor(
+        getGuiBuilder(),
+        "settings",
+        List.of(TextField.class, Checkbox.class),
+        ComponentAccessorOptions.builder()
+                .valueMode(ComponentValueMode.NATIVE)
+                .duplicatePolicy(DuplicateComponentPolicy.FAIL)
+                .build()
+);
+```
+
+Scoped child lookup:
+
+```java
+Slider slider = accessor.requireLocal("volume", "slider", Slider.class);
+```
+
+Field binding:
+
+```java
+@Component(scope = "volume", localId = "slider")
+private Slider volumeSlider;
+```
+
+Value adapters are extensible through `ComponentValueRegistry`, while snapshots and form maps are immutable.
 
 ## Каталог компонентов
 
@@ -218,11 +250,11 @@ inherited parent styles
 ## Сборка и проверка
 
 ```bash
-./gradlew test componentRuntimeCheck smokeRun
+./gradlew test componentRuntimeCheck componentAccessorCheck componentAccessorJavadoc smokeRun
 ```
 
 Для Windows:
 
 ```powershell
-.\gradlew.bat test componentRuntimeCheck smokeRun
+.\gradlew.bat test componentRuntimeCheck componentAccessorCheck componentAccessorJavadoc smokeRun
 ```

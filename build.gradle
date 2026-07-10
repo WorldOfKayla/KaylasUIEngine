@@ -142,8 +142,34 @@ tasks.register('componentRuntimeCheck', JavaExec) {
     mainClass = 'org.takesome.kaylasEngine.gui.components.ComponentRuntimeVerification'
 }
 
+tasks.register('componentAccessorCheck', JavaExec) {
+    group = 'verification'
+    description = 'Verifies component indexing, scoped lookup, field binding, value adapters and form snapshots.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.takesome.kaylasEngine.gui.componentAccessor.ComponentAccessorVerification'
+}
+
+
+tasks.register('componentAccessorJavadoc', Javadoc) {
+    group = 'documentation'
+    description = 'Generates and validates JavaDoc for the componentAccessor public API.'
+    dependsOn tasks.named('classes')
+    source = fileTree('src/main/java/org/takesome/kaylasEngine/gui/componentAccessor') {
+        include '**/*.java'
+    }
+    classpath = sourceSets.main.output + sourceSets.main.compileClasspath
+    destinationDir = layout.buildDirectory.dir('docs/javadoc-component-accessor').get().asFile
+    failOnError = true
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    options.docEncoding = 'UTF-8'
+}
+
 tasks.named('check') {
     dependsOn tasks.named('componentRuntimeCheck')
+    dependsOn tasks.named('componentAccessorCheck')
+    dependsOn tasks.named('componentAccessorJavadoc')
 }
 
 dependencies {
