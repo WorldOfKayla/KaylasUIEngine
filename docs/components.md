@@ -33,9 +33,9 @@ ComponentAttributes
 | `styleClasses` | Additional ordered style names | empty |
 | `styleOverrides` | Final style property overrides | empty |
 | `properties` | Swing client properties | empty |
-| `enabled` | Component enabled state | `true` |
-| `visible` | Component visibility | `true` |
-| `opaque` | Explicit opacity override | resolved style |
+| `enabled` / `disabled` | Component interaction state | `false` |
+| `visible` | Component visibility | `false` |
+| `opaque` | Component opacity flag | `false` |
 | `editable` | Editable state for text components | `true` |
 | `focusable` | Explicit focusability | component default |
 | `doubleBuffered` | Explicit double-buffering state | component default |
@@ -43,7 +43,17 @@ ComponentAttributes
 | `accessibleName` | AccessibleContext name | unset |
 | `accessibleDescription` | AccessibleContext description | unset |
 
-Boolean fields use boxed values internally. This preserves the difference between “not specified” and an explicit `false`.
+### Boolean XML markers
+
+The canonical XML form uses empty marker elements instead of boolean attributes:
+
+```xml
+<visible/>
+<enabled/>
+<opaque/>
+```
+
+A missing positive marker resolves to `false`. Interaction state is expressed by the mutually exclusive pair `<enabled/>` and `<disabled/>`; declaring both is a descriptor error. Legacy attributes such as `visible="true"` remain readable for migration, but an attribute and its marker may not be declared together.
 
 ### XML example
 
@@ -54,9 +64,9 @@ Boolean fields use boxed values internally. This preserves the difference betwee
     id="launch"
     localeKey="launcher.start"
     cursor="hand"
-    enabled="true"
-    visible="true"
     accessibleName="Start game">
+    <visible/>
+    <enabled/>
 
     <bounds x="24" y="24" width="220" height="48" />
 
@@ -122,7 +132,10 @@ Inheritance is resolved in declaration order. Cycles and unknown parents fail wi
 Descriptors may compose independent styles:
 
 ```xml
-<component type="button" style="default danger compact" />
+<component type="button" style="default danger compact">
+    <visible/>
+    <enabled/>
+</component>
 ```
 
 Later styles override earlier styles. Mixins should normally contain only the fields they intend to override. For example:
@@ -211,7 +224,7 @@ The override is stack-based, supports nested composites and is removed in `final
 ## Panel invariants
 
 - Empty or `transparent` panel backgrounds resolve to `#00000000`, never white.
-- Rounded panels are filled only when an explicit visible background or `opaque=true` is configured.
+- Rounded panels are filled only when an explicit visible background or `<opaque/>` is configured.
 - `zIndex` is applied after the panel is attached to its parent.
 - Rebuilding a panel with the same id replaces the previous Swing instance instead of layering a duplicate.
 - Parent-child registry entries are unique.

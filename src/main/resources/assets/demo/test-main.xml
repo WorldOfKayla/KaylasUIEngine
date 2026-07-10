@@ -3,13 +3,12 @@
     <panels>
         <panel id="mainFrame">
             <panelOptions
-                opaque="false"
-                visible="true"
                 focusable="false"
                 doubleBuffered="true"
                 cornerRadius="0"
                 zIndex="0"
                 background="#00000000">
+                <visible/>
                 <bounds x="0" y="0" width="900" height="520" />
             </panelOptions>
 
@@ -21,9 +20,9 @@
                     localeKey="demo.title"
                     color="#ffffff"
                     fontSize="24"
-                    accessibleName="KaylasUI Engine title"
-                    opaque="false"
-                    visible="true">
+                    accessibleName="KaylasUI Engine title">
+                    <visible/>
+                    <enabled/>
                     <bounds x="32" y="32" width="820" height="42" />
                     <properties>
                         <property name="demo.role" value="title" />
@@ -37,9 +36,9 @@
                     localeKey="demo.version"
                     initialValue="version"
                     color="#ffffff"
-                    fontSize="16"
-                    opaque="false"
-                    visible="true">
+                    fontSize="16">
+                    <visible/>
+                    <enabled/>
                     <bounds x="32" y="88" width="820" height="32" />
                 </component>
 
@@ -50,9 +49,9 @@
                     localeKey="demo.ready"
                     initialValue="java"
                     color="#ffffff"
-                    fontSize="14"
-                    opaque="false"
-                    visible="true">
+                    fontSize="14">
+                    <visible/>
+                    <enabled/>
                     <bounds x="32" y="132" width="820" height="32" />
                 </component>
 
@@ -60,10 +59,8 @@
                     type="fileSelector"
                     style="default"
                     id="directorySelectorRegression"
-                    selectionMode="folder"
-                    enabled="true"
-                    opaque="false"
-                    visible="false">
+                    selectionMode="folder">
+                    <enabled/>
                     <bounds x="32" y="164" width="360" height="42" />
                     <styles>
                         <style target="textField" name="textFieldMain" />
@@ -74,10 +71,8 @@
                 <component
                     type="linkedStatusControl"
                     id="constructorRegression"
-                    style="default"
-                    enabled="true"
-                    opaque="false"
-                    visible="false">
+                    style="default">
+                    <enabled/>
                     <bounds x="32" y="164" width="430" height="36" />
                 </component>
 
@@ -86,9 +81,9 @@
                     style="default"
                     id="compositeDemo"
                     alignment="absolute"
-                    initialValue="stable"
-                    opaque="false"
-                    visible="true">
+                    initialValue="stable">
+                    <visible/>
+                    <enabled/>
                     <bounds x="32" y="184" width="820" height="280" />
 
                     <childComponents>
@@ -98,9 +93,9 @@
                             id="compositeDemoTitle"
                             localeKey="demo.compositeTitle"
                             color="#ffffff"
-                            fontSize="16"
-                            opaque="false"
-                            visible="true">
+                            fontSize="16">
+                            <visible/>
+                            <enabled/>
                             <bounds x="0" y="0" width="820" height="30" />
                         </component>
 
@@ -111,9 +106,9 @@
                             localeKey="demo.compositeState"
                             initialValue="interactive"
                             color="#ffffff"
-                            fontSize="14"
-                            opaque="false"
-                            visible="true">
+                            fontSize="14">
+                            <visible/>
+                            <enabled/>
                             <bounds x="0" y="34" width="820" height="26" />
                         </component>
 
@@ -124,10 +119,9 @@
                             localeKey="demo.openTaskManager"
                             cursor="hand"
                             accessibleName="Open task manager"
-                            accessibleDescription="Opens the operating system task manager"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            accessibleDescription="Opens the operating system task manager">
+                            <visible/>
+                            <enabled/>
                             <bounds x="0" y="74" width="180" height="42" />
                             <styleOverrides>
                                 <property name="fontSize" value="13" />
@@ -144,10 +138,9 @@
                             style="altButton"
                             id="minimize"
                             localeKey="demo.minimizeWindow"
-                            cursor="hand"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            cursor="hand">
+                            <visible/>
+                            <enabled/>
                             <bounds x="198" y="74" width="180" height="42" />
                         </component>
 
@@ -156,10 +149,9 @@
                             style="solid1"
                             id="demoToggle"
                             localeKey="demo.toggleFeature"
-                            initialValue="true"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            initialValue="true">
+                            <visible/>
+                            <enabled/>
                             <bounds x="0" y="132" width="240" height="32" />
                         </component>
 
@@ -169,10 +161,9 @@
                             id="demoInput"
                             localeKey="demo.inputPlaceholder"
                             initialValue="AURELIA online"
-                            editable="true"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            editable="true">
+                            <visible/>
+                            <enabled/>
                             <bounds x="260" y="126" width="260" height="44" />
                         </component>
 
@@ -187,10 +178,9 @@
                             maxValue="100"
                             stepSize="6"
                             minorSpacing="5"
-                            majorSpacing="10"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            majorSpacing="10">
+                            <visible/>
+                            <enabled/>
                             <bounds x="0" y="184" width="430" height="72" />
                             <styles>
                                 <style target="label" name="title" />
@@ -210,8 +200,6 @@
             <panels>
                 <panel id="checkboxPanelRegressionA">
                     <panelOptions
-                        opaque="false"
-                        visible="false"
                         focusable="false"
                         doubleBuffered="true"
                         cornerRadius="12"
@@ -225,10 +213,9 @@
                             style="solid1"
                             id="checkboxRegressionA"
                             localeKey="demo.toggleFeature"
-                            initialValue="true"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            initialValue="true">
+                            <visible/>
+                            <enabled/>
                             <bounds x="8" y="8" width="200" height="32" />
                         </component>
                     </childComponents>
@@ -236,8 +223,6 @@
 
                 <panel id="checkboxPanelRegressionB">
                     <panelOptions
-                        opaque="false"
-                        visible="false"
                         focusable="false"
                         doubleBuffered="true"
                         cornerRadius="12"
@@ -251,10 +236,9 @@
                             style="solid1"
                             id="checkboxRegressionB"
                             localeKey="demo.toggleFeature"
-                            initialValue="false"
-                            enabled="true"
-                            opaque="false"
-                            visible="true">
+                            initialValue="false">
+                            <visible/>
+                            <enabled/>
                             <bounds x="8" y="8" width="200" height="32" />
                         </component>
                     </childComponents>

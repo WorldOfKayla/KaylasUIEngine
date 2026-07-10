@@ -27,6 +27,13 @@ import java.util.Map;
 
 /** XML UI descriptor loader with style composition and component property support. */
 public final class XmlUiDescriptorLoader {
+    private static final Map<String, BooleanMarker> BOOLEAN_MARKERS = Map.of(
+            "opaque", new BooleanMarker("opaque", true),
+            "visible", new BooleanMarker("visible", true),
+            "enabled", new BooleanMarker("enabled", true),
+            "disabled", new BooleanMarker("enabled", false)
+    );
+
     private final DocumentBuilderFactory factory = DocumentBuilderFactory.newInstance();
 
     public XmlUiDescriptorLoader() {
@@ -122,7 +129,9 @@ public final class XmlUiDescriptorLoader {
 
     private PanelAttributes parsePanelOptions(Element panelOptionsElement) throws ReflectiveOperationException {
         PanelAttributes panelAttributes = new PanelAttributes();
+        setField(panelAttributes, "visible", false);
         populateAttributes(panelOptionsElement, panelAttributes);
+        populateBooleanMarkers(panelOptionsElement, panelAttributes);
 
         Element listenersElement = firstDirectChild(panelOptionsElement, "listeners");
         if (listenersElement != null) {
@@ -153,7 +162,11 @@ public final class XmlUiDescriptorLoader {
 
     private ComponentAttributes parseComponent(Element componentElement) throws ReflectiveOperationException {
         ComponentAttributes component = new ComponentAttributes();
+        setField(component, "enabled", false);
+        setField(component, "visible", false);
+        setField(component, "opaque", false);
         populateAttributes(componentElement, component);
+        populateBooleanMarkers(componentElement, component);
 
         Element boundsElement = firstDirectChild(componentElement, "bounds");
         if (boundsElement != null) {
@@ -296,6 +309,62 @@ public final class XmlUiDescriptorLoader {
                 intAttr(boundsElement, "width", 0),
                 intAttr(boundsElement, "height", 0)
         );
+    }
+
+    private void populateBooleanMarkers(Element element, Object instance) throws ReflectiveOperationException {
+        Map<String, BooleanMarker> assignedMarkers = new LinkedHashMap<>();
+        Map<String, String> assignedNames = new LinkedHashMap<>();
+
+        for (Element child : directChildElements(element)) {
+            BooleanMarker marker = BOOLEAN_MARKERS.get(child.getTagName());
+            if (marker == null) {
+                continue;
+            }
+
+            validateBooleanMarker(child);
+            Field field = findField(instance.getClass(), marker.fieldName());
+            if (field == null || !isBooleanType(field.getType())) {
+                throw new IllegalArgumentException(
+                        "Boolean marker <" + child.getTagName() + "/> is not supported on <"
+                                + element.getTagName() + ">"
+                );
+            }
+            if (element.hasAttribute(marker.fieldName())) {
+                throw new IllegalArgumentException(
+                        "Boolean property '" + marker.fieldName()
+                                + "' cannot be declared as both an attribute and a marker on <"
+                                + element.getTagName() + ">"
+                );
+            }
+
+            BooleanMarker previous = assignedMarkers.putIfAbsent(marker.fieldName(), marker);
+            String previousName = assignedNames.putIfAbsent(marker.fieldName(), child.getTagName());
+            if (previous != null) {
+                String kind = previous.value() == marker.value() ? "Duplicate" : "Conflicting";
+                throw new IllegalArgumentException(
+                        kind + " XML boolean markers <" + previousName + "/> and <"
+                                + child.getTagName() + "/> for property '" + marker.fieldName()
+                                + "' on <" + element.getTagName() + ">"
+                );
+            }
+
+            field.setAccessible(true);
+            field.set(instance, marker.value());
+        }
+    }
+
+    private void validateBooleanMarker(Element marker) {
+        if (marker.getAttributes().getLength() > 0
+                || !directChildElements(marker).isEmpty()
+                || !marker.getTextContent().isBlank()) {
+            throw new IllegalArgumentException(
+                    "Boolean marker <" + marker.getTagName() + "/> must be empty"
+            );
+        }
+    }
+
+    private boolean isBooleanType(Class<?> type) {
+        return type == boolean.class || type == Boolean.class;
     }
 
     private void populateAttributes(Element element, Object instance) throws ReflectiveOperationException {
@@ -442,6 +511,9 @@ public final class XmlUiDescriptorLoader {
             }
         }
         return elements;
+    }
+
+    private record BooleanMarker(String fieldName, boolean value) {
     }
 
     private void trySetFeature(String feature, boolean enabled) {

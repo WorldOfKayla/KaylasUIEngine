@@ -129,8 +129,9 @@ The composite can then be used like a built-in component:
 <component
     type="linkedStatusControl"
     id="networkControl"
-    style="default"
-    visible="true">
+    style="default">
+    <visible/>
+    <enabled/>
     <bounds x="24" y="80" width="430" height="36" />
 </component>
 ```
@@ -153,6 +154,8 @@ A constructor prototype defines defaults, but each composite instance can overri
 
 ```xml
 <component type="launcherVolumeControl" id="volume">
+    <visible/>
+    <enabled/>
     <bounds x="35" y="160" width="430" height="65" />
     <styles>
         <style target="label" name="titleBold" />

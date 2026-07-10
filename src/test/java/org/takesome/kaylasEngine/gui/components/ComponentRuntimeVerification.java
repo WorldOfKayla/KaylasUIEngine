@@ -12,6 +12,8 @@ import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
 
 import javax.swing.JButton;
+import java.io.ByteArrayInputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 
@@ -47,6 +49,86 @@ public final class ComponentRuntimeVerification {
         } catch (IllegalArgumentException expected) {
             require(expected.getMessage().contains("XML UI descriptors only"),
                     "non-XML descriptor rejection did not explain the XML-only policy");
+        }
+
+        Attributes markerDescriptor = parseXml(loader, """
+                <ui>
+                    <panels>
+                        <panel id="markedPanel">
+                            <panelOptions>
+                                <visible/>
+                                <opaque/>
+                            </panelOptions>
+                        </panel>
+                        <panel id="implicitPanel">
+                            <panelOptions/>
+                        </panel>
+                    </panels>
+                    <childComponents>
+                        <component type="button" id="active">
+                            <visible/>
+                            <enabled/>
+                            <opaque/>
+                            <bounds x="0" y="0" width="10" height="10"/>
+                        </component>
+                        <component type="button" id="inactive">
+                            <visible/>
+                            <disabled/>
+                            <bounds x="0" y="0" width="10" height="10"/>
+                        </component>
+                        <component type="button" id="implicitFalse">
+                            <bounds x="0" y="0" width="10" height="10"/>
+                        </component>
+                    </childComponents>
+                </ui>
+                """);
+        require(markerDescriptor.getGroups().get("markedPanel").getPanelOptions().isVisible(),
+                "panel visible marker was not applied");
+        require(markerDescriptor.getGroups().get("markedPanel").getPanelOptions().isOpaque(),
+                "panel opaque marker was not applied");
+        require(!markerDescriptor.getGroups().get("implicitPanel").getPanelOptions().isVisible(),
+                "absent panel visible marker did not resolve to false");
+        require(!markerDescriptor.getGroups().get("implicitPanel").getPanelOptions().isOpaque(),
+                "absent panel opaque marker did not resolve to false");
+
+        List<ComponentAttributes> markerComponents = markerDescriptor.getChildComponents();
+        require(markerComponents.size() == 3, "boolean marker descriptor component count is invalid");
+
+        ComponentAttributes active = markerComponents.get(0);
+        require(active.isVisible() && active.isEnabled() && active.isOpaque(),
+                "positive XML boolean markers were not applied");
+
+        ComponentAttributes inactive = markerComponents.get(1);
+        require(inactive.isVisible() && !inactive.isEnabled() && !inactive.isOpaque(),
+                "disabled marker did not negate enabled state");
+
+        ComponentAttributes implicitFalse = markerComponents.get(2);
+        require(!implicitFalse.isVisible() && !implicitFalse.isEnabled() && !implicitFalse.isOpaque(),
+                "absent XML boolean markers did not resolve to false");
+
+        expectThrows(
+                IllegalArgumentException.class,
+                () -> parseXml(loader, """
+                        <ui>
+                            <childComponents>
+                                <component type="button">
+                                    <enabled/>
+                                    <disabled/>
+                                </component>
+                            </childComponents>
+                        </ui>
+                        """),
+                "enabled and disabled markers were accepted together"
+        );
+    }
+
+    private static Attributes parseXml(XmlUiDescriptorLoader loader, String xml) {
+        try (ByteArrayInputStream input = new ByteArrayInputStream(xml.getBytes(StandardCharsets.UTF_8))) {
+            return loader.parse(input);
+        } catch (RuntimeException error) {
+            throw error;
+        } catch (Exception error) {
+            throw new IllegalStateException("XML descriptor parsing failed", error);
         }
     }
 

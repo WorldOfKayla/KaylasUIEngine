@@ -125,12 +125,15 @@ constructor.register(linkedStatus);
 
 После регистрации новый тип используется так же, как встроенный:
 
+Boolean-состояния в XML задаются пустыми маркерами. Отсутствующие `visible`, `enabled` и `opaque` означают `false`; для состояния активности используются взаимоисключающие `<enabled/>` и `<disabled/>`.
+
 ```xml
 <component
     type="linkedStatusControl"
     id="networkControl"
-    style="default"
-    visible="true">
+    style="default">
+    <visible/>
+    <enabled/>
     <bounds x="24" y="80" width="430" height="36" />
 </component>
 ```
@@ -231,6 +234,8 @@ JComponent component = getGuiBuilder()
 
 ```xml
 <component type="button" style="danger compact" id="deleteButton">
+    <visible/>
+    <enabled/>
     <bounds x="20" y="20" width="180" height="40" />
     <styleOverrides>
         <property name="fontSize" value="12" />
