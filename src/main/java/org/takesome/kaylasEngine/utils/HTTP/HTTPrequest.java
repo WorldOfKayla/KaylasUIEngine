@@ -385,14 +385,14 @@ public class HTTPrequest {
         }
         long endTime = System.nanoTime();
         double elapsedTimeSec = (endTime - startTime) / 1_000_000_000.0;
-        // Вычисление скорости (байт/сек)
+        // Calculate the transfer speed in bytes per second.
         return elapsedTimeSec <= 0.0 ? 0.0 : totalBytes / elapsedTimeSec;
     }
 
     /**
-     * Форматирует скорость соединения в человекочитаемый вид.
+     * Formats the measured connection speed in a human-readable form.
      *
-     * @return строка с отформатированным значением и соответствующей единицей измерения.
+     * @return formatted value with the appropriate unit
      */
     public String getFormatedSpeed() {
         double speedBytesPerSec = 0;

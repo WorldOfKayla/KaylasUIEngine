@@ -8,15 +8,15 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 /**
- * Расширенный класс DataInjector для асинхронной установки и получения данных с поддержкой:
+ * Asynchronous one-shot data container with support for:
  * <ul>
- *   <li>Асинхронного уведомления слушателей через Executor.</li>
- *   <li>Обработки ошибок посредством errorListeners.</li>
- *   <li>Возможности удаления слушателей.</li>
- *   <li>Трансформации данных с помощью метода map.</li>
+ *   <li>Asynchronous listener notification through an {@link Executor}.</li>
+ *   <li>Error propagation through registered error listeners.</li>
+ *   <li>Listener removal.</li>
+ *   <li>Data transformation through {@link #map(Function)}.</li>
  * </ul>
  *
- * @param <T> Тип передаваемых данных.
+ * @param <T> transported data type
  */
 public class DataInjector<T> {
     private static final Logger LOGGER = LoggerFactory.getLogger(DataInjector.class);
@@ -27,26 +27,26 @@ public class DataInjector<T> {
     private final Executor executor;
 
     /**
-     * Конструктор по умолчанию с использованием ForkJoinPool.commonPool() в качестве executor.
+     * Creates an injector backed by {@link ForkJoinPool#commonPool()}.
      */
     public DataInjector() {
         this.executor = ForkJoinPool.commonPool();
     }
 
     /**
-     * Конструктор с возможностью указания собственного executor.
+     * Creates an injector using the supplied executor.
      *
-     * @param executor Executor для асинхронного уведомления слушателей.
+     * @param executor executor used for asynchronous listener notification
      */
     public DataInjector(Executor executor) {
         this.executor = executor;
     }
 
     /**
-     * Регистрирует слушателя, который будет вызван, когда данные станут доступны.
-     * Если данные уже установлены, слушатель вызывается асинхронно.
+     * Registers a listener that is invoked when data becomes available.
+     * If data is already available, the listener is scheduled immediately.
      *
-     * @param listener Обработчик данных.
+     * @param listener data consumer
      */
     public void addListener(Consumer<T> listener) {
         if (futureData.isDone()) {
@@ -66,28 +66,28 @@ public class DataInjector<T> {
     }
 
     /**
-     * Удаляет ранее зарегистрированного слушателя.
+     * Removes a previously registered listener.
      *
-     * @param listener Слушатель, который требуется удалить.
-     * @return true, если слушатель был удалён, иначе false.
+     * @param listener listener to remove
+     * @return {@code true} if the listener was removed; otherwise {@code false}
      */
     public boolean removeListener(Consumer<T> listener) {
         return listeners.remove(listener);
     }
 
     /**
-     * Регистрирует слушателя для обработки ошибок, возникающих при уведомлении.
+     * Registers a listener for errors raised during asynchronous notification.
      *
-     * @param errorListener Обработчик ошибок.
+     * @param errorListener error consumer
      */
     public void addErrorListener(Consumer<Throwable> errorListener) {
         errorListeners.add(errorListener);
     }
 
     /**
-     * Уведомляет всех зарегистрированных слушателей об ошибке.
+     * Notifies all registered error listeners.
      *
-     * @param t Ошибка для уведомления.
+     * @param t error to deliver
      */
     private void notifyError(Throwable t) {
         for (Consumer<Throwable> errorListener : errorListeners) {
@@ -100,10 +100,10 @@ public class DataInjector<T> {
     }
 
     /**
-     * Устанавливает данные и уведомляет всех зарегистрированных слушателей асинхронно.
-     * Данные можно установить только один раз.
+     * Completes the injector and asynchronously notifies every registered listener.
+     * Data can be supplied only once.
      *
-     * @param data Данные для установки.
+     * @param data value to store
      */
     public void setContent(T data) {
         if (!futureData.isDone()) {
@@ -128,11 +128,11 @@ public class DataInjector<T> {
     }
 
     /**
-     * Блокирующий метод для получения данных.
-     * Если данные ещё не установлены, метод ожидает их установки.
+     * Returns the stored data, blocking until it becomes available.
+     * The method waits when the injector has not yet been completed.
      *
-     * @return Установленные данные.
-     * @throws Exception Если ожидание прервано.
+     * @return stored data
+     * @throws Exception if waiting is interrupted or completion fails
      */
     public T getContent() throws Exception {
         LOGGER.debug("getContent() called, waiting for data if necessary.");
@@ -142,13 +142,13 @@ public class DataInjector<T> {
     }
 
     /**
-     * Получает данные с указанным таймаутом.
+     * Returns the stored data, waiting up to the specified timeout.
      *
-     * @param timeout Максимальное время ожидания.
-     * @param unit    Единица измерения времени.
-     * @return Установленные данные.
-     * @throws TimeoutException Если данные не установлены в пределах таймаута.
-     * @throws Exception        Если ожидание прервано.
+     * @param timeout maximum wait duration
+     * @param unit    timeout unit
+     * @return stored data
+     * @throws TimeoutException if data does not become available before the timeout
+     * @throws Exception        if waiting is interrupted or completion fails
      */
     public T getContent(long timeout, TimeUnit unit) throws Exception {
         LOGGER.debug("getContent() called with timeout: {} {}", timeout, unit);
@@ -163,9 +163,9 @@ public class DataInjector<T> {
     }
 
     /**
-     * Проверяет, установлены ли данные.
+     * Reports whether data is available.
      *
-     * @return true, если данные доступны, иначе false.
+     * @return {@code true} when data is available; otherwise {@code false}
      */
     public boolean isDataAvailable() {
         boolean available = futureData.isDone();
@@ -174,11 +174,11 @@ public class DataInjector<T> {
     }
 
     /**
-     * Преобразует данные с помощью указанного маппера и возвращает новый DataInjector для результата.
+     * Maps the stored value and returns a new injector for the transformed result.
      *
-     * @param <R>    Тип преобразованных данных.
-     * @param mapper Функция преобразования.
-     * @return Новый DataInjector с преобразованными данными.
+     * @param <R>    transformed data type
+     * @param mapper transformation function
+     * @return a new injector containing the transformed data
      */
     public <R> DataInjector<R> map(Function<T, R> mapper) {
         DataInjector<R> resultInjector = new DataInjector<>(executor);

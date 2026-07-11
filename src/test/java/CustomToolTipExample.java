@@ -14,7 +14,7 @@ class CustomToolTipExample {
         JTextField textField = new JTextField(15);
         JLabel label = new JLabel("Hover over this label");
 
-        // Создаем кастомные тултипы с параметрами стилей
+        // Create custom tooltips using explicit style parameters.
         CustomTooltip customTooltip = new CustomTooltip(hexToColor("#000000c4"), Color.WHITE, 15, new Font("Arial", Font.PLAIN, 12));
         customTooltip.attachToComponent(button, "This is a button tooltip", 2000);
 

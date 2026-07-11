@@ -59,7 +59,7 @@ public class GuiBuilder {
      */
     public GuiBuilder(Engine engine) {
         if (engine == null) {
-            throw new IllegalArgumentException("Engine не может быть null");
+            throw new IllegalArgumentException("Engine must not be null");
         }
         this.engine = engine;
         this.descriptorLoader = new XmlUiDescriptorLoader();

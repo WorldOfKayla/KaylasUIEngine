@@ -146,7 +146,7 @@ public abstract class Config {
                 handleInvalidValue(field, fieldName);
             }
         } catch (IllegalAccessException e) {
-            Engine.LOGGER.error("РћС€РёР±РєР° РґРѕСЃС‚СѓРїР° Рє РїРѕР»СЋ " + fieldName, e);
+            Engine.LOGGER.error("Unable to access configuration field " + fieldName, e);
         } catch (RuntimeException e) {
             Engine.LOGGER.warn("Invalid config value for '{}': {}", fieldName, config.get(fieldName), e);
             handleInvalidValue(field, fieldName);
@@ -184,9 +184,9 @@ public abstract class Config {
         try {
             Object defaultValue = field.get(this);
             config.put(key, defaultValue);
-            Engine.LOGGER.warn("Неверное значение для '" + key + "', установлено по умолчанию: " + defaultValue);
+            Engine.LOGGER.warn("Invalid value for '" + key + "'; restored default: " + defaultValue);
         } catch (IllegalAccessException e) {
-            Engine.LOGGER.error("Ошибка доступа к полю " + key, e);
+            Engine.LOGGER.error("Unable to access configuration field " + key, e);
         }
     }
 

@@ -5,22 +5,22 @@ import java.awt.*;
 
 public class TestLabel {
     public static void main(String[] args) {
-        // Создаем JFrame (главное окно)
-        JFrame frame = new JFrame("Градиентный текст");
+        // Create the main application window.
+        JFrame frame = new JFrame("Gradient Text");
 
-        // Устанавливаем размер окна и поведение при закрытии
+        // Configure window dimensions and close behavior.
         frame.setSize(400, 200);
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
 
-        // Создаем и настраиваем Label с градиентом
-        Label label = new Label(null);  // Параметр componentFactory можно передать в тестовом примере
-        label.setText("Градиентный Текст");
+        // Create and configure a gradient label.
+        Label label = new Label(null);  // A ComponentFactory may be supplied in an integration test.
+        label.setText("Gradient Text");
         label.setFont(new Font("Arial", Font.PLAIN, 40));
 
-        // Добавляем Label на панель
+        // Add the label to the content pane.
         frame.getContentPane().add(label);
 
-        // Отображаем окно
+        // Display the window.
         frame.setVisible(true);
     }
 }

@@ -5,18 +5,18 @@ import java.io.FileInputStream;
 import java.security.MessageDigest;
 
 /**
- * Реализация валидатора файлов, отвечающая за проверку корректности локального файла.
- * Данный класс реализует интерфейс IFileValidator, что позволяет легко заменить его на другую реализацию при необходимости.
+ * Default file validator that verifies the integrity of a local file.
+ * This class implements {@link IFileValidator}, allowing applications to replace it with another implementation when required.
  */
 public class FileValidator implements IFileValidator {
 
     /**
-     * Проверяет, является ли локальный файл недействительным по сравнению с ожидаемыми параметрами.
+     * Determines whether a local file is invalid relative to the expected metadata.
      *
-     * @param file         локальный файл, который требуется проверить
-     * @param expectedHash ожидаемый MD5 хэш файла
-     * @param expectedSize ожидаемый размер файла в байтах
-     * @return true, если файл не существует, его размер не совпадает с ожидаемым, либо хэш не совпадает; иначе false
+     * @param file         local file to validate
+     * @param expectedHash expected MD5 hash
+     * @param expectedSize expected file size in bytes
+     * @return {@code true} when the file is missing, has an unexpected size, or has a mismatched hash; otherwise {@code false}
      */
     @Override
     public boolean isInvalidFile(File file, String expectedHash, long expectedSize) {

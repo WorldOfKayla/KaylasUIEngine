@@ -1,7 +1,7 @@
 package org.takesome.kaylasEngine.fileLoader;
 
 /**
- * Интерфейс для уведомления о событиях загрузки файлов.
+ * Listener contract for file-loading lifecycle events.
  */
 public interface IFileLoaderListener {
     void onFileAdd(FileAttributes fileAttribute);

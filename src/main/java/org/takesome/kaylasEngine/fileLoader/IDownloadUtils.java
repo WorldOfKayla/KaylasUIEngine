@@ -1,9 +1,9 @@
 package org.takesome.kaylasEngine.fileLoader;
 
 /**
- * нтерфейс утилит для загрузки файлов.
+ * Utility contract used by file-download implementations.
  */
 public interface IDownloadUtils {
     void setTotalSize(long totalSize);
-    // Дополнительные утилиты можно добавить здесь.
+    // Additional download utilities can be added here.
 }

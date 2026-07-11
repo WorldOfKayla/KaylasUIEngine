@@ -1,37 +1,55 @@
 # KaylasUI Engine
 
-**Версия:** `2.2.0-AURELIA`
-**Runtime:** Java 17 / Swing
-**Кодовое имя:** `AURELIA 2 — Constructor Runtime`
+**Version:** `2.2.0-AURELIA`
 
-KaylasUI Engine — декларативный Swing UI runtime с XML-дескрипторами, наследуемыми стилями, Lua-сценариями и каталогом базовых и составных компонентов.
+**Runtime:** Java 17 / Swing
+
+**Codename:** `AURELIA 2 — Extensible Runtime`
+
+KaylasUI Engine is a declarative Swing UI runtime with XML descriptors, inheritable styles, Lua scripting, and a catalog of basic and composite components.
+
+## AURELIA 2.2
+
+Version 2.2 introduces the **Extensible Component Runtime**:
+
+- engine-wide component configuration groups;
+- deep configuration composition before Swing object creation;
+- global, type, group/type, instance, and group/instance fragments;
+- runtime activation and deactivation of configuration groups;
+- structural extension of composite components through `childComponents`;
+- collection merge strategies: `replace`, `append`, `prepend`, and `unique_append`;
+- the generic built-in `tabs` composite;
+- Lua-driven tab selection, navigation, visibility, enablement, and transition events.
+
+`tabs` is not a settings-specific mechanism. It is an ordinary composite component and the first consumer of the general configuration-extension pipeline. The same mechanism can extend future menus, toolbars, accordions, forms, panels, and existing component types.
 
 ## AURELIA 2.1
 
-Версия 2.1 вводит **Component Constructor Runtime**:
+Version 2.1 introduced the **Component Constructor Runtime**:
 
-- единый `AbstractComponentDefinition` для всех записей каталога;
-- типы `BASIC` и `COMPOSITE`;
-- общую базу компонентов `ComponentCatalog`;
-- launcher-facing API `ComponentConstructor`;
-- reusable composite graphs из существующих компонентов;
-- изолированные prototypes и scoped runtime ids;
-- декларативные связи между дочерними компонентами;
-- targeted Lua listeners и directed signal routing;
-- автоматическое освобождение routes, Lua closures и component registry entries;
-- защита от неизвестных child types, alias collisions и рекурсивных graphs.
+- one `AbstractComponentDefinition` hierarchy for every catalog entry;
+- `BASIC` and `COMPOSITE` component kinds;
+- the shared `ComponentCatalog` registry;
+- the launcher-facing `ComponentConstructor` API;
+- reusable composite graphs assembled from existing components;
+- isolated prototypes and scoped runtime IDs;
+- declarative connections between child components;
+- targeted Lua listeners and directed signal routing;
+- automatic cleanup of routes, Lua closures, and component-registry entries;
+- validation for unknown child types, alias collisions, and recursive graphs.
 
-Общий абстрактный класс относится к **engine definitions**, а не к Swing instances. Это сохраняет корректное наследование `JButton`, `JSlider`, `JLabel`, `JTextField` и других Swing-классов.
+The common abstract class represents **engine definitions**, not Swing instances. Swing components therefore retain their correct inheritance from `JButton`, `JSlider`, `JLabel`, `JTextField`, and other framework classes.
 
-Документация:
+Documentation:
 
+- [Component Configuration Groups 2.2](docs/COMPONENT_CONFIG_GROUPS_2_2.md)
 - [Component Constructor Runtime 2.1](docs/component-constructor.md)
 - [Component Accessor Runtime](docs/component-accessor.md)
 - [Components Runtime 2.0](docs/components.md)
 
 ## Component Accessor Runtime
 
-`componentAccessor` предоставляет refreshable index для обычных и составных Swing-компонентов:
+`componentAccessor` provides a refreshable index for ordinary and composite Swing components:
 
 ```java
 ComponentsAccessor accessor = new ComponentsAccessor(
@@ -60,7 +78,7 @@ private Slider volumeSlider;
 
 Value adapters are extensible through `ComponentValueRegistry`, while snapshots and form maps are immutable.
 
-## Каталог компонентов
+## Component catalog
 
 ```java
 ComponentCatalog catalog = getGuiBuilder().getComponentCatalog();
@@ -72,9 +90,9 @@ AbstractComponentDefinition<? extends JComponent> definition =
         catalog.find("linked-status-control").orElseThrow();
 ```
 
-Встроенные `button`, `label`, `slider`, `textField` и другие атомарные реализации зарегистрированы как `BASIC`. `compositeSlider`, `fileSelector`, `compositeComponent` и launcher-defined graphs зарегистрированы как `COMPOSITE`.
+Built-in atomic implementations such as `button`, `label`, `slider`, and `textField` are registered as `BASIC`. `compositeSlider`, `fileSelector`, `compositeComponent`, `tabs`, and launcher-defined graphs are registered as `COMPOSITE`.
 
-## Создание базового типа
+## Creating a basic type
 
 ```java
 ComponentConstructor constructor = getGuiBuilder().getComponentConstructor();
@@ -95,7 +113,7 @@ ComponentDefinition<JButton> commandButton = constructor
 constructor.register(commandButton);
 ```
 
-## Создание составного типа
+## Creating a composite type
 
 ```java
 ComponentAttributes toggle = ComponentAttributes.builder("checkbox")
@@ -123,9 +141,9 @@ CompositeComponentDefinition linkedStatus = constructor
 constructor.register(linkedStatus);
 ```
 
-После регистрации новый тип используется так же, как встроенный:
+After registration, the new type is used exactly like a built-in component.
 
-Boolean-состояния в XML задаются пустыми маркерами. Отсутствующие `visible`, `enabled` и `opaque` означают `false`; для состояния активности используются взаимоисключающие `<enabled/>` и `<disabled/>`.
+Boolean state in XML is expressed with empty markers. Missing `visible`, `enabled`, and `opaque` markers resolve to `false`; enabled state uses the mutually exclusive `<enabled/>` and `<disabled/>` markers.
 
 ```xml
 <component
@@ -138,7 +156,7 @@ Boolean-состояния в XML задаются пустыми маркера
 </component>
 ```
 
-Runtime ids дочерних компонентов scoped по instance id:
+Child runtime IDs are scoped by the composite instance ID:
 
 ```text
 networkControl
@@ -146,9 +164,9 @@ networkControl.toggle
 networkControl.status
 ```
 
-## Lua-связи между компонентами
+## Lua connections between components
 
-Targeted listener целевого компонента:
+A targeted listener on the destination component:
 
 ```lua
 if event.name == "init" then
@@ -159,7 +177,7 @@ if event.name == "init" then
 end
 ```
 
-Динамическое соединение:
+A dynamic connection:
 
 ```lua
 local routeId = ui.connect(
@@ -171,7 +189,7 @@ local routeId = ui.connect(
 )
 ```
 
-Directed send:
+Directed delivery:
 
 ```lua
 ui.send("networkControl.status", "refresh", {
@@ -179,7 +197,7 @@ ui.send("networkControl.status", "refresh", {
 })
 ```
 
-Локальная адресация из дочернего компонента:
+Local addressing from a child component:
 
 ```lua
 component:connectLocal("change", "status", "valueChanged")
@@ -208,7 +226,7 @@ JComponent component = getGuiBuilder()
         .createComponent(attributes);
 ```
 
-## Наследование и композиция стилей
+## Style inheritance and composition
 
 ```json
 {
@@ -243,7 +261,7 @@ JComponent component = getGuiBuilder()
 </component>
 ```
 
-Приоритет:
+Precedence:
 
 ```text
 inherited parent styles
@@ -252,13 +270,13 @@ inherited parent styles
             -> component-specific descriptor fields
 ```
 
-## Сборка и проверка
+## Build and verification
 
 ```bash
 ./gradlew test componentRuntimeCheck componentAccessorCheck componentAccessorJavadoc smokeRun
 ```
 
-Для Windows:
+On Windows:
 
 ```powershell
 .\gradlew.bat test componentRuntimeCheck componentAccessorCheck componentAccessorJavadoc smokeRun

@@ -9,12 +9,12 @@ public class HearthstoneProgressBar extends JProgressBar {
     public HearthstoneProgressBar() {
         setMinimum(0);
         setMaximum(100);
-        setBorderPainted(false); // Отключаем стандартную обводку
-        setOpaque(false); // Делаем компонент прозрачным для кастомной отрисовки
+        setBorderPainted(false); // Disable the default Swing border.
+        setOpaque(false); // Keep the component transparent for custom painting.
     }
 
     /**
-     * Устанавливает значение прогресса (0.0...1.0).
+     * Sets the progress value in the inclusive range {@code 0.0..1.0}.
      */
     public void setProgress(double progress) {
         progress = Math.max(0.0, Math.min(1.0, progress));
@@ -22,7 +22,7 @@ public class HearthstoneProgressBar extends JProgressBar {
     }
 
     /**
-     * Возвращает текущее значение прогресса (0.0...1.0).
+     * Returns the current progress value in the inclusive range {@code 0.0..1.0}.
      */
     public double getProgress() {
         return (double) getValue() / 100.0;
@@ -37,11 +37,11 @@ public class HearthstoneProgressBar extends JProgressBar {
         int height = getHeight();
         int arc = 20;
 
-        // Фон
+        // Background.
         g2.setColor(new Color(40, 40, 40));
         g2.fillRoundRect(0, 0, width, height, arc, arc);
 
-        // Заливка с градиентом
+        // Gradient fill.
         int fillWidth = (int) (width * getProgress());
         if (fillWidth > 0) {
             GradientPaint gradient = new GradientPaint(0, 0, new Color(0, 200, 0), fillWidth, 0, new Color(255, 215, 0));
@@ -49,7 +49,7 @@ public class HearthstoneProgressBar extends JProgressBar {
             g2.fillRoundRect(0, 0, fillWidth, height, arc, arc);
         }
 
-        // Обводка
+        // Outline.
         g2.setColor(Color.BLACK);
         g2.setStroke(new BasicStroke(2));
         g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc);
