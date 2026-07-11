@@ -31,21 +31,54 @@ import java.io.StringWriter;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.time.LocalDateTime;
+import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Objects;
+import java.util.WeakHashMap;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CompletionStage;
 
 /**
  * Engine-level crash report UI.
  *
  * <p>Applications should pass a Throwable and optional runtime context. The engine handles report
- * formatting, auto-saving, clipboard export, manual save, and folder opening.</p>
+ * formatting, auto-saving, clipboard export, manual save, folder opening, and optional asynchronous
+ * delivery through an application-provided {@link CrashReportSendListener}.</p>
  */
 public final class CrashReportDialog {
     private static final DateTimeFormatter REPORT_FILE_TIME = DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss");
+    private static final Map<Engine, CrashReportSendListener> SEND_LISTENERS =
+            Collections.synchronizedMap(new WeakHashMap<>());
 
     private CrashReportDialog() {
+    }
+
+    /**
+     * Subscribes an application-specific asynchronous crash-report sender for one engine instance.
+     * Repeated registration replaces the previous sender for that engine.
+     *
+     * @param engine engine instance that owns the crash dialog
+     * @param listener asynchronous sender implemented by the application
+     * @return removable subscription
+     */
+    public static CrashReportSubscription subscribe(Engine engine, CrashReportSendListener listener) {
+        Objects.requireNonNull(engine, "engine");
+        Objects.requireNonNull(listener, "listener");
+        synchronized (SEND_LISTENERS) {
+            SEND_LISTENERS.put(engine, listener);
+        }
+        return () -> {
+            synchronized (SEND_LISTENERS) {
+                if (SEND_LISTENERS.get(engine) == listener) {
+                    SEND_LISTENERS.remove(engine);
+                }
+            }
+        };
     }
 
     public static void show(Engine engine, Throwable throwable, Map<String, String> context, Path reportDirectory) {
@@ -58,8 +91,18 @@ public final class CrashReportDialog {
     }
 
     private static void showOnEdt(Engine engine, Throwable throwable, Map<String, String> context, Path reportDirectory) {
-        String errorText = buildCrashReport(engine, throwable, context);
-        Path savedReport = saveCrashReport(reportDirectory, errorText);
+        Instant generatedAt = Instant.now();
+        String errorText = buildCrashReport(engine, throwable, context, generatedAt);
+        Path savedReport = saveCrashReport(reportDirectory, errorText, generatedAt);
+        CrashReportSubmission submission = new CrashReportSubmission(
+                errorText,
+                context,
+                savedReport,
+                applicationTitle(engine),
+                engineVersion(engine),
+                generatedAt
+        );
+        CrashReportSendListener sendListener = senderFor(engine);
 
         JTextArea textArea = new JTextArea(errorText);
         textArea.setEditable(false);
@@ -83,10 +126,16 @@ public final class CrashReportDialog {
         JLabel detailsLabel = new JLabel(reportLocationText(savedReport));
         detailsLabel.setForeground(new Color(190, 180, 205));
 
+        JLabel sendStatusLabel = new JLabel(sendListener == null
+                ? "Automatic report delivery is not configured."
+                : "You can send this report to the application server.");
+        sendStatusLabel.setForeground(new Color(164, 153, 181));
+
         JPanel titleTextPanel = new JPanel(new GridLayout(0, 1, 0, 3));
         titleTextPanel.setOpaque(false);
         titleTextPanel.add(titleLabel);
         titleTextPanel.add(detailsLabel);
+        titleTextPanel.add(sendStatusLabel);
 
         JPanel headerPanel = new JPanel(new BorderLayout(12, 0));
         headerPanel.setOpaque(false);
@@ -95,6 +144,18 @@ public final class CrashReportDialog {
             headerPanel.add(new JLabel(bugIcon), BorderLayout.WEST);
         }
         headerPanel.add(titleTextPanel, BorderLayout.CENTER);
+
+        JButton sendButton = new JButton("Send Report");
+        sendButton.setEnabled(sendListener != null);
+        if (sendListener == null) {
+            sendButton.setToolTipText("The application did not register a crash-report sender.");
+        }
+        sendButton.addActionListener(event -> sendCrashReport(
+                sendButton,
+                sendStatusLabel,
+                sendListener,
+                submission
+        ));
 
         JButton copyButton = new JButton("Copy");
         copyButton.addActionListener(event -> copyCrashReport(engine, errorText));
@@ -110,6 +171,7 @@ public final class CrashReportDialog {
 
         JPanel buttonPanel = new JPanel(new FlowLayout(FlowLayout.RIGHT, 8, 0));
         buttonPanel.setOpaque(false);
+        buttonPanel.add(sendButton);
         buttonPanel.add(copyButton);
         buttonPanel.add(saveButton);
         buttonPanel.add(openFolderButton);
@@ -132,11 +194,82 @@ public final class CrashReportDialog {
         dialog.setVisible(true);
     }
 
-    private static String buildCrashReport(Engine engine, Throwable throwable, Map<String, String> context) {
+    private static CrashReportSendListener senderFor(Engine engine) {
+        if (engine == null) {
+            return null;
+        }
+        synchronized (SEND_LISTENERS) {
+            return SEND_LISTENERS.get(engine);
+        }
+    }
+
+    private static void sendCrashReport(JButton sendButton,
+                                        JLabel statusLabel,
+                                        CrashReportSendListener listener,
+                                        CrashReportSubmission submission) {
+        if (listener == null) {
+            return;
+        }
+        sendButton.setEnabled(false);
+        sendButton.setText("Sending...");
+        statusLabel.setForeground(new Color(239, 184, 90));
+        statusLabel.setText("Sending crash report...");
+
+        CompletionStage<CrashReportSendResult> stage;
+        try {
+            stage = listener.sendCrashReport(submission);
+        } catch (Throwable error) {
+            completeSend(sendButton, statusLabel, null, error);
+            return;
+        }
+        if (stage == null) {
+            completeSend(
+                    sendButton,
+                    statusLabel,
+                    null,
+                    new IllegalStateException("Crash-report sender returned no completion stage.")
+            );
+            return;
+        }
+        stage.whenComplete((result, error) -> SwingUtilities.invokeLater(
+                () -> completeSend(sendButton, statusLabel, result, error)
+        ));
+    }
+
+    private static void completeSend(JButton sendButton,
+                                     JLabel statusLabel,
+                                     CrashReportSendResult result,
+                                     Throwable error) {
+        if (error == null) {
+            String reportId = result == null ? "" : result.reportId();
+            String message = result == null ? "Crash report sent." : result.message();
+            sendButton.setText("Sent");
+            sendButton.setEnabled(false);
+            statusLabel.setForeground(new Color(79, 180, 119));
+            statusLabel.setText(reportId.isBlank() ? message : message + " Reference: " + reportId);
+            return;
+        }
+
+        Throwable cause = error instanceof CompletionException && error.getCause() != null
+                ? error.getCause()
+                : error;
+        String message = cause.getMessage() == null || cause.getMessage().isBlank()
+                ? cause.getClass().getSimpleName()
+                : cause.getMessage();
+        sendButton.setText("Send Report");
+        sendButton.setEnabled(true);
+        statusLabel.setForeground(new Color(218, 49, 86));
+        statusLabel.setText("Failed to send report: " + message);
+    }
+
+    private static String buildCrashReport(Engine engine,
+                                           Throwable throwable,
+                                           Map<String, String> context,
+                                           Instant generatedAt) {
         StringBuilder report = new StringBuilder();
         report.append("Crash Report\n");
         report.append("============\n");
-        report.append("Date: ").append(LocalDateTime.now()).append("\n");
+        report.append("Date: ").append(generatedAt).append("\n");
         report.append("OS: ").append(System.getProperty("os.name")).append(' ')
                 .append(System.getProperty("os.version")).append("\n");
         report.append("Java: ").append(System.getProperty("java.version")).append("\n");
@@ -160,11 +293,15 @@ public final class CrashReportDialog {
         return report.toString();
     }
 
-    private static Path saveCrashReport(Path reportDirectory, String errorText) {
+    private static Path saveCrashReport(Path reportDirectory, String errorText, Instant generatedAt) {
         Path directory = reportDirectory == null ? Path.of("crash-reports") : reportDirectory;
         try {
             Files.createDirectories(directory);
-            String timestamp = LocalDateTime.now().format(REPORT_FILE_TIME);
+            LocalDateTime localTime = LocalDateTime.ofInstant(
+                    generatedAt == null ? Instant.now() : generatedAt,
+                    ZoneId.systemDefault()
+            );
+            String timestamp = localTime.format(REPORT_FILE_TIME);
             Path reportPath = directory.resolve("crash-" + timestamp + ".log");
             Files.writeString(reportPath, errorText, StandardCharsets.UTF_8);
             Engine.LOGGER.error("Crash report saved to {}", reportPath.toAbsolutePath());

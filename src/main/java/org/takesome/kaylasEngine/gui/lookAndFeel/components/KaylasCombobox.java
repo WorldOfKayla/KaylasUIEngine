@@ -7,8 +7,11 @@ import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.KeyStroke;
 import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.RenderingHints;
 import java.awt.event.ActionEvent;
 import java.awt.event.KeyEvent;
+import java.awt.geom.RoundRectangle2D;
 
 /** Look and Feel enhanced engine combobox with keyboard selection. */
 public class KaylasCombobox extends Combobox {
@@ -74,7 +77,29 @@ public class KaylasCombobox extends Combobox {
 
     @Override
     protected void paintComponent(Graphics graphics) {
-        super.paintComponent(graphics);
+        Graphics2D clippedGraphics = (Graphics2D) graphics.create();
+        try {
+            clippedGraphics.setRenderingHint(
+                    RenderingHints.KEY_ANTIALIASING,
+                    RenderingHints.VALUE_ANTIALIAS_ON
+            );
+            int width = getWidth();
+            int height = getHeight();
+            if (width > 0 && height > 0) {
+                int arc = Math.max(2, KaylasComponentSupport.theme().arc() * 2);
+                clippedGraphics.clip(new RoundRectangle2D.Float(
+                        0,
+                        0,
+                        width,
+                        height,
+                        arc,
+                        arc
+                ));
+            }
+            super.paintComponent(clippedGraphics);
+        } finally {
+            clippedGraphics.dispose();
+        }
         KaylasComponentSupport.paintFocusRing(this, graphics, 1);
     }
 }
