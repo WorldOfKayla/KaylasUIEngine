@@ -9,6 +9,7 @@ import org.takesome.kaylasEngine.gui.components.constructor.CompositeComponentDe
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
 import org.takesome.kaylasEngine.gui.components.tabs.TabDefinition;
 import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
+import org.takesome.kaylasEngine.gui.components.textArea.TextAreaColorVerification;
 import org.takesome.kaylasEngine.gui.config.ComponentConfigGroupRegistry;
 import org.takesome.kaylasEngine.gui.config.ComponentConfigResolver;
 import org.takesome.kaylasEngine.gui.config.DeepConfigMerger;
@@ -35,6 +36,7 @@ public final class ComponentRuntimeVerification {
         Engine.LOGGER = LogManager.getLogger(ComponentRuntimeVerification.class);
 
         verifyXmlDescriptorPolicy();
+        TextAreaColorVerification.verify();
         verifySelectionModes();
         verifyStyleComposition();
         verifyDescriptors();
@@ -116,6 +118,23 @@ public final class ComponentRuntimeVerification {
         require(groupedDescriptor.getChildComponents().get(0).getConfigGroups()
                         .equals(List.of("settings", "compact")),
                 "XML component groups were not parsed in declaration order");
+
+        Attributes textAreaDescriptor = parseXml(loader, """
+                <ui>
+                    <childComponents>
+                        <component type="textArea" id="description" color="#7e7d7c">
+                            <visible/>
+                            <disabled/>
+                            <bounds x="0" y="0" width="120" height="40"/>
+                        </component>
+                    </childComponents>
+                </ui>
+                """);
+        ComponentAttributes textArea = textAreaDescriptor.getChildComponents().get(0);
+        require("#7e7d7c".equals(textArea.getColor()),
+                "textArea color attribute was not retained by the XML descriptor");
+        require(!textArea.isEnabled(),
+                "disabled textArea regression descriptor did not preserve disabled state");
 
         ComponentAttributes active = markerComponents.get(0);
         require(active.isVisible() && active.isEnabled() && active.isOpaque(),

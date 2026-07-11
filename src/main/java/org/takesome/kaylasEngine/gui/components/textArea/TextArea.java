@@ -2,7 +2,8 @@ package org.takesome.kaylasEngine.gui.components.textArea;
 
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 
-import javax.swing.*;
+import javax.swing.JTextArea;
+import javax.swing.KeyStroke;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 
@@ -37,6 +38,24 @@ public class TextArea extends JTextArea {
 
     }
 
+
+    /**
+     * Applies one semantic text color to both normal and disabled Swing rendering states.
+     *
+     * <p>{@link JTextArea} uses {@code disabledTextColor} instead of {@code foreground} when the
+     * component is disabled. Keeping both values synchronized ensures that declarative
+     * {@code color} attributes remain visible for read-only disabled text areas.</p>
+     *
+     * @param color resolved text color.
+     */
+    public void setTextColor(Color color) {
+        applyTextColor(this, color);
+    }
+
+    static void applyTextColor(JTextArea textArea, Color color) {
+        textArea.setForeground(color);
+        textArea.setDisabledTextColor(color);
+    }
 
     private void disableTextSelection() {
         setFocusable(false);

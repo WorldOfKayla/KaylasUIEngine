@@ -152,7 +152,7 @@ final class BuiltInComponentCreators {
         textArea.setLineWrap(attributes.isLineWrap());
         new AreaStyle(factory).apply(textArea);
         textArea.setText(localizedTextWithInitial(attributes));
-        textArea.setForeground(hexToColor(valueOr(attributes.getColor(), factory.getStyle().getColor())));
+        textArea.setTextColor(hexToColor(valueOr(attributes.getColor(), factory.getStyle().getColor())));
         textArea.setEditable(attributes.isEditable());
         textArea.setFont(engine.getFONTUTILS().getFont(
                 valueOr(attributes.getFont(), factory.getStyle().getFont()),

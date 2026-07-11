@@ -20,6 +20,6 @@ public class AreaStyle {
 	}
 
 	public void apply(TextArea textArea) {
-		textArea.setForeground(activeColor);
+		textArea.setTextColor(activeColor);
 	}
 }
