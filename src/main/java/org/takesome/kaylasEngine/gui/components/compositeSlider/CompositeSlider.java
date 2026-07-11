@@ -9,6 +9,9 @@ import org.takesome.kaylasEngine.gui.components.label.LabelStyle;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
 import org.takesome.kaylasEngine.gui.components.slider.TexturedSliderUI;
 import org.takesome.kaylasEngine.gui.components.spinner.Spinner;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasLabel;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasSlider;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasSpinner;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.utils.RamRangeCalculator;
 
@@ -61,15 +64,15 @@ public class CompositeSlider extends CompositeComponent {
         resolvedSliderStyle = componentFactory.getEngine().getStyleProvider()
                 .getStyle("slider", styleName("slider"));
 
-        label = componentFactory.withStyle(resolvedLabelStyle, () -> new Label(componentFactory));
+        label = componentFactory.withStyle(resolvedLabelStyle, () -> new KaylasLabel(componentFactory));
         label.setName(childName("Label"));
         configureLabel();
 
-        slider = componentFactory.withStyle(resolvedSliderStyle, () -> new Slider(componentFactory));
+        slider = componentFactory.withStyle(resolvedSliderStyle, () -> new KaylasSlider(componentFactory));
         slider.setName(childName("Slider"));
         configureSlider(range);
 
-        spinner = new Spinner(range.initialValue(), range.minValue(), range.maxValue(), spinnerStep(range));
+        spinner = new KaylasSpinner(range.initialValue(), range.minValue(), range.maxValue(), spinnerStep(range));
         if (isRamComponent()) {
             spinner.setModel(new SpinnerListModel(selectableValues));
             spinner.setValue(range.initialValue());
@@ -147,7 +150,7 @@ public class CompositeSlider extends CompositeComponent {
         for (int value : values) {
             Label tickLabel = componentFactory.withStyle(
                     resolvedLabelStyle,
-                    () -> new Label(componentFactory)
+                    () -> new KaylasLabel(componentFactory)
             );
             tickLabel.setName(childName("Tick" + value));
             tickLabel.setText(String.valueOf(value));

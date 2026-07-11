@@ -181,6 +181,33 @@ tasks.register('animationPublicJavadoc', Javadoc) {
     failOnError = true
 }
 
+tasks.register('lookAndFeelRuntimeCheck', JavaExec) {
+    group = 'verification'
+    description = 'Verifies Kaylas Look & Feel themes, defaults, enhanced components and encapsulation.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.takesome.kaylasEngine.gui.lookAndFeel.KaylasLookAndFeelVerification'
+    systemProperty 'java.awt.headless', 'true'
+}
+
+tasks.register('lookAndFeelPublicJavadoc', Javadoc) {
+    group = 'documentation'
+    description = 'Generates and validates JavaDoc for the public Kaylas Look & Feel API.'
+    dependsOn tasks.named('classes')
+    source = fileTree('src/main/java/org/takesome/kaylasEngine/gui/lookAndFeel') {
+        include '*.java'
+        include 'theme/*.java'
+        include 'components/Kaylas*.java'
+        exclude 'components/KaylasComponentSupport.java'
+    }
+    classpath = sourceSets.main.output + sourceSets.main.compileClasspath
+    destinationDir = layout.buildDirectory.dir('docs/look-and-feel-javadoc').get().asFile
+    failOnError = true
+    options.encoding = 'UTF-8'
+    options.charSet = 'UTF-8'
+    options.docEncoding = 'UTF-8'
+}
+
 tasks.register('componentAccessorJavadoc', Javadoc) {
     group = 'documentation'
     description = 'Generates and validates JavaDoc for the componentAccessor public API.'
@@ -204,6 +231,8 @@ tasks.named('check') {
     dependsOn tasks.named('loadingUiConfigCheck')
     dependsOn tasks.named('animationRuntimeCheck')
     dependsOn tasks.named('animationPublicJavadoc')
+    dependsOn tasks.named('lookAndFeelRuntimeCheck')
+    dependsOn tasks.named('lookAndFeelPublicJavadoc')
 }
 
 dependencies {

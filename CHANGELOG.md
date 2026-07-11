@@ -13,6 +13,17 @@
 - Moved progress-loop resources and execution behind `ProgressBarAnimator` while preserving its subclass hook and options API.
 - Moved snapshot drawer capture, geometry, placement state, and transition execution behind `SnapshotDrawerAnimator`.
 
+### Kaylas Look and Feel
+
+- Added `KaylasLookAndFeel`, an engine-owned FlatLaf derivative with runtime theme installation.
+- Added the immutable `KaylasTheme` palette and metric contract and the built-in `KINETICA Dark` theme.
+- Added consistent defaults for standard Swing buttons, text components, combo boxes, spinners, sliders, scrollbars, progress bars, tabs, menus and tooltips.
+- Added enhanced `KaylasButton`, `KaylasCheckbox`, `KaylasTextField`, `KaylasTextArea`, `KaylasPassField`, `KaylasSlider`, `KaylasSpinner`, `KaylasLabel`, `KaylasMultiButton` and `KaylasCombobox` components.
+- Switched canonical XML component types to the enhanced subclasses while preserving all base-class APIs.
+- Added focus-ring painting, keyboard focus, combobox keyboard selection, disabled text consistency and semantic client metadata.
+- Updated `CompositeSlider` and `FileSelector` to use the same enhanced component set internally.
+- Added Look and Feel runtime verification and public API JavaDoc validation.
+
 ### Encapsulation and verification
 
 - Reorganized `componentAccessor` into binding, indexing, source, state, support, and value responsibility zones.

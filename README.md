@@ -23,6 +23,23 @@ Version 2.3 introduces the **Modular Animation Runtime**:
 
 Public launcher integrations remain source-compatible while engine execution details are no longer exposed as part of the supported API.
 
+### Kaylas Look and Feel
+
+KINETICA now installs an engine-owned Look and Feel instead of exposing the raw FlatLaf theme directly:
+
+- `KaylasTheme` is the immutable palette and metric contract;
+- `KaylasLookAndFeel` applies the theme to standard Swing controls, dialogs, popups, editors, tabs and scrollbars;
+- canonical XML types create enhanced `Kaylas*` components derived from the existing engine controls;
+- button, checkbox, text-input, slider, spinner and combobox behavior remains compatible with existing listeners, Lua bindings and value adapters;
+- enhanced controls add keyboard focus, focus-ring painting, disabled text consistency and semantic client metadata;
+- composite slider and file selector children use the same enhanced component set.
+
+```java
+KaylasLookAndFeel.install(KaylasThemes.kineticaDark());
+```
+
+The public base classes remain valid. For example, a component created as `type="button"` is still a `Button`, while its concrete runtime class is `KaylasButton`.
+
 ## AURELIA 2.2
 
 Version 2.2 introduces the **Extensible Component Runtime**:

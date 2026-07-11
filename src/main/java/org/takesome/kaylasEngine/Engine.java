@@ -1,6 +1,6 @@
 package org.takesome.kaylasEngine;
 
-import com.formdev.flatlaf.FlatIntelliJLaf;
+import org.takesome.kaylasEngine.gui.lookAndFeel.KaylasLookAndFeel;
 import com.google.gson.Gson;
 import org.apache.logging.log4j.Level;
 import org.apache.logging.log4j.LogManager;
@@ -211,7 +211,9 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         requestClient = new RequestClient(this);
 
         this.imageUtils = new ImageUtils();
-        FlatIntelliJLaf.setup();
+        if (!KaylasLookAndFeel.setup()) {
+            throw new IllegalStateException("Unable to install Kaylas Look & Feel");
+        }
 
         //Basic Components Initialisation
         this.LANG = new LanguageProvider(this, fileProperties.getLocaleFile(), 0);

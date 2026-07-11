@@ -8,6 +8,8 @@ import org.takesome.kaylasEngine.gui.components.button.Button;
 import org.takesome.kaylasEngine.gui.components.button.ButtonStyle;
 import org.takesome.kaylasEngine.gui.components.textfield.TextField;
 import org.takesome.kaylasEngine.gui.components.textfield.TextFieldStyle;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasButton;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasTextField;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 
 import javax.swing.JFileChooser;
@@ -72,7 +74,7 @@ public class FileSelector extends CompositeComponent {
     private TextField createTextField(String styleName) {
         StyleAttributes style = componentFactory.getEngine().getStyleProvider().getStyle("textField", styleName);
         return componentFactory.withStyle(style, () -> {
-            TextField textField = new TextField(componentFactory);
+            TextField textField = new KaylasTextField(componentFactory);
             new TextFieldStyle(componentFactory).apply(textField);
             textField.setName(childName("Text"));
             textField.setOpaque(false);
@@ -85,7 +87,7 @@ public class FileSelector extends CompositeComponent {
     private Button createBrowseButton(String styleName) {
         StyleAttributes style = componentFactory.getEngine().getStyleProvider().getStyle("button", styleName);
         return componentFactory.withStyle(style, () -> {
-            Button button = new Button(
+            Button button = new KaylasButton(
                     componentFactory,
                     componentFactory.getIconUtils().getIcon(attributes),
                     ""

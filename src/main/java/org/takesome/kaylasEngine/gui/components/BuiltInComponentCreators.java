@@ -27,6 +27,16 @@ import org.takesome.kaylasEngine.gui.components.textArea.AreaStyle;
 import org.takesome.kaylasEngine.gui.components.textArea.TextArea;
 import org.takesome.kaylasEngine.gui.components.textfield.TextField;
 import org.takesome.kaylasEngine.gui.components.textfield.TextFieldStyle;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasButton;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasCheckbox;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasCombobox;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasLabel;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasMultiButton;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasPassField;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasSlider;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasSpinner;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasTextArea;
+import org.takesome.kaylasEngine.gui.lookAndFeel.components.KaylasTextField;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.takesome.kaylasEngine.utils.IconUtils;
 
@@ -88,7 +98,7 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createLabel(ComponentAttributes attributes) {
-        Label label = new Label(factory);
+        Label label = new KaylasLabel(factory);
         new LabelStyle(factory).apply(label);
         label.setIcon(iconUtils.getIcon(attributes));
         label.setText(localizedTextWithInitial(attributes));
@@ -110,8 +120,8 @@ final class BuiltInComponentCreators {
     private JComponent createButton(ComponentAttributes attributes) {
         String text = localizedText(attributes.getLocaleKey());
         Button button = attributes.getImageIcon() == null
-                ? new Button(factory, text)
-                : new Button(factory, iconUtils.getIcon(attributes), text);
+                ? new KaylasButton(factory, text)
+                : new KaylasButton(factory, iconUtils.getIcon(attributes), text);
         new ButtonStyle(factory).apply(button);
         button.setActionCommand(attributes.getComponentId());
         button.addActionListener(engine);
@@ -148,7 +158,7 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createTextArea(ComponentAttributes attributes) {
-        TextArea textArea = new TextArea(factory);
+        TextArea textArea = new KaylasTextArea(factory);
         textArea.setLineWrap(attributes.isLineWrap());
         new AreaStyle(factory).apply(textArea);
         textArea.setText(localizedTextWithInitial(attributes));
@@ -163,7 +173,7 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createCheckbox(ComponentAttributes attributes) {
-        Checkbox checkbox = new Checkbox(factory, localizedText(attributes.getLocaleKey()));
+        Checkbox checkbox = new KaylasCheckbox(factory, localizedText(attributes.getLocaleKey()));
         new CheckboxStyle(factory).apply(checkbox);
         checkbox.setSelected(Boolean.parseBoolean(String.valueOf(attributes.getInitialValue())));
         installCheckboxShortcut(checkbox, attributes);
@@ -198,7 +208,7 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createTextField(ComponentAttributes attributes) {
-        TextField textField = new TextField(factory);
+        TextField textField = new KaylasTextField(factory);
         new TextFieldStyle(factory).apply(textField);
         if (attributes.getInitialValue() != null) {
             textField.setText(String.valueOf(attributes.getInitialValue()));
@@ -214,7 +224,7 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createPassField(ComponentAttributes attributes) {
-        PassField passField = new PassField(factory, localizedText(attributes.getLocaleKey()));
+        PassField passField = new KaylasPassField(factory, localizedText(attributes.getLocaleKey()));
         new PassFieldStyle(factory).apply(passField);
         passField.setFont(engine.getFONTUTILS().getFont(
                 valueOr(attributes.getFont(), factory.getStyle().getFont()),
@@ -236,7 +246,7 @@ final class BuiltInComponentCreators {
         int step = attributes.getStepSize() > 0
                 ? attributes.getStepSize()
                 : Math.max(1, attributes.getMajorSpacing());
-        Spinner spinner = new Spinner(initial, minimum, maximum, step);
+        Spinner spinner = new KaylasSpinner(initial, minimum, maximum, step);
         if (spinner.getSpinnerListener() != null) {
             spinner.init();
         }
@@ -244,7 +254,7 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createMultiButton(ComponentAttributes attributes) {
-        MultiButton multiButton = new MultiButton(factory);
+        MultiButton multiButton = new KaylasMultiButton(factory);
         new MultiButtonStyle(factory, attributes).apply(multiButton);
         multiButton.setActionCommand(attributes.getComponentId());
         multiButton.addActionListener(engine);
@@ -252,13 +262,13 @@ final class BuiltInComponentCreators {
     }
 
     private JComponent createCombobox(ComponentAttributes attributes) {
-        Combobox combobox = new Combobox(factory, attributes.getBounds().y);
+        Combobox combobox = new KaylasCombobox(factory, attributes.getBounds().y);
         new ComboboxStyle(factory).apply(combobox);
         return combobox;
     }
 
     private JComponent createSlider(ComponentAttributes attributes) {
-        Slider slider = new Slider(factory);
+        Slider slider = new KaylasSlider(factory);
         int minimum = attributes.getMinValue();
         int maximum = attributes.getMaxValue() > minimum ? attributes.getMaxValue() : minimum + 100;
         int initial = Math.max(
