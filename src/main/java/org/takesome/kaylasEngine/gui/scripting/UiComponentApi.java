@@ -7,6 +7,7 @@ import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.constructor.ConstructedCompositeComponent;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyle;
+import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
 import org.takesome.kaylasEngine.utils.FontUtils;
 import org.takesome.kaylasEngine.gui.components.slider.Slider;
 
@@ -112,6 +113,30 @@ public final class UiComponentApi {
         lua.set("findLocal", function(this::luaFindLocal));
         lua.set("getScopeId", function(args -> value(scopeId())));
         lua.set("getLocalId", function(args -> value(localId())));
+
+        if (component instanceof Tabs tabs) {
+            lua.set("getSelectedTab", function(args -> value(tabs.getSelectedTabId())));
+            lua.set("getSelectedIndex", function(args -> LuaValue.valueOf(tabs.getSelectedIndex())));
+            lua.set("getTabCount", function(args -> LuaValue.valueOf(tabs.getTabCount())));
+            lua.set("getTabIds", function(args -> toLuaValue(tabs.getTabIds())));
+            lua.set("select", function(args -> LuaValue.valueOf(
+                    tabs.selectTab(stringArg(args, 1, ""), "lua")
+            )));
+            lua.set("next", function(args -> LuaValue.valueOf(tabs.next())));
+            lua.set("previous", function(args -> LuaValue.valueOf(tabs.previous())));
+            lua.set("setTabEnabled", function(args -> LuaValue.valueOf(
+                    tabs.setTabEnabled(
+                            stringArg(args, 1, ""),
+                            booleanArg(args, 2, true)
+                    )
+            )));
+            lua.set("setTabVisible", function(args -> LuaValue.valueOf(
+                    tabs.setTabVisible(
+                            stringArg(args, 1, ""),
+                            booleanArg(args, 2, true)
+                    )
+            )));
+        }
 
         if (component instanceof ProgressBar progressBar) {
             lua.set("getStyle", function(args -> value(progressBar.getStyleName())));
@@ -246,6 +271,9 @@ public final class UiComponentApi {
     }
 
     public LuaValue getValue() {
+        if (component instanceof Tabs tabs) {
+            return value(tabs.getSelectedTabId());
+        }
         if (component instanceof ProgressBar progressBar) {
             return LuaValue.valueOf(progressBar.getValue());
         }
@@ -272,7 +300,9 @@ public final class UiComponentApi {
 
     public void setValue(LuaValue value) {
         runOnEdt(() -> {
-            if (component instanceof ProgressBar progressBar) {
+            if (component instanceof Tabs tabs) {
+                tabs.selectTab(value.isnil() ? "" : value.tojstring(), "value");
+            } else if (component instanceof ProgressBar progressBar) {
                 progressBar.setValue(value.toint());
             } else if (component instanceof AbstractButton button) {
                 button.setSelected(value.toboolean());

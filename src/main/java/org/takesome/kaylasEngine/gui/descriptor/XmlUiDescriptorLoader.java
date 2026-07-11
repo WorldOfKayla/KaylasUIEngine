@@ -166,6 +166,9 @@ public final class XmlUiDescriptorLoader {
         setField(component, "visible", false);
         setField(component, "opaque", false);
         populateAttributes(componentElement, component);
+        if (componentElement.hasAttribute("groups")) {
+            setField(component, "configGroups", splitList(componentElement.getAttribute("groups")));
+        }
         populateBooleanMarkers(componentElement, component);
 
         Element boundsElement = firstDirectChild(componentElement, "bounds");

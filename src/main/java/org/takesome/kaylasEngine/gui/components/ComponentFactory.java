@@ -15,6 +15,12 @@ import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
+import org.takesome.kaylasEngine.gui.components.tabs.TabChangeEvent;
+import org.takesome.kaylasEngine.gui.components.tabs.TabChangeListener;
+import org.takesome.kaylasEngine.gui.components.tabs.TabDefinition;
+import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigGroupRegistry;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigResolver;
 import org.takesome.kaylasEngine.gui.components.label.Label;
 import org.takesome.kaylasEngine.gui.components.label.LabelStyle;
 import org.takesome.kaylasEngine.gui.components.multiButton.MultiButton;
@@ -41,6 +47,7 @@ import org.takesome.kaylasEngine.utils.IconUtils;
 import javax.swing.AbstractAction;
 import javax.swing.JComponent;
 import javax.swing.KeyStroke;
+import javax.swing.Icon;
 import javax.swing.SwingUtilities;
 import java.awt.Cursor;
 import java.awt.Rectangle;
@@ -81,6 +88,8 @@ public class ComponentFactory extends JComponent {
     private final LuaUiScriptEngine luaUiScriptEngine;
     private final Map<String, TooltipAttributes> tooltipCache = new ConcurrentHashMap<>();
     private final ComponentCatalog componentCatalog = new ComponentCatalog();
+    private final ComponentConfigGroupRegistry configGroupRegistry = new ComponentConfigGroupRegistry();
+    private final ComponentConfigResolver componentConfigResolver = new ComponentConfigResolver(configGroupRegistry);
     private final ComponentConstructor componentConstructor;
     private final Map<String, Function<ComponentAttributes, JComponent>> legacyRegistry = new ConcurrentHashMap<>();
     private final ThreadLocal<Deque<ComponentCreationContext>> creationStack =
@@ -118,6 +127,7 @@ public class ComponentFactory extends JComponent {
         registerComponent("compositeSlider", ComponentKind.COMPOSITE, this::createCompositeSlider);
         registerComponent("fileSelector", ComponentKind.COMPOSITE, this::createFileSelector);
         registerComponent("compositeComponent", ComponentKind.COMPOSITE, this::createCompositeComponent);
+        registerComponent("tabs", ComponentKind.COMPOSITE, this::createTabs);
 
         registerAlias("checkbox", "checkBox");
         registerAlias("check-box", "checkBox");
@@ -131,6 +141,8 @@ public class ComponentFactory extends JComponent {
         registerAlias("dropdown", "dropBox");
         registerAlias("select", "combobox");
         registerAlias("composite", "compositeComponent");
+        registerAlias("tabbedPane", "tabs");
+        registerAlias("tabbed-pane", "tabs");
     }
 
     /** Compatibility registration API. New integrations should prefer {@link #registerDefinition}. */
@@ -196,30 +208,31 @@ public class ComponentFactory extends JComponent {
 
     public JComponent createComponent(ComponentAttributes attributes) {
         Objects.requireNonNull(attributes, "attributes");
-        attributes.validateForCreation();
+        ComponentAttributes resolvedAttributes = componentConfigResolver.resolve(attributes);
+        resolvedAttributes.validateForCreation();
 
         AbstractComponentDefinition<? extends JComponent> definition =
-                findComponentDefinition(attributes.getComponentType())
+                findComponentDefinition(resolvedAttributes.getComponentType())
                 .orElseThrow(() -> new IllegalArgumentException(
-                        "Unsupported component type: " + attributes.getComponentType()
+                        "Unsupported component type: " + resolvedAttributes.getComponentType()
                                 + ". Registered types: " + getRegisteredComponentTypes()
                 ));
 
-        List<String> styleChain = attributes.getStyleChain();
+        List<String> styleChain = resolvedAttributes.getStyleChain();
         if (styleChain.isEmpty() && definition.defaultStyle() != null) {
             styleChain = List.of(definition.defaultStyle());
         }
         StyleAttributes resolvedStyle = engine.getStyleProvider().resolveStyle(
                 definition.type(),
                 styleChain,
-                attributes.getStyleOverrides()
+                resolvedAttributes.getStyleOverrides()
         );
         ComponentCreationContext context = new ComponentCreationContext(
                 this,
                 definition,
-                attributes,
+                resolvedAttributes,
                 resolvedStyle,
-                attributes.getBounds(),
+                resolvedAttributes.getBounds(),
                 styleChain
         );
 
@@ -233,11 +246,11 @@ public class ComponentFactory extends JComponent {
             );
         }
         stack.push(context);
-        lastComponentAttribute = attributes;
+        lastComponentAttribute = resolvedAttributes;
         try {
             ComponentFactoryListener listener = componentFactoryListener;
             if (listener != null) {
-                listener.onComponentCreation(attributes);
+                listener.onComponentCreation(resolvedAttributes);
             }
             JComponent component = definition.create(context);
             applyCommonAttributes(component, context);
@@ -274,6 +287,78 @@ public class ComponentFactory extends JComponent {
             SwingUtilities.invokeLater(creation);
         }
         return future;
+    }
+
+    public JComponent createTabs(ComponentAttributes attributes) {
+        String placement = stringProperty(
+                attributes,
+                "tabs.placement",
+                valueOr(attributes.getOrientation(), Tabs.PLACEMENT_TOP)
+        );
+        int gap = intProperty(attributes, "tabs.gap", 4);
+        Tabs tabs = new Tabs(placement, gap);
+
+        for (ComponentAttributes childPrototype : attributes.getChildComponents()) {
+            if (childPrototype == null) {
+                continue;
+            }
+            ComponentAttributes child = childPrototype.copy();
+            if (child.getConfigGroups().isEmpty()) {
+                child.setConfigGroups(attributes.getConfigGroups());
+            }
+
+            JComponent content = createComponent(child);
+            String tabId = stringProperty(child, "tab.id", child.getComponentId());
+            if (tabId == null || tabId.isBlank()) {
+                tabId = "tab-" + tabs.getTabCount();
+            }
+            String titleKey = stringProperty(child, "tab.titleKey", child.getLocaleKey());
+            String title = stringProperty(child, "tab.title", "");
+            if (title.isBlank() && titleKey != null && !titleKey.isBlank()) {
+                title = langProvider.getString(titleKey);
+            }
+            if (title.isBlank()) {
+                title = tabId;
+            }
+
+            Icon icon = iconUtils.getIcon(child);
+            boolean enabled = booleanProperty(child, "tab.enabled", true);
+            boolean visible = booleanProperty(child, "tab.visible", true);
+            tabs.addTab(new TabDefinition(tabId, title, icon, enabled, visible), content);
+        }
+
+        String selected = stringProperty(attributes, "tabs.selected", "");
+        if (selected.isBlank() && attributes.getInitialValue() != null) {
+            selected = String.valueOf(attributes.getInitialValue());
+        }
+        if (!selected.isBlank()) {
+            tabs.selectTab(selected, "configuration");
+        } else if (attributes.getSelectedIndex() >= 0
+                && attributes.getSelectedIndex() < tabs.getTabIds().size()) {
+            tabs.selectTab(tabs.getTabIds().get(attributes.getSelectedIndex()), "configuration");
+        }
+
+        tabs.addTabChangeListener(new TabChangeListener() {
+            @Override
+            public void tabChanging(TabChangeEvent event) {
+                luaUiScriptEngine.emitComponentEvent("tabChanging", tabs, event, tabPayload(event));
+            }
+
+            @Override
+            public void tabChanged(TabChangeEvent event) {
+                luaUiScriptEngine.emitComponentEvent("tabChanged", tabs, event, tabPayload(event));
+            }
+        });
+        return tabs;
+    }
+
+    private Map<String, Object> tabPayload(TabChangeEvent event) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("previousTabId", event.previousTabId());
+        payload.put("tabId", event.tabId());
+        payload.put("index", event.index());
+        payload.put("source", event.source());
+        return payload;
     }
 
     public JComponent createCompositeComponent(ComponentAttributes attributes) {
@@ -655,6 +740,32 @@ public class ComponentFactory extends JComponent {
         }
     }
 
+    private String stringProperty(ComponentAttributes attributes, String key, String fallback) {
+        Object value = attributes.getProperties().get(key);
+        if (value == null) {
+            return fallback == null ? "" : fallback;
+        }
+        String resolved = String.valueOf(value).trim();
+        return resolved.isBlank() ? (fallback == null ? "" : fallback) : resolved;
+    }
+
+    private int intProperty(ComponentAttributes attributes, String key, int fallback) {
+        Object value = attributes.getProperties().get(key);
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return value == null ? fallback : Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private boolean booleanProperty(ComponentAttributes attributes, String key, boolean fallback) {
+        Object value = attributes.getProperties().get(key);
+        return value == null ? fallback : Boolean.parseBoolean(String.valueOf(value));
+    }
+
     private SelectionMode selectionMode(String mode) {
         SelectionMode resolved = SelectionMode.from(mode);
         if (mode != null && !mode.isBlank() && resolved == SelectionMode.FILES_ONLY
@@ -740,6 +851,22 @@ public class ComponentFactory extends JComponent {
 
     public List<String> getRegisteredComponentTypes(ComponentKind kind) {
         return componentCatalog.types(kind);
+    }
+
+    public ComponentConfigGroupRegistry getConfigGroupRegistry() {
+        return configGroupRegistry;
+    }
+
+    public ComponentConfigResolver getComponentConfigResolver() {
+        return componentConfigResolver;
+    }
+
+    public void activateConfigGroup(String group) {
+        configGroupRegistry.activateGroup(group);
+    }
+
+    public void deactivateConfigGroup(String group) {
+        configGroupRegistry.deactivateGroup(group);
     }
 
     public ComponentCatalog getComponentCatalog() {

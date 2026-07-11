@@ -59,6 +59,7 @@ public class ComponentAttributes extends Attributes {
     private Map<String, String> styleOverrides;
     private Map<String, Object> properties;
     private List<String> styleClasses;
+    private List<String> configGroups;
     private List<String> fileExtensions;
     private LayoutConfig layoutConfig;
     private Gradient gradient;
@@ -163,6 +164,33 @@ public class ComponentAttributes extends Attributes {
         return properties == null || properties.isEmpty()
                 ? Map.of()
                 : Collections.unmodifiableMap(properties);
+    }
+
+    public List<String> getConfigGroups() {
+        return configGroups == null || configGroups.isEmpty()
+                ? List.of()
+                : List.copyOf(configGroups);
+    }
+
+    public ComponentAttributes addConfigGroup(String group) {
+        if (group != null && !group.isBlank()) {
+            if (configGroups == null) {
+                configGroups = new ArrayList<>();
+            }
+            String normalized = group.trim();
+            if (configGroups.stream().noneMatch(existing -> existing.equalsIgnoreCase(normalized))) {
+                configGroups.add(normalized);
+            }
+        }
+        return this;
+    }
+
+    public ComponentAttributes setConfigGroups(List<String> groups) {
+        configGroups = new ArrayList<>();
+        if (groups != null) {
+            groups.forEach(this::addConfigGroup);
+        }
+        return this;
     }
 
     public ComponentAttributes copy() {
@@ -362,6 +390,7 @@ public class ComponentAttributes extends Attributes {
                 "type='" + type + '\'' +
                 ", id='" + id + '\'' +
                 ", styles=" + getStyleChain() +
+                ", configGroups=" + getConfigGroups() +
                 ", bounds=" + getBounds() +
                 '}';
     }
@@ -438,6 +467,15 @@ public class ComponentAttributes extends Attributes {
 
         public Builder styleClass(String styleClass) {
             attributes.addStyleClass(styleClass);
+            return this;
+        }
+
+        public Builder groups(String... groups) {
+            if (groups != null) {
+                for (String group : groups) {
+                    attributes.addConfigGroup(group);
+                }
+            }
             return this;
         }
 

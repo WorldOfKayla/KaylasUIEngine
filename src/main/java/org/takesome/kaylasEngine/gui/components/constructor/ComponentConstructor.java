@@ -5,6 +5,8 @@ import org.takesome.kaylasEngine.gui.components.ComponentCatalog;
 import org.takesome.kaylasEngine.gui.components.ComponentCreationContext;
 import org.takesome.kaylasEngine.gui.components.ComponentDefinition;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigGroupRegistry;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigResolver;
 
 import javax.swing.JComponent;
 import java.util.HashSet;
@@ -58,6 +60,14 @@ public final class ComponentConstructor {
 
     public ComponentFactory factory() {
         return factory;
+    }
+
+    public ComponentConfigGroupRegistry configGroups() {
+        return factory.getConfigGroupRegistry();
+    }
+
+    public ComponentConfigResolver configResolver() {
+        return factory.getComponentConfigResolver();
     }
 
     /**

@@ -2,8 +2,8 @@
   "logLevel": "INFO",
   "bindUrl": "http://localhost/",
   "launcherBrand": "KaylasUI Engine",
-  "launcherVersion": "2.1.0-AURELIA",
-  "launcherBuild": "AURELIA-2.1",
+  "launcherVersion": "2.2.0-AURELIA",
+  "launcherBuild": "AURELIA-2.2",
   "programRuntime": "java",
   "groupDomain": "takesome",
   "vkAPIversion": "5.199",
@@ -21,7 +21,8 @@
     "dropBox",
     "fileSelector",
     "compositeSlider",
-    "compositeComponent"
+    "compositeComponent",
+    "tabs"
   ],
   "downloadManager": {
     "downloadThreads": 4,

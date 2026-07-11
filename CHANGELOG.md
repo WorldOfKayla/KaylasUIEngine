@@ -1,5 +1,31 @@
 # Changelog
 
+## 2.2.0-AURELIA — 2026-07-11
+
+### Architectural revolution
+
+- Component configuration is now resolved through an engine-wide group and extension pipeline before any Swing object is created.
+- `tabs` is the first consumer of the mechanism, not a settings-specific special case.
+- The same resolver can extend atomic components, composites, forms, menus, toolbars, accordions and complete panel graphs.
+
+### Added
+
+- `ComponentConfigGroupRegistry` for global, type, group/type, instance and group/instance fragments.
+- Ordered runtime group activation and deactivation.
+- `ComponentConfigResolver` integrated into `ComponentFactory.createComponent(...)`.
+- `DeepConfigMerger` with nested map composition and `replace`, `append`, `prepend`, and `unique_append` collection policies.
+- XML `groups="..."` support and programmatic `ComponentAttributes.Builder.groups(...)`.
+- Generic component child extension through `appendChildren(...)`.
+- Built-in `tabs` composite with arbitrary engine components as pages.
+- Tab placement, selection, visibility, enablement, cyclic navigation and transition events.
+- Lua tab API: `select`, `next`, `previous`, `getSelectedTab`, `getSelectedIndex`, `getTabIds`, `setTabEnabled`, and `setTabVisible`.
+- Lua `tabChanging` and `tabChanged` payloads with previous/current ids, index and source.
+
+### Verification
+
+- Added deep merge, collection strategy, XML group order, runtime group lifecycle, instance extension, child append and tabs state-transition checks.
+- Component runtime verification now identifies itself as 2.2.
+
 ## 2.1.0-AURELIA — 2026-07-10
 
 ### Breaking

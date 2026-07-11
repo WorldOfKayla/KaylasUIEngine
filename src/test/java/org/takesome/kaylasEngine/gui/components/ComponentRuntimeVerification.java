@@ -7,11 +7,17 @@ import org.takesome.kaylasEngine.gui.descriptor.XmlUiDescriptorLoader;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentNode;
 import org.takesome.kaylasEngine.gui.components.constructor.CompositeComponentDefinition;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
+import org.takesome.kaylasEngine.gui.components.tabs.TabDefinition;
+import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigGroupRegistry;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigResolver;
+import org.takesome.kaylasEngine.gui.config.DeepConfigMerger;
 import org.takesome.kaylasEngine.gui.scripting.ComponentSignalRouter;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
 
 import javax.swing.JButton;
+import javax.swing.JPanel;
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -31,11 +37,13 @@ public final class ComponentRuntimeVerification {
         verifySelectionModes();
         verifyStyleComposition();
         verifyDescriptors();
+        verifyGroupedConfiguration();
+        verifyTabsComponent();
         verifyDefinitionInheritance();
         verifyComponentCatalog();
         verifySignalRouter();
 
-        System.out.println("Component Constructor Runtime 2.1 verification passed.");
+        System.out.println("Component Constructor Runtime 2.2 verification passed.");
     }
 
     private static void verifyXmlDescriptorPolicy() {
@@ -93,6 +101,19 @@ public final class ComponentRuntimeVerification {
 
         List<ComponentAttributes> markerComponents = markerDescriptor.getChildComponents();
         require(markerComponents.size() == 3, "boolean marker descriptor component count is invalid");
+
+        Attributes groupedDescriptor = parseXml(loader, """
+                <ui>
+                    <childComponents>
+                        <component type="button" id="grouped" groups="settings compact">
+                            <bounds x="0" y="0" width="10" height="10"/>
+                        </component>
+                    </childComponents>
+                </ui>
+                """);
+        require(groupedDescriptor.getChildComponents().get(0).getConfigGroups()
+                        .equals(List.of("settings", "compact")),
+                "XML component groups were not parsed in declaration order");
 
         ComponentAttributes active = markerComponents.get(0);
         require(active.isVisible() && active.isEnabled() && active.isOpaque(),
@@ -187,6 +208,122 @@ public final class ComponentRuntimeVerification {
                 "descriptor copy mutated the source prototype");
         require("verificationCopy".equals(copy.getComponentId()),
                 "descriptor copy did not accept independent mutation");
+    }
+
+    private static void verifyGroupedConfiguration() {
+        Map<String, Object> merged = DeepConfigMerger.merge(
+                Map.of(
+                        "animation", Map.of("duration", 200, "easing", "easeOut"),
+                        "children", List.of("base")
+                ),
+                Map.of(
+                        "animation", Map.of("duration", 350),
+                        "children", Map.of(
+                                "$merge", "append",
+                                "$value", List.of("extension")
+                        )
+                )
+        );
+        @SuppressWarnings("unchecked")
+        Map<String, Object> animation = (Map<String, Object>) merged.get("animation");
+        require(((Number) animation.get("duration")).intValue() == 350,
+                "deep config merge did not override nested duration");
+        require("easeOut".equals(animation.get("easing")),
+                "deep config merge discarded an untouched nested value");
+        require(merged.get("children").equals(List.of("base", "extension")),
+                "append collection merge strategy is invalid");
+
+        ComponentConfigGroupRegistry registry = new ComponentConfigGroupRegistry();
+        ComponentConfigResolver resolver = new ComponentConfigResolver(registry);
+        registry.registerType("tabs", Map.of("properties", Map.of("tabs.gap", 3)));
+        registry.registerGroupType(
+                "settings",
+                "tabs",
+                Map.of("properties", Map.of("tabs.placement", "left"))
+        );
+        registry.extendComponent(
+                "settings",
+                "settingsTabs",
+                Map.of("properties", Map.of("tabs.selected", "advanced"))
+        );
+
+        ComponentAttributes base = ComponentAttributes.builder("tabs")
+                .id("settingsTabs")
+                .groups("settings")
+                .property("preserved", true)
+                .bounds(0, 0, 400, 300)
+                .build();
+        base.addChild(ComponentAttributes.builder("label")
+                .id("general")
+                .property("tab.title", "General")
+                .bounds(0, 0, 100, 20)
+                .build());
+        registry.appendChildren(
+                "settings",
+                "settingsTabs",
+                List.of(ComponentAttributes.builder("label")
+                        .id("advanced")
+                        .property("tab.title", "Advanced")
+                        .bounds(0, 0, 100, 20)
+                        .build())
+        );
+
+        ComponentAttributes resolved = resolver.resolve(base);
+        require("left".equals(resolved.getProperties().get("tabs.placement")),
+                "group/type fragment was not applied");
+        require(((Number) resolved.getProperties().get("tabs.gap")).intValue() == 3,
+                "type fragment was not composed before the group fragment");
+        require("advanced".equals(resolved.getProperties().get("tabs.selected")),
+                "group/instance extension was not applied");
+        require(Boolean.TRUE.equals(resolved.getProperties().get("preserved")),
+                "instance configuration was discarded by group resolution");
+        require(resolved.getChildComponents().size() == 2,
+                "component child extension was not appended");
+
+        registry.activateGroup("admin");
+        require(registry.activeGroups().equals(List.of("admin")),
+                "runtime config group activation order is invalid");
+        registry.deactivateGroup("admin");
+        require(registry.activeGroups().isEmpty(),
+                "runtime config group was not deactivated");
+    }
+
+    private static void verifyTabsComponent() {
+        Tabs tabs = new Tabs("top", 4);
+        tabs.addTab(new TabDefinition("general", "General", null, true, true), new JPanel());
+        tabs.addTab(new TabDefinition("advanced", "Advanced", null, true, true), new JPanel());
+
+        int[] changing = {0};
+        int[] changed = {0};
+        tabs.addTabChangeListener(new org.takesome.kaylasEngine.gui.components.tabs.TabChangeListener() {
+            @Override
+            public void tabChanging(org.takesome.kaylasEngine.gui.components.tabs.TabChangeEvent event) {
+                changing[0]++;
+            }
+
+            @Override
+            public void tabChanged(org.takesome.kaylasEngine.gui.components.tabs.TabChangeEvent event) {
+                changed[0]++;
+            }
+        });
+
+        require("general".equals(tabs.getSelectedTabId()),
+                "tabs did not select the first available page");
+        require(tabs.selectTab("advanced", "verification"),
+                "tabs refused a valid selection");
+        require("advanced".equals(tabs.getSelectedTabId()) && tabs.getSelectedIndex() == 1,
+                "tabs selected state is invalid");
+        require(changing[0] == 1 && changed[0] == 1,
+                "tabs did not emit both transition phases");
+        require(tabs.previous() && "general".equals(tabs.getSelectedTabId()),
+                "tabs previous navigation failed");
+        require(tabs.setTabEnabled("general", false)
+                        && "advanced".equals(tabs.getSelectedTabId()),
+                "disabling the selected tab did not select another available page");
+        require(tabs.setTabVisible("advanced", false),
+                "tabs visibility mutation failed");
+        require(tabs.getTabCount() == 2 && tabs.getTabIds().equals(List.of("general", "advanced")),
+                "tabs metadata order changed");
     }
 
     private static ComponentDefinition<JButton> verifyDefinitionInheritance() {

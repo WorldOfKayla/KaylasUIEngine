@@ -1,6 +1,6 @@
 # KaylasUI Engine
 
-**Версия:** `2.1.0-AURELIA`
+**Версия:** `2.2.0-AURELIA`
 **Runtime:** Java 17 / Swing
 **Кодовое имя:** `AURELIA 2 — Constructor Runtime`
 

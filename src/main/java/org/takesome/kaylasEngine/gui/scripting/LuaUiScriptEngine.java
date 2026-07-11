@@ -129,6 +129,21 @@ public final class LuaUiScriptEngine implements UiSignalBridge {
         emit(eventName, component, rawEvent);
     }
 
+    public void emitComponentEvent(
+            String eventName,
+            JComponent component,
+            Object rawEvent,
+            Map<String, ?> payload
+    ) {
+        ComponentAttributes attributes = attributesFor(component);
+        context.dispatch(
+                eventName,
+                context.apiFor(component, attributes),
+                rawEvent,
+                LuaRuntimeSupport.toLuaValue(payload == null ? Map.of() : payload)
+        );
+    }
+
     public ComponentSignalRouter.Connection connectComponents(String sourceId,
                                                               String sourceEvent,
                                                               String targetId,

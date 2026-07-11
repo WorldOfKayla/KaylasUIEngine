@@ -1,0 +1,19 @@
+{
+  "styles": {
+    "tabs": {
+      "default": {
+        "name": "Aurelia Tabs Base",
+        "font": "Primary",
+        "fontStyle": "plain",
+        "fontSize": 13,
+        "color": "#ffffff",
+        "background": "transparent",
+        "opaque": false
+      },
+      "compact": {
+        "extends": "default",
+        "fontSize": 11
+      }
+    }
+  }
+}

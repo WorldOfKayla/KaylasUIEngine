@@ -195,6 +195,41 @@
                         </component>
                     </childComponents>
                 </component>
+
+                <component
+                    type="tabs"
+                    id="tabsRegression"
+                    groups="demo compact"
+                    orientation="top">
+                    <visible/>
+                    <enabled/>
+                    <bounds x="920" y="120" width="360" height="220" />
+                    <properties>
+                        <property name="tabs.gap" value="4" type="int" />
+                        <property name="tabs.selected" value="second" />
+                    </properties>
+                    <childComponents>
+                        <component type="label" id="first" localeKey="demo.ready">
+                            <visible/>
+                            <enabled/>
+                            <bounds x="0" y="0" width="340" height="160" />
+                            <properties>
+                                <property name="tab.title" value="First" />
+                            </properties>
+                        </component>
+                        <component type="label" id="second" localeKey="demo.title">
+                            <visible/>
+                            <enabled/>
+                            <bounds x="0" y="0" width="340" height="160" />
+                            <properties>
+                                <property name="tab.title" value="Second" />
+                            </properties>
+                        </component>
+                    </childComponents>
+                    <scripts>
+                        <script event="tabChanged" path="assets/scripts/builtin/component.lua" />
+                    </scripts>
+                </component>
             </childComponents>
 
             <panels>

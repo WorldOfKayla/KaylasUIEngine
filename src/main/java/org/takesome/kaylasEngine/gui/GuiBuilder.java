@@ -7,6 +7,8 @@ import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentCatalog;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigGroupRegistry;
+import org.takesome.kaylasEngine.gui.config.ComponentConfigResolver;
 import org.takesome.kaylasEngine.gui.components.frame.FrameConstructor;
 import org.takesome.kaylasEngine.gui.components.frame.OptionGroups;
 import org.foxesworld.notification.Notification;
@@ -519,5 +521,13 @@ public class GuiBuilder {
 
     public ComponentConstructor getComponentConstructor() {
         return componentFactory.getComponentConstructor();
+    }
+
+    public ComponentConfigGroupRegistry getComponentConfigGroups() {
+        return componentFactory.getConfigGroupRegistry();
+    }
+
+    public ComponentConfigResolver getComponentConfigResolver() {
+        return componentFactory.getComponentConfigResolver();
     }
 }
