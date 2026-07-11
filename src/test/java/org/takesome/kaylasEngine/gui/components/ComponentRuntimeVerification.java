@@ -2,11 +2,13 @@ package org.takesome.kaylasEngine.gui.components;
 
 import org.apache.logging.log4j.LogManager;
 import org.takesome.kaylasEngine.Engine;
+import org.takesome.kaylasEngine.EngineBrandingVerification;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
 import org.takesome.kaylasEngine.gui.descriptor.XmlUiDescriptorLoader;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentNode;
 import org.takesome.kaylasEngine.gui.components.constructor.CompositeComponentDefinition;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
+import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyleVerification;
 import org.takesome.kaylasEngine.gui.components.tabs.TabDefinition;
 import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
 import org.takesome.kaylasEngine.gui.components.textArea.TextAreaColorVerification;
@@ -35,6 +37,8 @@ public final class ComponentRuntimeVerification {
         System.setProperty("log.level", "INFO");
         Engine.LOGGER = LogManager.getLogger(ComponentRuntimeVerification.class);
 
+        EngineBrandingVerification.verify();
+        ProgressBarStyleVerification.verify();
         verifyXmlDescriptorPolicy();
         TextAreaColorVerification.verify();
         verifySelectionModes();

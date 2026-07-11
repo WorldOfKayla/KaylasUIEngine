@@ -9,6 +9,7 @@ import javax.swing.SwingConstants;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.image.BufferedImage;
+import java.math.BigDecimal;
 import java.util.Objects;
 import java.util.function.Function;
 
@@ -174,8 +175,8 @@ public final class ProgressBarStyle {
             return resolveMinimum();
         }
         try {
-            return Integer.parseInt(String.valueOf(rawValue).trim());
-        } catch (NumberFormatException error) {
+            return integerValue(rawValue);
+        } catch (NumberFormatException | ArithmeticException error) {
             Engine.getLOGGER().warn(
                     "Invalid progress-bar initialValue '{}' for component {}",
                     rawValue,
@@ -183,6 +184,13 @@ public final class ProgressBarStyle {
             );
             return resolveMinimum();
         }
+    }
+
+    static int integerValue(Object rawValue) {
+        if (rawValue instanceof Number number) {
+            return new BigDecimal(number.toString()).intValueExact();
+        }
+        return new BigDecimal(String.valueOf(rawValue).trim()).intValueExact();
     }
 
     private String borderColor() {

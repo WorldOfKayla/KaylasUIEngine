@@ -244,6 +244,23 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         this.setIconUtils(new IconUtils(this));
     }
 
+    static String engineGenerationLabel(String engineVersion) {
+        if (engineVersion == null || engineVersion.isBlank()) {
+            return "KAYLAS UI ENGINE";
+        }
+        String normalized = engineVersion.trim();
+        int separator = normalized.lastIndexOf('-');
+        String semanticVersion = separator > 0 ? normalized.substring(0, separator) : normalized;
+        String codename = separator > 0 && separator + 1 < normalized.length()
+                ? normalized.substring(separator + 1).trim().toUpperCase(java.util.Locale.ROOT)
+                : "RUNTIME";
+        String[] versionParts = semanticVersion.split("\\.");
+        String generation = versionParts.length >= 2
+                ? versionParts[0] + "." + versionParts[1]
+                : semanticVersion;
+        return "KAYLAS UI ENGINE // " + codename + " " + generation;
+    }
+
     public static void logEngineInfoBox(
             Logger LOGGER,
             String engineBrand,
@@ -262,7 +279,7 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
 
         // Prepare lines
         List<String> lines = new ArrayList<>();
-        lines.add("KAYLAS UI ENGINE // AURELIA 2");
+        lines.add(engineGenerationLabel(engineVersion));
         lines.add(String.format("Engine Version: %s", engineVersion));
         lines.add(String.format("Operating System: %s", currentOS));
         if (osBean != null) {
