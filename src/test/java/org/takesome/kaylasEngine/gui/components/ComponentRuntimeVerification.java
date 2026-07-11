@@ -378,6 +378,10 @@ public final class ComponentRuntimeVerification {
         require(tabs.setTabEnabled("general", false)
                         && "advanced".equals(tabs.getSelectedTabId()),
                 "disabling the selected tab did not select another available page");
+        require(tabs.setTabTitle("general", "General settings"),
+                "tabs did not update an existing title");
+        require(!tabs.setTabTitle("missing", "Missing"),
+                "tabs updated a missing title");
         require(tabs.setTabVisible("advanced", false),
                 "tabs visibility mutation failed");
         require(tabs.getTabCount() == 2 && tabs.getTabIds().equals(List.of("general", "advanced")),

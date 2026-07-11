@@ -163,6 +163,24 @@ public final class Tabs extends JPanel {
         return true;
     }
 
+    /**
+     * Updates a tab title without rebuilding its content.
+     *
+     * @param tabId tab identifier.
+     * @param title new display title; {@code null} clears the title.
+     * @return {@code true} when the tab exists.
+     */
+    public boolean setTabTitle(String tabId, String title) {
+        TabEntry entry = entries.get(normalizeId(tabId));
+        if (entry == null) {
+            return false;
+        }
+        entry.button().setText(title == null ? "" : title);
+        headerPanel.revalidate();
+        headerPanel.repaint();
+        return true;
+    }
+
     public String getSelectedTabId() {
         return selectedTabId;
     }
