@@ -81,6 +81,9 @@ public class EngineData {
         private String wsUrl = "ws://127.0.0.1:18080/ws/launcher";
         private int heartbeatSeconds = 15;
         private int maxReconnectAttempts = 0;
+        private boolean requireSecureTransport = true;
+        private boolean allowInsecureLoopback = true;
+        private String tlsPublicKeySha256 = "";
 
         private static BackendBinding disabled() {
             BackendBinding binding = new BackendBinding();
@@ -104,6 +107,18 @@ public class EngineData {
 
         public int getMaxReconnectAttempts() {
             return Math.max(0, maxReconnectAttempts);
+        }
+
+        public boolean isRequireSecureTransport() {
+            return requireSecureTransport;
+        }
+
+        public boolean isAllowInsecureLoopback() {
+            return allowInsecureLoopback;
+        }
+
+        public String getTlsPublicKeySha256() {
+            return tlsPublicKeySha256 == null ? "" : tlsPublicKeySha256.trim();
         }
     }
 
