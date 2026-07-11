@@ -3,6 +3,7 @@ package org.takesome.kaylasEngine.gui.componentAccessor;
 import org.apache.logging.log4j.LogManager;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.constructor.ConstructedCompositeComponent;
+import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 
 import javax.swing.JCheckBox;
 import javax.swing.JComponent;
@@ -31,6 +32,7 @@ public final class ComponentAccessorVerification {
         verifyTraversalLookupAndBinding();
         verifyValueModesAndRefresh();
         verifyCustomValueAdapter();
+        verifyBuiltInComboboxAdapter();
         verifyDuplicatePolicy();
         verifyPackageArchitecture();
 
@@ -140,6 +142,12 @@ public final class ComponentAccessorVerification {
                 "Custom JLabel adapter did not read text");
         accessor.writeValue("status", "online");
         require("online".equals(status.getText()), "Custom JLabel adapter did not write text");
+    }
+
+    private static void verifyBuiltInComboboxAdapter() {
+        boolean registered = ComponentValueRegistry.defaults().adapters().stream()
+                .anyMatch(adapter -> adapter.componentType().equals(Combobox.class));
+        require(registered, "KaylasUI Combobox is missing from the default value registry");
     }
 
     private static void verifyDuplicatePolicy() {

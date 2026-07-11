@@ -3,6 +3,7 @@ package org.takesome.kaylasEngine.gui.componentAccessor.internal.value;
 import org.takesome.kaylasEngine.gui.componentAccessor.ComponentValueRegistry;
 import org.takesome.kaylasEngine.gui.components.CompositeComponent;
 import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
+import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
 
@@ -49,6 +50,14 @@ public final class DefaultComponentValueAdapters {
                 CompositeComponent::getValue,
                 CompositeComponent::setValue,
                 10
+        );
+        registry.registerWritable(
+                Combobox.class,
+                Combobox::getSelectedIndex,
+                (component, value) -> component.setSelectedIndex(
+                        intValue(value, component.getSelectedIndex())
+                ),
+                100
         );
         registry.registerWritable(
                 JPasswordField.class,
