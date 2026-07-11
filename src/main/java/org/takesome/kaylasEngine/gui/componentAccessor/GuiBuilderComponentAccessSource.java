@@ -10,47 +10,52 @@ import java.util.Objects;
 import java.util.Optional;
 
 /**
- * Live {@link ComponentAccessSource} backed by a {@link GuiBuilder}.
+ * Compatibility wrapper for a live {@link GuiBuilder}-backed component source.
  *
- * <p>Each method reads the builder's current maps, so calling {@link ComponentsAccessor#refresh()}
- * after dynamic screen rebuilds observes the latest panel and component instances.</p>
+ * @deprecated Prefer {@link ComponentAccessSource#from(GuiBuilder)}. The concrete source adapter is
+ * now an internal implementation detail.
  */
+@Deprecated(since = "2.2.0-AURELIA", forRemoval = false)
 public final class GuiBuilderComponentAccessSource implements ComponentAccessSource {
     private final GuiBuilder guiBuilder;
+    private final ComponentAccessSource delegate;
 
     /**
-     * Creates a source over a GUI builder.
+     * Creates the compatibility wrapper.
      *
-     * @param guiBuilder GUI builder to expose.
+     * @param guiBuilder GUI builder exposed through the source abstraction.
      */
     public GuiBuilderComponentAccessSource(GuiBuilder guiBuilder) {
         this.guiBuilder = Objects.requireNonNull(guiBuilder, "guiBuilder");
+        this.delegate = ComponentAccessSource.from(guiBuilder);
     }
 
-    /** @return wrapped GUI builder. */
+    /**
+     * Returns the wrapped builder for legacy callers.
+     *
+     * @return wrapped GUI builder.
+     */
     public GuiBuilder guiBuilder() {
         return guiBuilder;
     }
 
     @Override
     public Optional<JPanel> findPanel(String panelId) {
-        return Optional.ofNullable(guiBuilder.getPanelsMap().get(panelId));
+        return delegate.findPanel(panelId);
     }
 
     @Override
     public List<JComponent> components(String panelId) {
-        List<JComponent> components = guiBuilder.getComponentsMap().get(panelId);
-        return components == null ? List.of() : List.copyOf(components);
+        return delegate.components(panelId);
     }
 
     @Override
     public List<String> childPanels(String panelId) {
-        List<String> children = guiBuilder.getChildParentMap().get(panelId);
-        return children == null ? List.of() : List.copyOf(children);
+        return delegate.childPanels(panelId);
     }
 
     @Override
     public Optional<ComponentCatalog> catalog() {
-        return Optional.of(guiBuilder.getComponentCatalog());
+        return delegate.catalog();
     }
 }

@@ -11,6 +11,7 @@ import javax.swing.JPanel;
 import javax.swing.JSlider;
 import javax.swing.JSpinner;
 import javax.swing.JTextField;
+import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -31,6 +32,7 @@ public final class ComponentAccessorVerification {
         verifyValueModesAndRefresh();
         verifyCustomValueAdapter();
         verifyDuplicatePolicy();
+        verifyPackageArchitecture();
 
         System.out.println("Component Accessor Runtime verification passed.");
     }
@@ -191,6 +193,53 @@ public final class ComponentAccessorVerification {
     private static <T extends JComponent> T named(T component, String name) {
         component.setName(name);
         return component;
+    }
+
+    private static void verifyPackageArchitecture() {
+        requireHiddenImplementation(
+                "org.takesome.kaylasEngine.gui.componentAccessor.internal.binding.ReflectionComponentFieldBinder"
+        );
+        requireHiddenImplementation(
+                "org.takesome.kaylasEngine.gui.componentAccessor.internal.index.DefaultComponentGraphIndexer"
+        );
+        requireHiddenImplementation(
+                "org.takesome.kaylasEngine.gui.componentAccessor.internal.source.GuiBuilderAccessSource"
+        );
+        requireHiddenImplementation(
+                "org.takesome.kaylasEngine.gui.componentAccessor.internal.state.LockedComponentIndexState"
+        );
+        requireHiddenImplementation(
+                "org.takesome.kaylasEngine.gui.componentAccessor.internal.value.DefaultComponentFormValueCollector"
+        );
+
+        require(ComponentAccessSource.class.isInterface(),
+                "ComponentAccessSource must remain the public source boundary");
+        requireDeprecatedCompatibilityType(
+                "org.takesome.kaylasEngine.gui.componentAccessor.GuiBuilderComponentAccessSource"
+        );
+
+    }
+
+    private static void requireDeprecatedCompatibilityType(String className) {
+        try {
+            Class<?> compatibilityType = Class.forName(className);
+            require(compatibilityType.isAnnotationPresent(Deprecated.class),
+                    "Compatibility type must be deprecated: " + className);
+        } catch (ClassNotFoundException error) {
+            throw new IllegalStateException("Compatibility type not found: " + className, error);
+        }
+    }
+
+    private static void requireHiddenImplementation(String className) {
+        try {
+            Class<?> implementation = Class.forName(className);
+            require(!Modifier.isPublic(implementation.getModifiers()),
+                    "Internal implementation is public: " + className);
+            require(Modifier.isFinal(implementation.getModifiers()),
+                    "Internal implementation must be final: " + className);
+        } catch (ClassNotFoundException error) {
+            throw new IllegalStateException("Internal implementation not found: " + className, error);
+        }
     }
 
     private static void expectThrows(Class<? extends Throwable> expected,

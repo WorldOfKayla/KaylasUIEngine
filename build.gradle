@@ -26,7 +26,7 @@ def readCanonicalSetting = { String key, String envKey, String fallback ->
     return (gradleValue ?: envValue ?: fallback).toString()
 }
 
-def projectVersion = readCanonicalSetting('project.version', 'PROJECT_VERSION', '2.2.0-AURELIA')
+def projectVersion = readCanonicalSetting('project.version', 'PROJECT_VERSION', '2.3.0-KINETICA')
 def projectGroup = readCanonicalSetting('project.group', 'PROJECT_GROUP', 'org.takesome')
 def projectArchivesBaseName = readCanonicalSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'kaylas-ui-engine')
 def diagnosticsProjectDir = layout.projectDirectory.asFile.absolutePath
@@ -136,7 +136,7 @@ sourceSets {
 
 tasks.register('componentRuntimeCheck', JavaExec) {
     group = 'verification'
-    description = 'Verifies the 2.2 component catalog, constructor graphs, Lua signal routing, styles and descriptors.'
+    description = 'Verifies the 2.3 component catalog, constructor graphs, Lua signal routing, styles and descriptors.'
     dependsOn tasks.named('testClasses')
     classpath = sourceSets.test.runtimeClasspath
     mainClass = 'org.takesome.kaylasEngine.gui.components.ComponentRuntimeVerification'
@@ -151,12 +151,43 @@ tasks.register('componentAccessorCheck', JavaExec) {
 }
 
 
+tasks.register('loadingUiConfigCheck', JavaExec) {
+    group = 'verification'
+    description = 'Verifies loading UI defaults, Lua map parsing, profile selection and animator adapters.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.takesome.kaylasEngine.gui.loadingManager.ScriptedLoadingUiVerification'
+}
+
+tasks.register('animationRuntimeCheck', JavaExec) {
+    group = 'verification'
+    description = 'Verifies the KINETICA 2.3 modular animation runtime and package boundaries.'
+    dependsOn tasks.named('testClasses')
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'org.takesome.kaylasEngine.gui.animation.AnimationRuntimeVerification'
+    systemProperty 'java.awt.headless', 'true'
+}
+
+tasks.register('animationPublicJavadoc', Javadoc) {
+    group = 'documentation'
+    description = 'Generates and validates JavaDoc for the public animation API.'
+    dependsOn tasks.named('classes')
+    source = fileTree('src/main/java/org/takesome/kaylasEngine/gui/animation') {
+        include '*.java'
+        exclude 'internal/**'
+    }
+    classpath = sourceSets.main.output + sourceSets.main.compileClasspath
+    destinationDir = layout.buildDirectory.dir('docs/animation-javadoc').get().asFile
+    failOnError = true
+}
+
 tasks.register('componentAccessorJavadoc', Javadoc) {
     group = 'documentation'
     description = 'Generates and validates JavaDoc for the componentAccessor public API.'
     dependsOn tasks.named('classes')
     source = fileTree('src/main/java/org/takesome/kaylasEngine/gui/componentAccessor') {
-        include '**/*.java'
+        include '*.java'
+        exclude 'internal/**'
     }
     classpath = sourceSets.main.output + sourceSets.main.compileClasspath
     destinationDir = layout.buildDirectory.dir('docs/javadoc-component-accessor').get().asFile
@@ -170,6 +201,9 @@ tasks.named('check') {
     dependsOn tasks.named('componentRuntimeCheck')
     dependsOn tasks.named('componentAccessorCheck')
     dependsOn tasks.named('componentAccessorJavadoc')
+    dependsOn tasks.named('loadingUiConfigCheck')
+    dependsOn tasks.named('animationRuntimeCheck')
+    dependsOn tasks.named('animationPublicJavadoc')
 }
 
 dependencies {

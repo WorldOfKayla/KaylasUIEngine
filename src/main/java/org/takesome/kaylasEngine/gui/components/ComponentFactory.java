@@ -1,62 +1,18 @@
 package org.takesome.kaylasEngine.gui.components;
 
-import com.google.gson.Gson;
-import com.google.gson.JsonObject;
-import com.google.gson.JsonParser;
-import org.foxesworld.cfgProvider.ConfigTypeConverter;
 import org.takesome.kaylasEngine.Engine;
-import org.takesome.kaylasEngine.gui.components.button.Button;
-import org.takesome.kaylasEngine.gui.components.button.ButtonStyle;
-import org.takesome.kaylasEngine.gui.components.checkbox.Checkbox;
-import org.takesome.kaylasEngine.gui.components.checkbox.CheckboxStyle;
-import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
-import org.takesome.kaylasEngine.gui.components.combobox.ComboboxStyle;
-import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentConstructor;
-import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
-import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
-import org.takesome.kaylasEngine.gui.components.tabs.TabChangeEvent;
-import org.takesome.kaylasEngine.gui.components.tabs.TabChangeListener;
-import org.takesome.kaylasEngine.gui.components.tabs.TabDefinition;
-import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
 import org.takesome.kaylasEngine.gui.config.ComponentConfigGroupRegistry;
 import org.takesome.kaylasEngine.gui.config.ComponentConfigResolver;
-import org.takesome.kaylasEngine.gui.components.label.Label;
-import org.takesome.kaylasEngine.gui.components.label.LabelStyle;
-import org.takesome.kaylasEngine.gui.components.multiButton.MultiButton;
-import org.takesome.kaylasEngine.gui.components.multiButton.MultiButtonStyle;
-import org.takesome.kaylasEngine.gui.components.passfield.PassField;
-import org.takesome.kaylasEngine.gui.components.passfield.PassFieldStyle;
-import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
-import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyle;
-import org.takesome.kaylasEngine.gui.components.slider.Slider;
-import org.takesome.kaylasEngine.gui.components.slider.TexturedSliderUI;
-import org.takesome.kaylasEngine.gui.components.spinner.Spinner;
-import org.takesome.kaylasEngine.gui.components.sprite.SpriteAnimation;
-import org.takesome.kaylasEngine.gui.components.textArea.AreaStyle;
-import org.takesome.kaylasEngine.gui.components.textArea.TextArea;
-import org.takesome.kaylasEngine.gui.components.textfield.TextField;
-import org.takesome.kaylasEngine.gui.components.textfield.TextFieldStyle;
-import org.takesome.kaylasEngine.gui.components.utils.tooltip.CustomTooltip;
-import org.takesome.kaylasEngine.gui.components.utils.tooltip.TooltipAttributes;
 import org.takesome.kaylasEngine.gui.scripting.LuaUiScriptEngine;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.takesome.kaylasEngine.utils.IconUtils;
 
-import javax.swing.AbstractAction;
 import javax.swing.JComponent;
-import javax.swing.KeyStroke;
-import javax.swing.Icon;
 import javax.swing.SwingUtilities;
-import java.awt.Cursor;
 import java.awt.Rectangle;
-import java.awt.event.ActionEvent;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.util.ArrayDeque;
 import java.util.Collections;
-import java.util.Deque;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -68,8 +24,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Function;
 import java.util.function.Supplier;
 
-import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
-
 /**
  * Extensible, context-based factory for KaylasUI Swing components.
  *
@@ -78,27 +32,20 @@ import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
  * descriptor state that previously made asynchronous and composite creation non-deterministic.</p>
  */
 public class ComponentFactory extends JComponent {
-    private static final String STYLE_PROPERTY = "kaylas.ui.style";
-    private static final String STYLE_CHAIN_PROPERTY = "kaylas.ui.styleChain";
-    private static final String ATTRIBUTES_PROPERTY = "kaylas.ui.attributes";
-
     private final Engine engine;
     private final LanguageProvider langProvider;
     private final IconUtils iconUtils;
     private final LuaUiScriptEngine luaUiScriptEngine;
-    private final Map<String, TooltipAttributes> tooltipCache = new ConcurrentHashMap<>();
     private final ComponentCatalog componentCatalog = new ComponentCatalog();
     private final ComponentConfigGroupRegistry configGroupRegistry = new ComponentConfigGroupRegistry();
     private final ComponentConfigResolver componentConfigResolver = new ComponentConfigResolver(configGroupRegistry);
     private final ComponentConstructor componentConstructor;
     private final Map<String, Function<ComponentAttributes, JComponent>> legacyRegistry = new ConcurrentHashMap<>();
-    private final ThreadLocal<Deque<ComponentCreationContext>> creationStack =
-            ThreadLocal.withInitial(ArrayDeque::new);
-    private final ThreadLocal<Deque<StyleAttributes>> scopedStyles =
-            ThreadLocal.withInitial(ArrayDeque::new);
+    private final ComponentCreationState creationState = new ComponentCreationState();
+    private final ComponentAttributeApplier attributeApplier;
+    private final CompositeComponentBuilder compositeBuilder;
+    private final BuiltInComponentCreators builtInCreators;
 
-    private volatile StyleAttributes fallbackStyle = StyleAttributes.defaults("default");
-    private volatile ComponentAttributes lastComponentAttribute;
     private volatile ComponentFactoryListener componentFactoryListener;
 
     public ComponentFactory(Engine engine) {
@@ -107,42 +54,14 @@ public class ComponentFactory extends JComponent {
         this.iconUtils = new IconUtils(engine);
         this.luaUiScriptEngine = new LuaUiScriptEngine(engine);
         this.componentConstructor = new ComponentConstructor(this, componentCatalog);
+        this.attributeApplier = new ComponentAttributeApplier(engine, langProvider, luaUiScriptEngine);
+        this.compositeBuilder = new CompositeComponentBuilder(this);
+        this.builtInCreators = new BuiltInComponentCreators(this);
         registerBuiltIns();
     }
 
     private void registerBuiltIns() {
-        registerComponent("label", this::createLabel);
-        registerComponent("progressBar", this::createProgressBar);
-        registerComponent("button", this::createButton);
-        registerComponent("textArea", this::createTextArea);
-        registerComponent("checkBox", this::createCheckbox);
-        registerComponent("textField", this::createTextField);
-        registerComponent("spriteImage", this::createSpriteImage);
-        registerComponent("passField", this::createPassField);
-        registerComponent("spinner", this::createSpinner);
-        registerComponent("multiButton", this::createMultiButton);
-        registerComponent("combobox", this::createCombobox);
-        registerComponent("dropBox", this::createCombobox);
-        registerComponent("slider", this::createSlider);
-        registerComponent("compositeSlider", ComponentKind.COMPOSITE, this::createCompositeSlider);
-        registerComponent("fileSelector", ComponentKind.COMPOSITE, this::createFileSelector);
-        registerComponent("compositeComponent", ComponentKind.COMPOSITE, this::createCompositeComponent);
-        registerComponent("tabs", ComponentKind.COMPOSITE, this::createTabs);
-
-        registerAlias("checkbox", "checkBox");
-        registerAlias("check-box", "checkBox");
-        registerAlias("textfield", "textField");
-        registerAlias("text-field", "textField");
-        registerAlias("textarea", "textArea");
-        registerAlias("text-area", "textArea");
-        registerAlias("progress", "progressBar");
-        registerAlias("progress-bar", "progressBar");
-        registerAlias("sprite", "spriteImage");
-        registerAlias("dropdown", "dropBox");
-        registerAlias("select", "combobox");
-        registerAlias("composite", "compositeComponent");
-        registerAlias("tabbedPane", "tabs");
-        registerAlias("tabbed-pane", "tabs");
+        builtInCreators.register();
     }
 
     /** Compatibility registration API. New integrations should prefer {@link #registerDefinition}. */
@@ -236,30 +155,17 @@ public class ComponentFactory extends JComponent {
                 styleChain
         );
 
-        Deque<ComponentCreationContext> stack = creationStack.get();
-        if (definition.kind() == ComponentKind.COMPOSITE
-                && stack.stream().anyMatch(parent ->
-                parent.definition().type().equalsIgnoreCase(definition.type()))) {
-            throw new IllegalStateException(
-                    "Recursive composite construction detected for type '"
-                            + definition.type() + "'"
-            );
-        }
-        stack.push(context);
-        lastComponentAttribute = resolvedAttributes;
+        creationState.enter(context);
         try {
             ComponentFactoryListener listener = componentFactoryListener;
             if (listener != null) {
                 listener.onComponentCreation(resolvedAttributes);
             }
             JComponent component = definition.create(context);
-            applyCommonAttributes(component, context);
+            attributeApplier.apply(component, context);
             return component;
         } finally {
-            stack.pop();
-            if (stack.isEmpty()) {
-                creationStack.remove();
-            }
+            creationState.exit();
         }
     }
 
@@ -290,542 +196,45 @@ public class ComponentFactory extends JComponent {
     }
 
     public JComponent createTabs(ComponentAttributes attributes) {
-        String placement = stringProperty(
-                attributes,
-                "tabs.placement",
-                valueOr(attributes.getOrientation(), Tabs.PLACEMENT_TOP)
-        );
-        int gap = intProperty(attributes, "tabs.gap", 4);
-        Tabs tabs = new Tabs(placement, gap);
-
-        for (ComponentAttributes childPrototype : attributes.getChildComponents()) {
-            if (childPrototype == null) {
-                continue;
-            }
-            ComponentAttributes child = childPrototype.copy();
-            if (child.getConfigGroups().isEmpty()) {
-                child.setConfigGroups(attributes.getConfigGroups());
-            }
-
-            JComponent content = createComponent(child);
-            String tabId = stringProperty(child, "tab.id", child.getComponentId());
-            if (tabId == null || tabId.isBlank()) {
-                tabId = "tab-" + tabs.getTabCount();
-            }
-            String titleKey = stringProperty(child, "tab.titleKey", child.getLocaleKey());
-            String title = stringProperty(child, "tab.title", "");
-            if (title.isBlank() && titleKey != null && !titleKey.isBlank()) {
-                title = langProvider.getString(titleKey);
-            }
-            if (title.isBlank()) {
-                title = tabId;
-            }
-
-            Icon icon = iconUtils.getIcon(child);
-            boolean enabled = booleanProperty(child, "tab.enabled", true);
-            boolean visible = booleanProperty(child, "tab.visible", true);
-            tabs.addTab(new TabDefinition(tabId, title, icon, enabled, visible), content);
-        }
-
-        String selected = stringProperty(attributes, "tabs.selected", "");
-        if (selected.isBlank() && attributes.getInitialValue() != null) {
-            selected = String.valueOf(attributes.getInitialValue());
-        }
-        if (!selected.isBlank()) {
-            tabs.selectTab(selected, "configuration");
-        } else if (attributes.getSelectedIndex() >= 0
-                && attributes.getSelectedIndex() < tabs.getTabIds().size()) {
-            tabs.selectTab(tabs.getTabIds().get(attributes.getSelectedIndex()), "configuration");
-        }
-
-        tabs.addTabChangeListener(new TabChangeListener() {
-            @Override
-            public void tabChanging(TabChangeEvent event) {
-                luaUiScriptEngine.emitComponentEvent("tabChanging", tabs, event, tabPayload(event));
-            }
-
-            @Override
-            public void tabChanged(TabChangeEvent event) {
-                luaUiScriptEngine.emitComponentEvent("tabChanged", tabs, event, tabPayload(event));
-            }
-        });
-        return tabs;
-    }
-
-    private Map<String, Object> tabPayload(TabChangeEvent event) {
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("previousTabId", event.previousTabId());
-        payload.put("tabId", event.tabId());
-        payload.put("index", event.index());
-        payload.put("source", event.source());
-        return payload;
+        return compositeBuilder.createTabs(attributes);
     }
 
     public JComponent createCompositeComponent(ComponentAttributes attributes) {
-        CompositeComponent composite = new CompositeComponent(resolveCompositeLayout(attributes));
-        composite.setLayoutConfig(attributes.getLayoutConfig());
-        composite.setValue(attributes.getInitialValue());
-
-        List<ComponentAttributes> children = attributes.getChildComponents();
-        if (children == null || children.isEmpty()) {
-            Engine.LOGGER.debug("CompositeComponent '{}' has no child components.", attributes.getComponentId());
-            return composite;
-        }
-
-        for (ComponentAttributes child : children) {
-            if (child == null) {
-                Engine.LOGGER.warn("CompositeComponent '{}' ignored a null child descriptor.", attributes.getComponentId());
-                continue;
-            }
-            inheritCompositeDefaults(attributes, child);
-            JComponent childComponent = createComponent(child);
-            composite.addSubComponent(childComponent, composite.getLayoutConfigFor(child.getComponentType()));
-        }
-        return composite;
-    }
-
-    private void inheritCompositeDefaults(ComponentAttributes parent, ComponentAttributes child) {
-        if (child.getInitialValue() == null && parent.getInitialValue() != null) {
-            child.setInitialValue(parent.getInitialValue());
-        }
-        if (child.getStyleChain().isEmpty()) {
-            String targetedStyle = parent.getStyles().get(child.getComponentType());
-            if (targetedStyle == null) {
-                targetedStyle = parent.getStyles().get(normalizeType(child.getComponentType()));
-            }
-            if (targetedStyle != null && !targetedStyle.isBlank()) {
-                child.setComponentStyle(targetedStyle);
-            }
-        }
-    }
-
-    private void applyCommonAttributes(JComponent component, ComponentCreationContext context) {
-        ComponentAttributes attributes = context.attributes();
-        StyleAttributes style = context.style();
-
-        component.setName(attributes.getComponentId());
-        component.setBounds(context.bounds());
-        component.setEnabled(attributes.isEnabled());
-        component.setVisible(attributes.isVisible());
-        component.setOpaque(attributes.hasOpaque() ? attributes.isOpaque() : style.isOpaque());
-        if (context.definition().applyBaseStyle()) {
-            applyResolvedBaseStyle(component, attributes, style);
-        }
-        if (attributes.hasFocusable()) {
-            component.setFocusable(attributes.isFocusable());
-        }
-        if (attributes.hasDoubleBuffered()) {
-            component.setDoubleBuffered(attributes.isDoubleBuffered());
-        }
-        applyCursor(component, attributes.getCursor());
-        applyAccessibility(component, attributes);
-        attributes.getProperties().forEach(component::putClientProperty);
-
-        component.putClientProperty(STYLE_PROPERTY, style);
-        component.putClientProperty(STYLE_CHAIN_PROPERTY, context.styleChain());
-        component.putClientProperty(ATTRIBUTES_PROPERTY, attributes);
-
-        if (attributes.getToolTip() != null && !attributes.getToolTip().isBlank()) {
-            initializeTooltip(component, attributes);
-        }
-        luaUiScriptEngine.bind(component, attributes);
-    }
-
-    private void applyResolvedBaseStyle(JComponent component,
-                                        ComponentAttributes attributes,
-                                        StyleAttributes style) {
-        component.setForeground(hexToColor(valueOr(attributes.getColor(), style.getColor())));
-
-        String background = valueOr(attributes.getBackground(), style.getBackground());
-        if (background != null
-                && !background.isBlank()
-                && !"transparent".equalsIgnoreCase(background)) {
-            component.setBackground(hexToColor(background));
-        }
-
-        component.setFont(engine.getFONTUTILS().getFont(
-                valueOr(attributes.getFont(), style.getFont()),
-                attributes.getFontSize() > 0 ? attributes.getFontSize() : style.getFontSize(),
-                valueOr(attributes.getFontStyle(), style.getFontStyle())
-        ));
-    }
-
-    private void applyAccessibility(JComponent component, ComponentAttributes attributes) {
-        if (attributes.getAccessibleName() != null && !attributes.getAccessibleName().isBlank()) {
-            component.getAccessibleContext().setAccessibleName(attributes.getAccessibleName());
-        }
-        if (attributes.getAccessibleDescription() != null && !attributes.getAccessibleDescription().isBlank()) {
-            component.getAccessibleContext().setAccessibleDescription(attributes.getAccessibleDescription());
-        }
-    }
-
-    private void applyCursor(JComponent component, String cursorName) {
-        if (cursorName == null || cursorName.isBlank()) {
-            return;
-        }
-        int cursorType = switch (cursorName.trim().toLowerCase(Locale.ROOT)) {
-            case "hand", "pointer" -> Cursor.HAND_CURSOR;
-            case "text" -> Cursor.TEXT_CURSOR;
-            case "wait", "busy" -> Cursor.WAIT_CURSOR;
-            case "move" -> Cursor.MOVE_CURSOR;
-            case "crosshair" -> Cursor.CROSSHAIR_CURSOR;
-            case "resize-e", "e-resize" -> Cursor.E_RESIZE_CURSOR;
-            case "resize-w", "w-resize" -> Cursor.W_RESIZE_CURSOR;
-            case "resize-n", "n-resize" -> Cursor.N_RESIZE_CURSOR;
-            case "resize-s", "s-resize" -> Cursor.S_RESIZE_CURSOR;
-            default -> Cursor.DEFAULT_CURSOR;
-        };
-        component.setCursor(Cursor.getPredefinedCursor(cursorType));
-    }
-
-    private void initializeTooltip(JComponent component, ComponentAttributes attributes) {
-        String tooltipStyle = valueOr(attributes.getTooltipStyle(), "default");
-        TooltipAttributes tooltipAttributes = tooltipCache.computeIfAbsent(tooltipStyle, this::loadTooltipAttributes);
-        if (tooltipAttributes == null) {
-            return;
-        }
-        CustomTooltip tooltip = new CustomTooltip(
-                hexToColor(tooltipAttributes.getBgColor()),
-                hexToColor(tooltipAttributes.getTextColor()),
-                tooltipAttributes.getBorderRadius(),
-                engine.getFONTUTILS().getFont(tooltipAttributes.getFont(), tooltipAttributes.getFontSize())
-        );
-        tooltip.attachToComponent(component, langProvider.getString(attributes.getToolTip()), 2000);
-    }
-
-    private TooltipAttributes loadTooltipAttributes(String styleName) {
-        try (InputStream stream = getClass().getClassLoader().getResourceAsStream("assets/styles/tooltip.json");
-             InputStreamReader reader = new InputStreamReader(Objects.requireNonNull(stream))) {
-            JsonObject root = JsonParser.parseReader(reader).getAsJsonObject();
-            if (!root.has(styleName)) {
-                Engine.LOGGER.warn("Tooltip style '{}' not found.", styleName);
-                return null;
-            }
-            return new Gson().fromJson(root.get(styleName), TooltipAttributes.class);
-        } catch (Exception error) {
-            Engine.LOGGER.error("Failed to load tooltip style '{}'.", styleName, error);
-            return null;
-        }
-    }
-
-    private JComponent createLabel(ComponentAttributes attributes) {
-        Label label = new Label(this);
-        new LabelStyle(this).apply(label);
-        label.setIcon(iconUtils.getIcon(attributes));
-        label.setText(localizedTextWithInitial(attributes));
-        label.setForeground(hexToColor(valueOr(attributes.getColor(), getStyle().getColor())));
-        label.setFont(engine.getFONTUTILS().getFont(
-                valueOr(attributes.getFont(), getStyle().getFont()),
-                effectiveFontSize(attributes),
-                valueOr(attributes.getFontStyle(), getStyle().getFontStyle())
-        ));
-        return label;
-    }
-
-    private JComponent createProgressBar(ComponentAttributes attributes) {
-        ProgressBar progressBar = new ProgressBar();
-        new ProgressBarStyle(this, attributes).apply(progressBar);
-        return progressBar;
-    }
-
-    private JComponent createButton(ComponentAttributes attributes) {
-        String text = localizedText(attributes.getLocaleKey());
-        Button button = attributes.getImageIcon() == null
-                ? new Button(this, text)
-                : new Button(this, iconUtils.getIcon(attributes), text);
-        new ButtonStyle(this).apply(button);
-        button.setActionCommand(attributes.getComponentId());
-        button.addActionListener(engine);
-        installButtonShortcut(button, attributes);
-        return button;
-    }
-
-    private void installButtonShortcut(Button button, ComponentAttributes attributes) {
-        if (attributes.getKeyCode() == null || attributes.getKeyCode().isBlank()) {
-            return;
-        }
-        KeyStroke keyStroke = KeyStroke.getKeyStroke(attributes.getKeyCode());
-        if (keyStroke == null) {
-            Engine.LOGGER.warn("Invalid key stroke '{}' for component '{}'.", attributes.getKeyCode(), attributes.getComponentId());
-            return;
-        }
-        String actionKey = valueOr(attributes.getComponentId(), "button.shortcut." + System.identityHashCode(button));
-        button.getActionMap().put(actionKey, new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent event) {
-                button.ButtonClick();
-                button.doClick();
-                button.setPressed(false);
-            }
-        });
-        button.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, actionKey);
-    }
-
-    private JComponent createTextArea(ComponentAttributes attributes) {
-        TextArea textArea = new TextArea(this);
-        textArea.setLineWrap(attributes.isLineWrap());
-        new AreaStyle(this).apply(textArea);
-        textArea.setText(localizedTextWithInitial(attributes));
-        textArea.setForeground(hexToColor(valueOr(attributes.getColor(), getStyle().getColor())));
-        textArea.setEditable(attributes.isEditable());
-        textArea.setFont(engine.getFONTUTILS().getFont(
-                valueOr(attributes.getFont(), getStyle().getFont()),
-                effectiveFontSize(attributes),
-                valueOr(attributes.getFontStyle(), getStyle().getFontStyle())
-        ));
-        return textArea;
-    }
-
-    private JComponent createCheckbox(ComponentAttributes attributes) {
-        Checkbox checkbox = new Checkbox(this, localizedText(attributes.getLocaleKey()));
-        new CheckboxStyle(this).apply(checkbox);
-        checkbox.setSelected(Boolean.parseBoolean(String.valueOf(attributes.getInitialValue())));
-        installCheckboxShortcut(checkbox, attributes);
-        return checkbox;
-    }
-
-    private void installCheckboxShortcut(Checkbox checkbox, ComponentAttributes attributes) {
-        if (attributes.getKeyCode() == null || attributes.getKeyCode().isBlank()) {
-            return;
-        }
-        KeyStroke keyStroke = KeyStroke.getKeyStroke(attributes.getKeyCode());
-        if (keyStroke == null) {
-            Engine.LOGGER.warn("Invalid key stroke '{}' for component '{}'.", attributes.getKeyCode(), attributes.getComponentId());
-            return;
-        }
-        String actionKey = valueOr(attributes.getComponentId(), "checkbox.shortcut." + System.identityHashCode(checkbox));
-        checkbox.getActionMap().put(actionKey, new AbstractAction() {
-            @Override
-            public void actionPerformed(ActionEvent event) {
-                checkbox.toggleCheckbox();
-                checkbox.doClick();
-            }
-        });
-        checkbox.getInputMap(JComponent.WHEN_IN_FOCUSED_WINDOW).put(keyStroke, actionKey);
-    }
-
-    private JComponent createTextField(ComponentAttributes attributes) {
-        TextField textField = new TextField(this);
-        new TextFieldStyle(this).apply(textField);
-        if (attributes.getInitialValue() != null) {
-            textField.setText(String.valueOf(attributes.getInitialValue()));
-        }
-        textField.setEditable(attributes.isEditable());
-        textField.setActionCommand(attributes.getComponentId());
-        textField.addActionListener(engine);
-        return textField;
-    }
-
-    private JComponent createSpriteImage(ComponentAttributes attributes) {
-        return new SpriteAnimation(this);
-    }
-
-    private JComponent createPassField(ComponentAttributes attributes) {
-        PassField passField = new PassField(this, localizedText(attributes.getLocaleKey()));
-        new PassFieldStyle(this).apply(passField);
-        passField.setFont(engine.getFONTUTILS().getFont(
-                valueOr(attributes.getFont(), getStyle().getFont()),
-                effectiveFontSize(attributes),
-                valueOr(attributes.getFontStyle(), getStyle().getFontStyle())
-        ));
-        passField.setEditable(attributes.isEditable());
-        passField.setActionCommand(attributes.getComponentId());
-        return passField;
-    }
-
-    private JComponent createSpinner(ComponentAttributes attributes) {
-        int minimum = attributes.getMinValue();
-        int maximum = attributes.getMaxValue() > minimum ? attributes.getMaxValue() : minimum + 100;
-        int initial = Math.max(minimum, Math.min(maximum, intValue(attributes.getInitialValue(), minimum)));
-        int step = attributes.getStepSize() > 0
-                ? attributes.getStepSize()
-                : Math.max(1, attributes.getMajorSpacing());
-        Spinner spinner = new Spinner(initial, minimum, maximum, step);
-        if (spinner.getSpinnerListener() != null) {
-            spinner.init();
-        }
-        return spinner;
-    }
-
-    private JComponent createMultiButton(ComponentAttributes attributes) {
-        MultiButton multiButton = new MultiButton(this);
-        new MultiButtonStyle(this, attributes).apply(multiButton);
-        multiButton.setActionCommand(attributes.getComponentId());
-        multiButton.addActionListener(engine);
-        return multiButton;
-    }
-
-    private JComponent createCombobox(ComponentAttributes attributes) {
-        Combobox combobox = new Combobox(this, attributes.getBounds().y);
-        new ComboboxStyle(this).apply(combobox);
-        return combobox;
-    }
-
-    private JComponent createSlider(ComponentAttributes attributes) {
-        Slider slider = new Slider(this);
-        int minimum = attributes.getMinValue();
-        int maximum = attributes.getMaxValue() > minimum ? attributes.getMaxValue() : minimum + 100;
-        int initial = Math.max(minimum, Math.min(maximum, intValue(attributes.getInitialValue(), minimum)));
-        int range = Math.max(1, maximum - minimum);
-
-        slider.setMinimum(minimum);
-        slider.setMaximum(maximum);
-        slider.setValue(initial);
-        slider.setPaintTicks(true);
-        slider.setPaintLabels(true);
-        slider.setMajorTickSpacing(attributes.getMajorSpacing() > 0
-                ? attributes.getMajorSpacing()
-                : Math.max(1, range / 5));
-        slider.setMinorTickSpacing(attributes.getMinorSpacing() > 0
-                ? attributes.getMinorSpacing()
-                : Math.max(1, range / 10));
-        slider.setUI(new TexturedSliderUI(this, slider, getStyle()));
-        return slider;
-    }
-
-    private JComponent createCompositeSlider(ComponentAttributes attributes) {
-        CompositeSlider slider = new CompositeSlider(this);
-        if (attributes.getInitialValue() != null) {
-            slider.setValue(intValue(attributes.getInitialValue(), attributes.getMinValue()));
-        }
-        return slider;
-    }
-
-    private JComponent createFileSelector(ComponentAttributes attributes) {
-        FileSelector selector = new FileSelector(this, selectionMode(attributes.getSelectionMode()));
-        if (attributes.getInitialValue() != null) {
-            selector.setValue(String.valueOf(attributes.getInitialValue()));
-        }
-        return selector;
-    }
-
-    private CompositeComponent.LayoutMode resolveCompositeLayout(ComponentAttributes attributes) {
-        String mode = valueOr(attributes.getAlignment(), "absolute").toLowerCase(Locale.ROOT);
-        return switch (mode) {
-            case "vertical", "y", "box-y" -> CompositeComponent.LayoutMode.VERTICAL;
-            case "horizontal", "x", "box-x" -> CompositeComponent.LayoutMode.HORIZONTAL;
-            case "flow" -> CompositeComponent.LayoutMode.FLOW;
-            default -> CompositeComponent.LayoutMode.ABSOLUTE;
-        };
-    }
-
-    private String localizedTextWithInitial(ComponentAttributes attributes) {
-        String localized = localizedText(attributes.getLocaleKey());
-        Object initialValue = attributes.getInitialValue();
-        return initialValue == null || String.valueOf(initialValue).isBlank()
-                ? localized
-                : localized + " " + initialValue;
-    }
-
-    private String localizedText(String localeKey) {
-        if (localeKey == null || localeKey.isBlank()) {
-            return "";
-        }
-        return langProvider.getString(localeKey);
-    }
-
-    private int effectiveFontSize(ComponentAttributes attributes) {
-        return attributes.getFontSize() > 0 ? attributes.getFontSize() : getStyle().getFontSize();
-    }
-
-    private int intValue(Object value, int fallback) {
-        if (value == null) {
-            return fallback;
-        }
-        try {
-            return (Integer) ConfigTypeConverter.convertToDeclaredType(value, int.class);
-        } catch (RuntimeException error) {
-            Engine.LOGGER.warn("Invalid numeric component value '{}'; using {}.", value, fallback);
-            return fallback;
-        }
-    }
-
-    private String stringProperty(ComponentAttributes attributes, String key, String fallback) {
-        Object value = attributes.getProperties().get(key);
-        if (value == null) {
-            return fallback == null ? "" : fallback;
-        }
-        String resolved = String.valueOf(value).trim();
-        return resolved.isBlank() ? (fallback == null ? "" : fallback) : resolved;
-    }
-
-    private int intProperty(ComponentAttributes attributes, String key, int fallback) {
-        Object value = attributes.getProperties().get(key);
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        try {
-            return value == null ? fallback : Integer.parseInt(String.valueOf(value));
-        } catch (NumberFormatException ignored) {
-            return fallback;
-        }
-    }
-
-    private boolean booleanProperty(ComponentAttributes attributes, String key, boolean fallback) {
-        Object value = attributes.getProperties().get(key);
-        return value == null ? fallback : Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private SelectionMode selectionMode(String mode) {
-        SelectionMode resolved = SelectionMode.from(mode);
-        if (mode != null && !mode.isBlank() && resolved == SelectionMode.FILES_ONLY
-                && !SelectionMode.isFileAlias(mode)) {
-            Engine.LOGGER.warn("Invalid file selection mode '{}'; using FILES_ONLY.", mode);
-        }
-        return resolved;
+        return compositeBuilder.createComposite(attributes);
     }
 
     public Optional<ComponentCreationContext> getCurrentCreationContext() {
-        Deque<ComponentCreationContext> stack = creationStack.get();
-        return stack.isEmpty() ? Optional.empty() : Optional.of(stack.peek());
+        return creationState.currentContext();
     }
 
     public StyleAttributes getStyle() {
-        Deque<StyleAttributes> overrides = scopedStyles.get();
-        if (!overrides.isEmpty()) {
-            return overrides.peek();
-        }
-        return getCurrentCreationContext().map(ComponentCreationContext::style).orElse(fallbackStyle);
+        return creationState.currentStyle();
     }
 
     public <T> T withStyle(StyleAttributes style, Supplier<T> action) {
-        Objects.requireNonNull(style, "style");
-        Objects.requireNonNull(action, "action");
-        Deque<StyleAttributes> overrides = scopedStyles.get();
-        overrides.push(style);
-        try {
-            return action.get();
-        } finally {
-            overrides.pop();
-            if (overrides.isEmpty()) {
-                scopedStyles.remove();
-            }
-        }
+        return creationState.withStyle(style, action);
     }
 
     public void withStyle(StyleAttributes style, Runnable action) {
-        withStyle(style, () -> {
+        Objects.requireNonNull(action, "action");
+        creationState.withStyle(style, () -> {
             action.run();
             return null;
         });
     }
 
     public Rectangle getBounds() {
-        return getCurrentCreationContext()
-                .map(context -> new Rectangle(context.bounds()))
-                .orElseGet(Rectangle::new);
+        return creationState.currentBounds();
     }
 
     /** Sets the fallback used only when no component is currently being created. */
     @Deprecated(since = "2.0.0-AURELIA", forRemoval = false)
     public void setStyle(StyleAttributes style) {
-        this.fallbackStyle = Objects.requireNonNull(style, "style");
+        creationState.setFallbackStyle(style);
     }
 
     public ComponentAttributes getComponentAttribute() {
-        return getCurrentCreationContext()
-                .map(ComponentCreationContext::attributes)
-                .orElse(lastComponentAttribute);
+        return creationState.currentAttributes();
     }
 
     public Map<String, Function<ComponentAttributes, JComponent>> getComponentRegistry() {
@@ -908,11 +317,5 @@ public class ComponentFactory extends JComponent {
         return value.trim();
     }
 
-    private static String normalizeType(String type) {
-        return requireType(type, "component type").toLowerCase(Locale.ROOT);
-    }
 
-    private static String valueOr(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value;
-    }
 }

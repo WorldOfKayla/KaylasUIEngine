@@ -1,6 +1,33 @@
 # Changelog
 
-## 2.2.0-AURELIA — 2026-07-11
+## 2.3.0-KINETICA - 2026-07-11
+
+### Modular animation runtime
+
+- Reorganized `gui.animation` into stable public facades and responsibility-focused internal packages.
+- Isolated easing and cubic-Bezier evaluation from the public `AnimationCurve` value object.
+- Moved the adaptive shared Swing pulse into a hidden runtime implementation.
+- Separated timer/resource ownership, timeline sampling, and timeline execution.
+- Moved overlay painting and fade lifecycle behind `LayeredPaneOverlay`.
+- Moved scripted window transition state and diagnostics behind `ScriptedWindowAnimator`.
+- Moved progress-loop resources and execution behind `ProgressBarAnimator` while preserving its subclass hook and options API.
+- Moved snapshot drawer capture, geometry, placement state, and transition execution behind `SnapshotDrawerAnimator`.
+
+### Encapsulation and verification
+
+- Reorganized `componentAccessor` into binding, indexing, source, state, support, and value responsibility zones.
+- Split `ComponentFactory` construction, common attribute application, tooltip loading, composite assembly, and scoped state.
+- Split loading UI defaults, parsing, coercion, geometry resolution, and progress adaptation.
+- Added animation architecture, curve, options, resource ownership, and internal visibility verification.
+- Added public animation API JavaDoc validation.
+- Kept internal concrete implementations package-private and final.
+
+### Compatibility
+
+- Preserved the public animation, component-accessor, component-factory, and loading-UI contracts used by KaylasLauncher.
+- Renamed the current engine generation from AURELIA to KINETICA.
+
+## 2.2.0-AURELIA - 2026-07-11
 
 ### Architectural revolution
 
@@ -26,7 +53,7 @@
 - Added deep merge, collection strategy, XML group order, runtime group lifecycle, instance extension, child append and tabs state-transition checks.
 - Component runtime verification now identifies itself as 2.2.
 
-## 2.1.0-AURELIA — 2026-07-10
+## 2.1.0-AURELIA - 2026-07-10
 
 ### Breaking
 
@@ -83,7 +110,7 @@
 - Added `componentAccessorCheck` for traversal, scoped lookup, inherited/optional binding, adapters, refresh, form modes, and duplicate policies.
 - Added `componentAccessorJavadoc` to generate and validate the complete accessor API documentation.
 
-## 2.0.0-AURELIA — 2026-07-10
+## 2.0.0-AURELIA - 2026-07-10
 
 ### Breaking
 

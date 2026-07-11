@@ -15,6 +15,7 @@ import org.takesome.kaylasEngine.gui.config.DeepConfigMerger;
 import org.takesome.kaylasEngine.gui.scripting.ComponentSignalRouter;
 import org.takesome.kaylasEngine.gui.styles.StyleAttributes;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
+import org.takesome.kaylasEngine.utils.RamRangeCalculator;
 
 import javax.swing.JButton;
 import javax.swing.JPanel;
@@ -37,13 +38,14 @@ public final class ComponentRuntimeVerification {
         verifySelectionModes();
         verifyStyleComposition();
         verifyDescriptors();
+        verifyRamRanges();
         verifyGroupedConfiguration();
         verifyTabsComponent();
         verifyDefinitionInheritance();
         verifyComponentCatalog();
         verifySignalRouter();
 
-        System.out.println("Component Constructor Runtime 2.2 verification passed.");
+        System.out.println("KINETICA Component Runtime 2.3 verification passed.");
     }
 
     private static void verifyXmlDescriptorPolicy() {
@@ -84,7 +86,7 @@ public final class ComponentRuntimeVerification {
                             <disabled/>
                             <bounds x="0" y="0" width="10" height="10"/>
                         </component>
-                        <component type="button" id="implicitFalse">
+                        <component type="slider" id="implicitFalse" hideWordMarkers="true">
                             <bounds x="0" y="0" width="10" height="10"/>
                         </component>
                     </childComponents>
@@ -126,6 +128,8 @@ public final class ComponentRuntimeVerification {
         ComponentAttributes implicitFalse = markerComponents.get(2);
         require(!implicitFalse.isVisible() && !implicitFalse.isEnabled() && !implicitFalse.isOpaque(),
                 "absent XML boolean markers did not resolve to false");
+        require(implicitFalse.isHideWordMarkers(),
+                "slider hideWordMarkers attribute was not parsed");
 
         expectThrows(
                 IllegalArgumentException.class,
@@ -192,6 +196,7 @@ public final class ComponentRuntimeVerification {
                 .bounds(1, 2, 100, 30)
                 .enabled(true)
                 .visible(true)
+                .hideWordMarkers(true)
                 .property("verification", true)
                 .script("action", "assets/scripts/verification.lua")
                 .build();
@@ -200,6 +205,8 @@ public final class ComponentRuntimeVerification {
                 "descriptor style chain order changed");
         require(Boolean.TRUE.equals(attributes.getProperties().get("verification")),
                 "descriptor client property was not retained");
+        require(attributes.isHideWordMarkers(),
+                "descriptor builder did not retain hideWordMarkers");
         require("assets/scripts/verification.lua".equals(attributes.getScripts().get("action")),
                 "descriptor event script was not retained");
 
@@ -208,6 +215,34 @@ public final class ComponentRuntimeVerification {
                 "descriptor copy mutated the source prototype");
         require("verificationCopy".equals(copy.getComponentId()),
                 "descriptor copy did not accept independent mutation");
+    }
+
+    private static void verifyRamRanges() {
+        RamRangeCalculator calculator = new RamRangeCalculator();
+
+        RamRangeCalculator.SliderRange eightGb =
+                calculator.calculateSliderRangeForTotalMemory(8L * 1024L, 4);
+        require(eightGb.values().equals(List.of(1024, 2048, 3072, 4096)),
+                "8 GB RAM profile is not an evenly divided four-value range");
+        require(eightGb.initialValue() == 2048,
+                "8 GB RAM profile did not select 2048 MB initially");
+
+        RamRangeCalculator.SliderRange thirtyTwoGb =
+                calculator.calculateSliderRangeForTotalMemory(32L * 1024L, 4);
+        require(thirtyTwoGb.values().equals(List.of(4096, 8192, 12288, 16384)),
+                "32 GB RAM profile still exposes undersized values");
+        require(thirtyTwoGb.initialValue() == 8192,
+                "32 GB RAM profile did not select 8192 MB initially");
+
+        RamRangeCalculator.SliderRange detectedThirtyTwoGb =
+                calculator.calculateSliderRangeForTotalMemory(32_700L, 4);
+        require(detectedThirtyTwoGb.values().equals(thirtyTwoGb.values()),
+                "physical-memory reporting overhead changed the 32 GB profile");
+
+        RamRangeCalculator.SliderRange fourGb =
+                calculator.calculateSliderRangeForTotalMemory(4L * 1024L, 4);
+        require(fourGb.values().equals(List.of(512, 1024, 1536, 2048)),
+                "4 GB RAM profile is not compact and safe");
     }
 
     private static void verifyGroupedConfiguration() {

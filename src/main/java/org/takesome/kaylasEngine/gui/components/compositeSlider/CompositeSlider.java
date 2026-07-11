@@ -14,6 +14,7 @@ import org.takesome.kaylasEngine.utils.RamRangeCalculator;
 
 import java.awt.Cursor;
 import java.awt.Dimension;
+import javax.swing.SpinnerListModel;
 import java.util.ArrayList;
 import java.util.Hashtable;
 import java.util.List;
@@ -35,6 +36,7 @@ public class CompositeSlider extends CompositeComponent {
     private Slider slider;
     private Spinner spinner;
     private SliderListener sliderListener;
+    private List<Integer> selectableValues = List.of();
     private boolean syncing;
 
     public CompositeSlider(ComponentFactory componentFactory) {
@@ -53,6 +55,7 @@ public class CompositeSlider extends CompositeComponent {
 
     private void initializeComponents() {
         SliderRangeModel range = resolveRange();
+        selectableValues = List.copyOf(range.values());
         resolvedLabelStyle = componentFactory.getEngine().getStyleProvider()
                 .getStyle("label", styleName("label"));
         resolvedSliderStyle = componentFactory.getEngine().getStyleProvider()
@@ -67,6 +70,10 @@ public class CompositeSlider extends CompositeComponent {
         configureSlider(range);
 
         spinner = new Spinner(range.initialValue(), range.minValue(), range.maxValue(), spinnerStep(range));
+        if (isRamComponent()) {
+            spinner.setModel(new SpinnerListModel(selectableValues));
+            spinner.setValue(range.initialValue());
+        }
         spinner.setName(childName("Text"));
         spinner.setOpaque(false);
         setValue(range.initialValue());
@@ -101,7 +108,10 @@ public class CompositeSlider extends CompositeComponent {
         if (values == null || values.size() < 2) {
             values = getValues(minValue, maxValue, 2);
         }
-        return new SliderRangeModel(minValue, maxValue, initialValue, values);
+        if (isRamComponent()) {
+            initialValue = RamRangeCalculator.nearestValue(values, initialValue);
+        }
+        return new SliderRangeModel(minValue, maxValue, initialValue, List.copyOf(values));
     }
 
     private void configureLabel() {
@@ -114,15 +124,21 @@ public class CompositeSlider extends CompositeComponent {
     private void configureSlider(SliderRangeModel range) {
         slider.setMinimum(range.minValue());
         slider.setMaximum(range.maxValue());
+        if (isRamComponent()) {
+            slider.setAllowedValues(range.values());
+        }
         slider.setValue(range.initialValue());
         slider.setPaintTicks(true);
-        slider.setPaintLabels(true);
+        boolean showWordMarkers = !componentAttribute.isHideWordMarkers();
+        slider.setPaintLabels(showWordMarkers);
         slider.setMajorTickSpacing(majorTickSpacing(range));
         slider.setMinorTickSpacing(minorTickSpacing(range));
         slider.setOpaque(false);
 
         slider.setUI(new TexturedSliderUI(componentFactory, slider, resolvedSliderStyle));
-        slider.setLabelTable(createLabelTable(range.values()));
+        if (showWordMarkers) {
+            slider.setLabelTable(createLabelTable(range.values()));
+        }
     }
 
     private Hashtable<Integer, Label> createLabelTable(List<Integer> values) {
@@ -213,7 +229,10 @@ public class CompositeSlider extends CompositeComponent {
         }
         syncing = true;
         try {
-            int value = slider.getValue();
+            int value = normalizeSelectableValue(slider.getValue());
+            if (value != slider.getValue()) {
+                slider.setValue(value);
+            }
             if (!spinner.getValue().equals(value)) {
                 spinner.setValue(value);
             }
@@ -287,7 +306,9 @@ public class CompositeSlider extends CompositeComponent {
             super.setValue(value);
             return;
         }
-        int clamped = clamp(value, slider.getMinimum(), slider.getMaximum());
+        int clamped = normalizeSelectableValue(
+                clamp(value, slider.getMinimum(), slider.getMaximum())
+        );
         syncing = true;
         try {
             slider.setValue(clamped);
@@ -356,6 +377,13 @@ public class CompositeSlider extends CompositeComponent {
             Engine.LOGGER.warn("Invalid composite slider value '{}', using fallback: {}", value, fallback);
             return fallback;
         }
+    }
+
+    private int normalizeSelectableValue(int value) {
+        if (!isRamComponent() || selectableValues.isEmpty()) {
+            return value;
+        }
+        return RamRangeCalculator.nearestValue(selectableValues, value);
     }
 
     private int clamp(int value, int min, int max) {

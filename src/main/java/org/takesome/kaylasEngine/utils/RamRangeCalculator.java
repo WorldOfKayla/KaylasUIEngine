@@ -5,26 +5,23 @@ import org.takesome.kaylasEngine.Engine;
 
 import java.lang.management.ManagementFactory;
 import java.util.ArrayList;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.OptionalLong;
-import java.util.Set;
 
 /**
- * Calculates a compact, power-of-two RAM allocation range for launcher sliders.
+ * Calculates a compact RAM allocation range for launcher sliders.
  *
- * <p>The range deliberately exposes only a few meaningful values instead of a long linear scale.
- * A machine with 8 GB therefore receives {@code 1024, 2048, 4096}, while a machine with 32 GB
- * receives {@code 4096, 8192, 16384}. This keeps labels readable and avoids presenting very small
- * allocations on high-memory systems.</p>
+ * <p>The upper allocation limit is derived from detected physical memory and rounded to a safe
+ * power-of-two boundary. That limit is then divided into an equal number of allocation quanta,
+ * producing a readable scale without per-capacity profiles or threshold tables.</p>
  */
 public class RamRangeCalculator {
     private static final int MB_IN_GB = 1024;
     private static final int ABSOLUTE_MIN_RAM_MB = 512;
     private static final int ABSOLUTE_MAX_RAM_MB = 64 * MB_IN_GB;
     private static final int DEFAULT_TOTAL_SYSTEM_RAM_MB = 8 * MB_IN_GB;
-    private static final int DEFAULT_MARKER_COUNT = 3;
-    private static final int MAX_VISIBLE_MARKERS = 3;
+    private static final int DEFAULT_MARKER_COUNT = 4;
+    private static final int MAX_VISIBLE_MARKERS = 4;
 
     /**
      * Immutable slider range expressed in megabytes.
@@ -32,7 +29,7 @@ public class RamRangeCalculator {
      * @param minValue minimum selectable value
      * @param maxValue maximum selectable value
      * @param initialValue recommended initial value
-     * @param values ordered discrete power-of-two values
+     * @param values ordered discrete allocation values
      */
     public record SliderRange(int minValue, int maxValue, int initialValue, List<Integer> values) {
         public SliderRange {
@@ -50,10 +47,10 @@ public class RamRangeCalculator {
     }
 
     /**
-     * Detects total physical memory and returns an adaptive power-of-two range.
+     * Detects total physical memory and returns an adaptive allocation range.
      *
-     * <p>{@code numberOfSteps} is treated as a legacy marker-count hint. The visual scale is capped
-     * at three labels so it remains readable in compact settings panels.</p>
+     * <p>{@code numberOfSteps} is a marker-count hint. The compact launcher layout supports up to
+     * four visible values.</p>
      */
     public SliderRange calculateSliderRange(int numberOfSteps) {
         OptionalLong totalMemoryMb = getTotalSystemMemoryMb();
@@ -74,14 +71,14 @@ public class RamRangeCalculator {
      * Deterministic variant used by tests and platform integrations that already know total RAM.
      *
      * @param detectedTotalMemoryMb detected physical memory in megabytes
-     * @param numberOfSteps requested marker count; values above three are intentionally compacted
+     * @param numberOfSteps requested marker count, capped for the compact launcher layout
      */
     public SliderRange calculateSliderRangeForTotalMemory(long detectedTotalMemoryMb,
                                                            int numberOfSteps) {
         long normalizedTotalMb = normalizeInstalledMemoryMb(detectedTotalMemoryMb);
         int markerCount = resolveMarkerCount(numberOfSteps);
         int maximum = calculateMaximumAllocationMb(normalizedTotalMb);
-        List<Integer> values = generatePowerOfTwoValues(maximum, markerCount);
+        List<Integer> values = generateAllocationValues(maximum, markerCount);
         int targetInitial = safeLongToInt(normalizedTotalMb / 4L);
         int initial = nearestValue(values, targetInitial);
 
@@ -147,14 +144,22 @@ public class RamRangeCalculator {
         return safeLongToInt(Math.max(ABSOLUTE_MIN_RAM_MB, candidate));
     }
 
-    private List<Integer> generatePowerOfTwoValues(int maximum, int markerCount) {
-        Set<Integer> uniqueValues = new LinkedHashSet<>();
-        for (int offset = markerCount - 1; offset >= 0; offset--) {
-            int value = maximum >> offset;
-            uniqueValues.add(Math.max(ABSOLUTE_MIN_RAM_MB, value));
+    /**
+     * Divides the calculated maximum into equal semantic steps.
+     *
+     * <p>For example, a 16384 MB maximum and four markers produce
+     * {@code 4096, 8192, 12288, 16384}. The same formula applies to every detected RAM size.</p>
+     */
+    private List<Integer> generateAllocationValues(int maximum, int requestedMarkerCount) {
+        int availableQuanta = Math.max(1, maximum / ABSOLUTE_MIN_RAM_MB);
+        int markerCount = Math.max(1, Math.min(requestedMarkerCount, availableQuanta));
+        int quantum = maximum / markerCount;
+
+        List<Integer> values = new ArrayList<>(markerCount);
+        for (int index = 1; index <= markerCount; index++) {
+            values.add(index == markerCount ? maximum : quantum * index);
         }
-        uniqueValues.add(maximum);
-        return List.copyOf(new ArrayList<>(uniqueValues));
+        return List.copyOf(values);
     }
 
     private int resolveMarkerCount(int numberOfSteps) {

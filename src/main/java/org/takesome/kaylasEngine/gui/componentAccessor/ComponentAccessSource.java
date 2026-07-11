@@ -1,6 +1,7 @@
 package org.takesome.kaylasEngine.gui.componentAccessor;
 
 import org.takesome.kaylasEngine.gui.GuiBuilder;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.source.ComponentAccessSources;
 import org.takesome.kaylasEngine.gui.components.ComponentCatalog;
 
 import javax.swing.JComponent;
@@ -56,6 +57,6 @@ public interface ComponentAccessSource {
      * @return source adapter.
      */
     static ComponentAccessSource from(GuiBuilder guiBuilder) {
-        return new GuiBuilderComponentAccessSource(guiBuilder);
+        return ComponentAccessSources.fromGuiBuilder(guiBuilder);
     }
 }

@@ -1,29 +1,21 @@
 package org.takesome.kaylasEngine.gui.componentAccessor;
 
-import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.GuiBuilder;
-import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
-import org.takesome.kaylasEngine.gui.components.constructor.ConstructedCompositeComponent;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.binding.ComponentFieldBinding;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.index.ComponentGraphIndexing;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.state.ComponentIndexState;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.support.ComponentIds;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.value.ComponentFormValueCollection;
 
 import javax.swing.JComponent;
 import javax.swing.JPanel;
-import java.lang.reflect.Field;
-import java.lang.reflect.Modifier;
-import java.lang.reflect.ParameterizedType;
-import java.lang.reflect.Type;
-import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Collection;
 import java.util.Collections;
-import java.util.IdentityHashMap;
 import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 import java.util.stream.Collectors;
 
 /**
@@ -59,19 +51,15 @@ import java.util.stream.Collectors;
  */
 @SuppressWarnings("unused")
 public class ComponentsAccessor {
-    private static final String ATTRIBUTES_PROPERTY = "kaylas.ui.attributes";
-
     private final ComponentAccessSource source;
     private final String rootPanelId;
     private final List<Class<? extends JComponent>> componentTypes;
     private final ComponentAccessorOptions options;
     private final ComponentValueRegistry valueRegistry;
-    private final ReentrantReadWriteLock indexLock = new ReentrantReadWriteLock();
-
-    private final Map<String, JComponent> componentMap = new LinkedHashMap<>();
-    private final Map<String, List<JComponent>> panelComponentMap = new LinkedHashMap<>();
-    private final Map<String, IndexedComponent> metadataMap = new LinkedHashMap<>();
-    private long revision;
+    private final ComponentGraphIndexing graphIndexer;
+    private final ComponentFormValueCollection formValueCollector;
+    private final ComponentFieldBinding fieldBinder = ComponentFieldBinding.create();
+    private final ComponentIndexState indexState;
 
     /**
      * Creates an accessor with compatibility-oriented defaults and the standard value registry.
@@ -159,11 +147,18 @@ public class ComponentsAccessor {
             throw new IllegalArgumentException("panelId must not be blank");
         }
         this.rootPanelId = panelId.trim();
+        this.indexState = ComponentIndexState.create(this.rootPanelId);
         this.componentTypes = normalizeComponentTypes(componentTypes);
         this.options = Objects.requireNonNullElseGet(options, ComponentAccessorOptions::defaults);
         this.valueRegistry = Objects.requireNonNullElseGet(
                 valueRegistry,
                 ComponentValueRegistry::defaults
+        );
+        this.graphIndexer = ComponentGraphIndexing.create(source, this.options, this.componentTypes);
+        this.formValueCollector = ComponentFormValueCollection.create(
+                source,
+                this.options,
+                this.valueRegistry
         );
         refresh();
     }
@@ -175,43 +170,9 @@ public class ComponentsAccessor {
      * @throws ComponentAccessException when strict traversal, duplicate, or binding validation fails.
      */
     public final ComponentAccessSnapshot refresh() {
-        Map<String, JComponent> nextComponents = new LinkedHashMap<>();
-        Map<String, List<JComponent>> nextPanelComponents = new LinkedHashMap<>();
-        Map<String, IndexedComponent> nextMetadata = new LinkedHashMap<>();
-        Set<String> visitedPanels = new LinkedHashSet<>();
-        Set<JComponent> visitedComponents = Collections.newSetFromMap(new IdentityHashMap<>());
+        ComponentGraphIndexing.Index nextIndex = graphIndexer.build(rootPanelId);
 
-        boolean rootExists = source.findPanel(rootPanelId).isPresent()
-                || !source.components(rootPanelId).isEmpty()
-                || !source.childPanels(rootPanelId).isEmpty();
-        if (!rootExists && options.failOnMissingRootPanel()) {
-            throw new ComponentAccessException("Root panel not found: " + rootPanelId);
-        }
-
-        collectPanel(
-                rootPanelId,
-                0,
-                visitedPanels,
-                visitedComponents,
-                nextComponents,
-                nextPanelComponents,
-                nextMetadata
-        );
-
-        indexLock.writeLock().lock();
-        try {
-            componentMap.clear();
-            componentMap.putAll(nextComponents);
-            panelComponentMap.clear();
-            nextPanelComponents.forEach((panel, components) ->
-                    panelComponentMap.put(panel, List.copyOf(components))
-            );
-            metadataMap.clear();
-            metadataMap.putAll(nextMetadata);
-            revision++;
-        } finally {
-            indexLock.writeLock().unlock();
-        }
+        indexState.replace(nextIndex);
 
         if (options.injectAnnotatedFields()) {
             bindAnnotatedFields();
@@ -267,12 +228,7 @@ public class ComponentsAccessor {
      * @return revision incremented after every successful refresh.
      */
     public long getRevision() {
-        indexLock.readLock().lock();
-        try {
-            return revision;
-        } finally {
-            indexLock.readLock().unlock();
-        }
+        return indexState.revision();
     }
 
     /**
@@ -281,19 +237,7 @@ public class ComponentsAccessor {
      * @return component access snapshot.
      */
     public ComponentAccessSnapshot snapshot() {
-        indexLock.readLock().lock();
-        try {
-            return new ComponentAccessSnapshot(
-                    revision,
-                    Instant.now(),
-                    rootPanelId,
-                    componentMap,
-                    panelComponentMap,
-                    metadataMap
-            );
-        } finally {
-            indexLock.readLock().unlock();
-        }
+        return indexState.snapshot();
     }
 
     /**
@@ -364,15 +308,7 @@ public class ComponentsAccessor {
      */
     public Optional<IndexedComponent> findIndexedComponent(String id) {
         refreshBeforeLookup();
-        if (id == null || id.isBlank()) {
-            return Optional.empty();
-        }
-        indexLock.readLock().lock();
-        try {
-            return Optional.ofNullable(metadataMap.get(id.trim()));
-        } finally {
-            indexLock.readLock().unlock();
-        }
+        return indexState.findMetadata(id);
     }
 
     /**
@@ -393,15 +329,7 @@ public class ComponentsAccessor {
      */
     public Optional<JComponent> findComponent(String id) {
         refreshBeforeLookup();
-        if (id == null || id.isBlank()) {
-            return Optional.empty();
-        }
-        indexLock.readLock().lock();
-        try {
-            return Optional.ofNullable(componentMap.get(id.trim()));
-        } finally {
-            indexLock.readLock().unlock();
-        }
+        return indexState.findComponent(id);
     }
 
     /**
@@ -453,7 +381,7 @@ public class ComponentsAccessor {
     public <T extends JComponent> Optional<T> findLocal(String scopeId,
                                                         String localId,
                                                         Class<T> expectedType) {
-        return findComponent(qualify(scopeId, localId), expectedType);
+        return findComponent(ComponentIds.qualify(scopeId, localId), expectedType);
     }
 
     /**
@@ -468,7 +396,7 @@ public class ComponentsAccessor {
     public <T extends JComponent> T requireLocal(String scopeId,
                                                  String localId,
                                                  Class<T> expectedType) {
-        return requireComponent(qualify(scopeId, localId), expectedType);
+        return requireComponent(ComponentIds.qualify(scopeId, localId), expectedType);
     }
 
     /**
@@ -550,11 +478,8 @@ public class ComponentsAccessor {
      * @return immutable form map using the configured {@link ComponentValueMode}.
      */
     public Map<String, Object> getFormCredentials() {
-        Collection<IndexedComponent> eligible = metadataSnapshot().values().stream()
-                .filter(IndexedComponent::formEligible)
-                .toList();
-        return collectValues(
-                eligible,
+        return formValueCollector.collectAll(
+                metadataSnapshot().values(),
                 options.valueMode(),
                 options.unsupportedValuePolicy()
         );
@@ -611,251 +536,8 @@ public class ComponentsAccessor {
         return componentTypes;
     }
 
-    private void collectPanel(String panelId,
-                              int depth,
-                              Set<String> visitedPanels,
-                              Set<JComponent> visitedComponents,
-                              Map<String, JComponent> nextComponents,
-                              Map<String, List<JComponent>> nextPanelComponents,
-                              Map<String, IndexedComponent> nextMetadata) {
-        guardDepth(depth, "panel", panelId);
-        if (!visitedPanels.add(panelId)) {
-            Engine.LOGGER.warn("ComponentAccessor skipped cyclic panel reference: {}", panelId);
-            return;
-        }
-
-        List<JComponent> selectedRoots = new ArrayList<>();
-        Set<JComponent> selectedRootIdentity = Collections.newSetFromMap(new IdentityHashMap<>());
-        for (JComponent root : source.components(panelId)) {
-            if (root == null) {
-                continue;
-            }
-            boolean selected = matchesSelectedType(root);
-            if (selected && selectedRootIdentity.add(root)) {
-                selectedRoots.add(root);
-            }
-            visitComponent(
-                    root,
-                    panelId,
-                    null,
-                    0,
-                    false,
-                    visitedComponents,
-                    nextComponents,
-                    nextMetadata
-            );
-        }
-        nextPanelComponents.put(panelId, List.copyOf(selectedRoots));
-
-        for (String childPanelId : source.childPanels(panelId)) {
-            if (childPanelId == null || childPanelId.isBlank()) {
-                continue;
-            }
-            collectPanel(
-                    childPanelId.trim(),
-                    depth + 1,
-                    visitedPanels,
-                    visitedComponents,
-                    nextComponents,
-                    nextPanelComponents,
-                    nextMetadata
-            );
-        }
-    }
-
-    private void visitComponent(JComponent component,
-                                String panelId,
-                                String parentComponentId,
-                                int depth,
-                                boolean nested,
-                                Set<JComponent> visitedComponents,
-                                Map<String, JComponent> nextComponents,
-                                Map<String, IndexedComponent> nextMetadata) {
-        guardDepth(depth, "component", component.getName());
-        if (!visitedComponents.add(component)) {
-            return;
-        }
-
-        String id = normalize(component.getName());
-        boolean selected = matchesSelectedType(component);
-        boolean formEligible = selected && (!nested || options.includeNestedValuesInForms());
-        String nextParentId = parentComponentId;
-
-        if (id != null) {
-            IndexedComponent metadata = new IndexedComponent(
-                    id,
-                    component,
-                    panelId,
-                    parentComponentId,
-                    depth,
-                    nested,
-                    selected,
-                    formEligible,
-                    catalogType(component),
-                    propertyString(component, ConstructedCompositeComponent.SCOPE_PROPERTY),
-                    propertyString(component, ConstructedCompositeComponent.LOCAL_ID_PROPERTY)
-            );
-            registerComponent(id, component, metadata, nextComponents, nextMetadata);
-            nextParentId = id;
-        }
-
-        if (!options.traverseNestedComponents()) {
-            return;
-        }
-        for (java.awt.Component child : component.getComponents()) {
-            if (child instanceof JComponent childComponent) {
-                visitComponent(
-                        childComponent,
-                        panelId,
-                        nextParentId,
-                        depth + 1,
-                        true,
-                        visitedComponents,
-                        nextComponents,
-                        nextMetadata
-                );
-            }
-        }
-    }
-
-    private void registerComponent(String id,
-                                   JComponent component,
-                                   IndexedComponent metadata,
-                                   Map<String, JComponent> nextComponents,
-                                   Map<String, IndexedComponent> nextMetadata) {
-        JComponent existing = nextComponents.get(id);
-        if (existing == null || existing == component) {
-            nextComponents.put(id, component);
-            nextMetadata.put(id, metadata);
-            return;
-        }
-
-        switch (options.duplicatePolicy()) {
-            case KEEP_FIRST -> Engine.LOGGER.warn(
-                    "ComponentAccessor kept first duplicate id '{}': existing={}, ignored={}",
-                    id,
-                    existing.getClass().getName(),
-                    component.getClass().getName()
-            );
-            case REPLACE -> {
-                Engine.LOGGER.warn(
-                        "ComponentAccessor replaced duplicate id '{}': old={}, new={}",
-                        id,
-                        existing.getClass().getName(),
-                        component.getClass().getName()
-                );
-                nextComponents.put(id, component);
-                nextMetadata.put(id, metadata);
-            }
-            case FAIL -> throw new ComponentAccessException(
-                    "Duplicate component id '" + id + "': "
-                            + existing.getClass().getName() + " and "
-                            + component.getClass().getName()
-            );
-        }
-    }
-
     private void bindAnnotatedFields() {
-        Map<String, JComponent> components = componentSnapshot();
-        for (Class<?> current = getClass();
-             current != null && current != ComponentsAccessor.class;
-             current = current.getSuperclass()) {
-            for (Field field : current.getDeclaredFields()) {
-                Component binding = field.getAnnotation(Component.class);
-                if (binding != null) {
-                    bindField(field, binding, components);
-                }
-            }
-        }
-    }
-
-    private void bindField(Field field,
-                           Component binding,
-                           Map<String, JComponent> components) {
-        if (Modifier.isStatic(field.getModifiers())) {
-            throw new ComponentAccessException(
-                    "@Component cannot be applied to static field: " + field
-            );
-        }
-        if (Modifier.isFinal(field.getModifiers())) {
-            throw new ComponentAccessException(
-                    "@Component cannot inject final field: " + field
-            );
-        }
-
-        String componentId = bindingId(field, binding);
-        JComponent component = components.get(componentId);
-        boolean optionalField = Optional.class.equals(field.getType());
-
-        if (component == null && binding.required()) {
-            throw new ComponentAccessException(
-                    "Required component '" + componentId + "' not found for field "
-                            + field.getDeclaringClass().getName() + "." + field.getName()
-            );
-        }
-
-        Object injectionValue;
-        if (optionalField) {
-            validateOptionalType(field, component, componentId);
-            injectionValue = Optional.ofNullable(component);
-        } else {
-            if (component == null) {
-                return;
-            }
-            if (!field.getType().isInstance(component)) {
-                throw new ComponentAccessException(
-                        "Component '" + componentId + "' has type "
-                                + component.getClass().getName() + ", but field "
-                                + field.getDeclaringClass().getName() + "." + field.getName()
-                                + " expects " + field.getType().getName()
-                );
-            }
-            injectionValue = component;
-        }
-
-        boolean accessible = field.canAccess(this);
-        try {
-            if (!accessible && !field.trySetAccessible()) {
-                throw new ComponentAccessException("Cannot access component field: " + field);
-            }
-            field.set(this, injectionValue);
-        } catch (IllegalAccessException error) {
-            throw new ComponentAccessException(
-                    "Unable to inject component '" + componentId + "' into field " + field,
-                    error
-            );
-        } finally {
-            if (!accessible) {
-                try {
-                    field.setAccessible(false);
-                } catch (RuntimeException ignored) {
-                    // Access was already used successfully; restoration is best effort.
-                }
-            }
-        }
-    }
-
-    private void validateOptionalType(Field field,
-                                      JComponent component,
-                                      String componentId) {
-        if (component == null) {
-            return;
-        }
-        Type genericType = field.getGenericType();
-        if (!(genericType instanceof ParameterizedType parameterizedType)) {
-            return;
-        }
-        Type[] arguments = parameterizedType.getActualTypeArguments();
-        if (arguments.length != 1 || !(arguments[0] instanceof Class<?> expectedType)) {
-            return;
-        }
-        if (!expectedType.isInstance(component)) {
-            throw new ComponentAccessException(
-                    "Component '" + componentId + "' has type "
-                            + component.getClass().getName() + ", but Optional field " + field
-                            + " expects " + expectedType.getName()
-            );
-        }
+        fieldBinder.bind(this, ComponentsAccessor.class, componentSnapshot());
     }
 
     private Map<String, Object> collectFormCredentialsForPanel(
@@ -867,111 +549,12 @@ public class ComponentsAccessor {
             return Map.of();
         }
         refreshBeforeLookup();
-        Set<String> panelIds = new LinkedHashSet<>();
-        collectPanelIds(panelId.trim(), 0, panelIds);
-        Collection<IndexedComponent> components = metadataSnapshot().values().stream()
-                .filter(IndexedComponent::formEligible)
-                .filter(metadata -> panelIds.contains(metadata.panelId()))
-                .toList();
-        return collectValues(components, valueMode, unsupportedPolicy);
-    }
-
-    private Map<String, Object> collectValues(Collection<IndexedComponent> components,
-                                              ComponentValueMode valueMode,
-                                              UnsupportedValuePolicy unsupportedPolicy) {
-        Map<String, Object> values = new LinkedHashMap<>();
-        for (IndexedComponent metadata : components) {
-            FormValue formValue = formValue(metadata.component(), valueMode, unsupportedPolicy);
-            if (formValue.include()) {
-                values.put(metadata.id(), formValue.value());
-            }
-        }
-        return Collections.unmodifiableMap(values);
-    }
-
-    private FormValue formValue(JComponent component,
-                                ComponentValueMode valueMode,
-                                UnsupportedValuePolicy unsupportedPolicy) {
-        if (!valueRegistry.supports(component)) {
-            return switch (unsupportedPolicy) {
-                case SKIP -> FormValue.skip();
-                case EMPTY_STRING -> FormValue.include("");
-                case FAIL -> throw new ComponentAccessException(
-                        "No form value adapter for component " + component.getClass().getName()
-                                + " with id '" + component.getName() + "'"
-                );
-            };
-        }
-
-        Object nativeValue = valueRegistry.read(component);
-        if (valueMode == ComponentValueMode.STRING) {
-            return FormValue.include(nativeValue == null ? "" : String.valueOf(nativeValue));
-        }
-        return FormValue.include(nativeValue);
-    }
-
-    private void collectPanelIds(String panelId,
-                                 int depth,
-                                 Set<String> result) {
-        guardDepth(depth, "panel", panelId);
-        if (!result.add(panelId)) {
-            return;
-        }
-        for (String child : source.childPanels(panelId)) {
-            if (child != null && !child.isBlank()) {
-                collectPanelIds(child.trim(), depth + 1, result);
-            }
-        }
-    }
-
-    private boolean matchesSelectedType(JComponent component) {
-        return componentTypes.isEmpty()
-                || componentTypes.stream().anyMatch(type -> type.isInstance(component));
-    }
-
-    private String catalogType(JComponent component) {
-        Object attributes = component.getClientProperty(ATTRIBUTES_PROPERTY);
-        if (attributes instanceof ComponentAttributes componentAttributes) {
-            return normalize(componentAttributes.getComponentType());
-        }
-        return propertyString(component, ConstructedCompositeComponent.DEFINITION_PROPERTY);
-    }
-
-    private String bindingId(Field field, Component binding) {
-        String scope = normalize(binding.scope());
-        String localId = normalize(binding.localId());
-        if (localId != null) {
-            if (scope == null) {
-                throw new ComponentAccessException(
-                        "@Component localId requires a non-blank scope on field " + field
-                );
-            }
-            return qualify(scope, localId);
-        }
-
-        String value = normalize(binding.value());
-        String baseId = value == null ? field.getName() : value;
-        if (scope == null || baseId.equals(scope) || baseId.startsWith(scope + ".")) {
-            return baseId;
-        }
-        return qualify(scope, baseId);
-    }
-
-    private static String qualify(String scopeId, String localId) {
-        String scope = normalize(scopeId);
-        String local = normalize(localId);
-        if (scope == null || local == null) {
-            throw new IllegalArgumentException("scopeId and localId must not be blank");
-        }
-        if (local.equals(scope) || local.startsWith(scope + ".")) {
-            return local;
-        }
-        return scope + "." + local;
-    }
-
-    private static String propertyString(JComponent component, String property) {
-        Object value = component.getClientProperty(property);
-        return value == null ? null : normalize(String.valueOf(value));
+        return formValueCollector.collectPanel(
+                panelId,
+                metadataSnapshot().values(),
+                valueMode,
+                unsupportedPolicy
+        );
     }
 
     private void refreshBeforeLookup() {
@@ -981,29 +564,11 @@ public class ComponentsAccessor {
     }
 
     private Map<String, JComponent> componentSnapshot() {
-        indexLock.readLock().lock();
-        try {
-            return Collections.unmodifiableMap(new LinkedHashMap<>(componentMap));
-        } finally {
-            indexLock.readLock().unlock();
-        }
+        return indexState.components();
     }
 
     private Map<String, IndexedComponent> metadataSnapshot() {
-        indexLock.readLock().lock();
-        try {
-            return Collections.unmodifiableMap(new LinkedHashMap<>(metadataMap));
-        } finally {
-            indexLock.readLock().unlock();
-        }
-    }
-
-    private void guardDepth(int depth, String graphType, String identifier) {
-        if (depth > options.maximumTraversalDepth()) {
-            throw new ComponentAccessException(
-                    "Maximum " + graphType + " traversal depth exceeded at '" + identifier + "'"
-            );
-        }
+        return indexState.metadata();
     }
 
     @SuppressWarnings("unchecked")
@@ -1025,17 +590,4 @@ public class ComponentsAccessor {
         return List.copyOf(result);
     }
 
-    private static String normalize(String value) {
-        return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private record FormValue(boolean include, Object value) {
-        private static FormValue include(Object value) {
-            return new FormValue(true, value);
-        }
-
-        private static FormValue skip() {
-            return new FormValue(false, null);
-        }
-    }
 }

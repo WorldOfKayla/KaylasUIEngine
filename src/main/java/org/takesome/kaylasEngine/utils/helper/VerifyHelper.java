@@ -15,7 +15,7 @@ public final class VerifyHelper {
     public static final LongPredicate L_NOT_NEGATIVE = l -> l >= 0;
     public static final Predicate<String> NOT_EMPTY = s -> !s.isEmpty();
     @SuppressWarnings("unused")
-    public static final Pattern USERNAME_PATTERN = Pattern.compile("[a-zA-Zа-яА-Я0-9_.\\-]{1,16}");
+    public static final Pattern USERNAME_PATTERN = Pattern.compile("[a-zA-Z\\p{IsCyrillic}0-9_.\\-]{1,16}");
 
     private VerifyHelper() {
     }

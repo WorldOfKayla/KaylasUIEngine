@@ -18,6 +18,7 @@ import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.awt.image.BufferedImage;
+import java.util.List;
 
 /**
  * Textured engine slider UI with a procedural fallback renderer.
@@ -248,6 +249,124 @@ public class TexturedSliderUI extends BasicSliderUI {
         } finally {
             g2d.dispose();
         }
+    }
+
+    @Override
+    protected int xPositionForValue(int value) {
+        List<Integer> values = allowedValues();
+        if (values.size() < 2) {
+            return super.xPositionForValue(value);
+        }
+        return positionForValue(
+                value,
+                values,
+                super.xPositionForValue(slider.getMinimum()),
+                super.xPositionForValue(slider.getMaximum())
+        );
+    }
+
+    @Override
+    public int valueForXPosition(int xPosition) {
+        List<Integer> values = allowedValues();
+        if (values.size() < 2) {
+            return super.valueForXPosition(xPosition);
+        }
+        return valueForPosition(
+                xPosition,
+                values,
+                super.xPositionForValue(slider.getMinimum()),
+                super.xPositionForValue(slider.getMaximum())
+        );
+    }
+
+    @Override
+    protected int yPositionForValue(int value) {
+        List<Integer> values = allowedValues();
+        if (values.size() < 2) {
+            return super.yPositionForValue(value);
+        }
+        return positionForValue(
+                value,
+                values,
+                super.yPositionForValue(slider.getMinimum()),
+                super.yPositionForValue(slider.getMaximum())
+        );
+    }
+
+    @Override
+    public int valueForYPosition(int yPosition) {
+        List<Integer> values = allowedValues();
+        if (values.size() < 2) {
+            return super.valueForYPosition(yPosition);
+        }
+        return valueForPosition(
+                yPosition,
+                values,
+                super.yPositionForValue(slider.getMinimum()),
+                super.yPositionForValue(slider.getMaximum())
+        );
+    }
+
+    @Override
+    public void paintTicks(Graphics graphics) {
+        List<Integer> values = allowedValues();
+        if (values.isEmpty()) {
+            super.paintTicks(graphics);
+            return;
+        }
+
+        if (slider.getOrientation() == JSlider.HORIZONTAL) {
+            for (int value : values) {
+                paintMajorTickForHorizSlider(graphics, tickRect, xPositionForValue(value));
+            }
+        } else {
+            for (int value : values) {
+                paintMajorTickForVertSlider(graphics, tickRect, yPositionForValue(value));
+            }
+        }
+    }
+
+    private List<Integer> allowedValues() {
+        if (slider instanceof Slider engineSlider && engineSlider.hasAllowedValues()) {
+            return engineSlider.getAllowedValues();
+        }
+        return List.of();
+    }
+
+    private int positionForValue(int value,
+                                 List<Integer> values,
+                                 int firstPosition,
+                                 int lastPosition) {
+        int index = nearestAllowedIndex(values, value);
+        double fraction = (double) index / (values.size() - 1);
+        return (int) Math.round(firstPosition + (lastPosition - firstPosition) * fraction);
+    }
+
+    private int valueForPosition(int position,
+                                 List<Integer> values,
+                                 int firstPosition,
+                                 int lastPosition) {
+        if (firstPosition == lastPosition) {
+            return values.get(0);
+        }
+
+        double fraction = (double) (position - firstPosition) / (lastPosition - firstPosition);
+        double clamped = Math.max(0.0, Math.min(1.0, fraction));
+        int index = (int) Math.round(clamped * (values.size() - 1));
+        return values.get(Math.max(0, Math.min(values.size() - 1, index)));
+    }
+
+    private int nearestAllowedIndex(List<Integer> values, int requested) {
+        int nearestIndex = 0;
+        long nearestDistance = Math.abs((long) requested - values.get(0));
+        for (int index = 1; index < values.size(); index++) {
+            long distance = Math.abs((long) requested - values.get(index));
+            if (distance < nearestDistance) {
+                nearestIndex = index;
+                nearestDistance = distance;
+            }
+        }
+        return nearestIndex;
     }
 
     @Override

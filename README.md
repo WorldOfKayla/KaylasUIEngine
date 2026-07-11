@@ -1,12 +1,27 @@
 # KaylasUI Engine
 
-**Version:** `2.2.0-AURELIA`
+**Version:** `2.3.0-KINETICA`
 
 **Runtime:** Java 17 / Swing
 
-**Codename:** `AURELIA 2 — Extensible Runtime`
+**Codename:** `KINETICA 2.3 - Modular Animation Runtime`
 
 KaylasUI Engine is a declarative Swing UI runtime with XML descriptors, inheritable styles, Lua scripting, and a catalog of basic and composite components.
+
+## KINETICA 2.3
+
+Version 2.3 introduces the **Modular Animation Runtime**:
+
+- responsibility-focused internal packages for easing, pulse scheduling, timelines, overlays, scripted windows, progress animation, and snapshot drawers;
+- stable public animation facades with hidden package-private implementations;
+- a shared adaptive Swing frame clock isolated from application-facing subscriptions;
+- independent timeline sampling and execution layers;
+- isolated timer and closeable-resource ownership;
+- progress and drawer controllers separated from their public builders and policy objects;
+- dedicated animation runtime and public JavaDoc verification tasks;
+- stronger component-accessor, factory, and loading-UI encapsulation from the same release cycle.
+
+Public launcher integrations remain source-compatible while engine execution details are no longer exposed as part of the supported API.
 
 ## AURELIA 2.2
 

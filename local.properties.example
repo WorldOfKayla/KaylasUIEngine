@@ -1,7 +1,7 @@
 # Local developer settings. Copy this file to local.properties and fill only locally.
 # local.properties is ignored by git and must never be committed.
 
-project.version=2.2.0-AURELIA
+project.version=2.3.0-KINETICA
 project.group=org.takesome
 project.archivesBaseName=kaylas-ui-engine
 

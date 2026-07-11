@@ -52,6 +52,7 @@ public class ComponentAttributes extends Attributes {
     private Boolean editable;
     private Boolean focusable;
     private Boolean doubleBuffered;
+    private Boolean hideWordMarkers;
 
     private Object initialValue;
     private Map<String, String> styles;
@@ -327,6 +328,8 @@ public class ComponentAttributes extends Attributes {
     public boolean hasFocusable() { return focusable != null; }
     public boolean isDoubleBuffered() { return doubleBuffered == null || doubleBuffered; }
     public boolean hasDoubleBuffered() { return doubleBuffered != null; }
+    public boolean isHideWordMarkers() { return Boolean.TRUE.equals(hideWordMarkers); }
+    public boolean hasHideWordMarkers() { return hideWordMarkers != null; }
     public String getTooltipStyle() { return tooltipStyle; }
     public Map<String, String> getStyles() { return immutableMap(styles); }
     public int getStepSize() { return stepSize; }
@@ -531,6 +534,11 @@ public class ComponentAttributes extends Attributes {
 
         public Builder focusable(boolean focusable) {
             attributes.focusable = focusable;
+            return this;
+        }
+
+        public Builder hideWordMarkers(boolean hideWordMarkers) {
+            attributes.hideWordMarkers = hideWordMarkers;
             return this;
         }
 

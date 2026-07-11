@@ -1,28 +1,15 @@
 package org.takesome.kaylasEngine.gui.componentAccessor;
 
-import org.takesome.kaylasEngine.gui.components.CompositeComponent;
-import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
-import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
-import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.value.ComponentTypeDistance;
+import org.takesome.kaylasEngine.gui.componentAccessor.internal.value.DefaultComponentValueAdapters;
 
-import javax.swing.AbstractButton;
-import javax.swing.JComboBox;
 import javax.swing.JComponent;
-import javax.swing.JPasswordField;
-import javax.swing.JProgressBar;
-import javax.swing.JSlider;
-import javax.swing.JSpinner;
-import javax.swing.text.JTextComponent;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.Deque;
-import java.util.IdentityHashMap;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
-import java.util.Set;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.function.BiConsumer;
 import java.util.function.Function;
@@ -52,77 +39,7 @@ public final class ComponentValueRegistry {
      * @return independent mutable registry.
      */
     public static ComponentValueRegistry defaults() {
-        ComponentValueRegistry registry = new ComponentValueRegistry();
-
-        registry.registerWritable(
-                FileSelector.class,
-                FileSelector::getValue,
-                (component, value) -> component.setValue(value == null ? "" : String.valueOf(value)),
-                100
-        );
-        registry.registerWritable(
-                CompositeSlider.class,
-                CompositeSlider::getValue,
-                CompositeSlider::setValue,
-                100
-        );
-        registry.registerWritable(
-                ProgressBar.class,
-                ProgressBar::getValue,
-                ProgressBar::setValue,
-                100
-        );
-        registry.registerWritable(
-                CompositeComponent.class,
-                CompositeComponent::getValue,
-                CompositeComponent::setValue,
-                10
-        );
-        registry.registerWritable(
-                JPasswordField.class,
-                component -> new String(component.getPassword()),
-                (component, value) -> component.setText(value == null ? "" : String.valueOf(value)),
-                50
-        );
-        registry.registerWritable(
-                JTextComponent.class,
-                JTextComponent::getText,
-                (component, value) -> component.setText(value == null ? "" : String.valueOf(value)),
-                0
-        );
-        registry.registerWritable(
-                AbstractButton.class,
-                AbstractButton::isSelected,
-                (component, value) -> component.setSelected(booleanValue(value)),
-                0
-        );
-        registry.registerWritable(
-                JSlider.class,
-                JSlider::getValue,
-                (component, value) -> component.setValue(intValue(value, component.getValue())),
-                0
-        );
-        registry.registerWritable(
-                JSpinner.class,
-                JSpinner::getValue,
-                JSpinner::setValue,
-                0
-        );
-        registry.registerWritable(
-                JComboBox.class,
-                JComboBox::getSelectedIndex,
-                (component, value) -> component.setSelectedIndex(
-                        intValue(value, component.getSelectedIndex())
-                ),
-                0
-        );
-        registry.registerWritable(
-                JProgressBar.class,
-                JProgressBar::getValue,
-                (component, value) -> component.setValue(intValue(value, component.getValue())),
-                0
-        );
-        return registry;
+        return DefaultComponentValueAdapters.createRegistry();
     }
 
     /**
@@ -246,7 +163,7 @@ public final class ComponentValueRegistry {
                 .filter(adapter -> adapter.componentType().isInstance(component))
                 .min(Comparator
                         .comparingInt((ComponentValueAdapter<? extends JComponent> adapter) ->
-                                typeDistance(actualType, adapter.componentType()))
+                                ComponentTypeDistance.between(actualType, adapter.componentType()))
                         .thenComparing(
                                 ComponentValueAdapter::priority,
                                 Comparator.reverseOrder()
@@ -336,60 +253,6 @@ public final class ComponentValueRegistry {
             Object value
     ) {
         ((ComponentValueAdapter<T>) adapter).write((T) component, value);
-    }
-
-    private static int typeDistance(Class<?> actualType, Class<?> targetType) {
-        if (actualType.equals(targetType)) {
-            return 0;
-        }
-        Deque<TypeStep> queue = new ArrayDeque<>();
-        Set<Class<?>> visited = Collections.newSetFromMap(new IdentityHashMap<>());
-        queue.add(new TypeStep(actualType, 0));
-        visited.add(actualType);
-
-        while (!queue.isEmpty()) {
-            TypeStep current = queue.removeFirst();
-            if (current.type().equals(targetType)) {
-                return current.distance();
-            }
-            Class<?> superclass = current.type().getSuperclass();
-            if (superclass != null && visited.add(superclass)) {
-                queue.addLast(new TypeStep(superclass, current.distance() + 1));
-            }
-            for (Class<?> interfaceType : current.type().getInterfaces()) {
-                if (visited.add(interfaceType)) {
-                    queue.addLast(new TypeStep(interfaceType, current.distance() + 1));
-                }
-            }
-        }
-        return Integer.MAX_VALUE;
-    }
-
-    private static boolean booleanValue(Object value) {
-        if (value instanceof Boolean booleanValue) {
-            return booleanValue;
-        }
-        if (value instanceof Number number) {
-            return number.intValue() != 0;
-        }
-        return Boolean.parseBoolean(String.valueOf(value));
-    }
-
-    private static int intValue(Object value, int fallback) {
-        if (value instanceof Number number) {
-            return number.intValue();
-        }
-        if (value != null) {
-            try {
-                return Integer.parseInt(String.valueOf(value).trim());
-            } catch (NumberFormatException ignored) {
-                // Use fallback.
-            }
-        }
-        return fallback;
-    }
-
-    private record TypeStep(Class<?> type, int distance) {
     }
 
     private record FunctionalAdapter<T extends JComponent>(

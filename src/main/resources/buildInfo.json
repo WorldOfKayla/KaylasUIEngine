@@ -1,6 +1,6 @@
 {
-  "engineVersion": "2.2.0-AURELIA",
-  "engineBrand": " _  __    _ __   ___      _      _   _ ___   ___  \n| |/ /   / \\ \\ / / |    / \\    | | | |_ _| |_  ) \n| ' /   / _ \\ V /| |   / _ \\   | | | || |   / /  \n| . \\  / ___ || | | |__/ ___ \\  | |_| || |  /___| \n|_|\\_\\/_/   \\_\\_| |____/_/   \\_\\  \\___/|___| |____|\n                AURELIA 2.2 EXTENSIBLE RUNTIME",
-  "engineCodename": "AURELIA",
+  "engineVersion": "2.3.0-KINETICA",
+  "engineBrand": " _  __    _ __   ___      _      _   _ ___   ___  \n| |/ /   / \\ \\ / / |    / \\    | | | |_ _| |_  ) \n| ' /   / _ \\ V /| |   / _ \\   | | | || |   / /  \n| . \\  / ___ || | | |__/ ___ \\  | |_| || |  /___| \n|_|\\_\\/_/   \\_\\_| |____/_/   \\_\\  \\___/|___| |____|\n                KINETICA 2.3 MODULAR ANIMATION RUNTIME",
+  "engineCodename": "KINETICA",
   "engineName": "KaylasUI Engine"
 }
