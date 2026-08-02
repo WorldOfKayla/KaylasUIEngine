@@ -28,6 +28,7 @@ import javax.swing.UIManager;
 import java.lang.reflect.Modifier;
 
 /** Executable regression verification for the Kaylas Look & Feel runtime. */
+@SuppressWarnings("removal")
 public final class KaylasLookAndFeelVerification {
     private KaylasLookAndFeelVerification() {
     }

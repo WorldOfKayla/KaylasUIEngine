@@ -8,6 +8,11 @@ import java.awt.*;
 import java.awt.event.*;
 import java.awt.image.BufferedImage;
 
+/**
+ * @deprecated Use a launcher/application-owned {@code CompositeComponent} built from
+ * {@code TextField} and {@code Button}. This engine-specific password control will be removed.
+ */
+@Deprecated(forRemoval = true)
 public class PassField extends JPasswordField {
     BufferedImage texture;
     private final ComponentFactory componentFactory;

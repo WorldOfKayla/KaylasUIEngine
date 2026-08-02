@@ -10,8 +10,16 @@ import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.AtomicMoveNotSupportedException;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.Locale;
+import java.util.Comparator;
 import java.util.Enumeration;
-import java.util.LinkedList;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.function.IntConsumer;
@@ -40,41 +48,108 @@ public class DownloadUtils extends HTTPrequest {
         this.engine = engine;
     }
 
-    @SuppressWarnings({"unused", "ResultOfMethodCallIgnored"})
     public void downloader(String downloadFile, String savePath) {
-        File parentDir = new File(savePath).getParentFile();
-        if (parentDir != null && !parentDir.isDirectory()) {
-            parentDir.mkdirs();
-        }
+        downloader(downloadFile, savePath, -1L, null);
+    }
 
+    /**
+     * Downloads into a temporary sibling file and publishes the target only after HTTP, size and
+     * optional MD5 validation have succeeded.
+     */
+    public void downloader(String downloadFile, String savePath, long expectedSize, String expectedHash) {
+        Path target = Path.of(savePath).toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        Path temporary = null;
         HttpURLConnection httpConnection = null;
         try {
+            if (parent == null) {
+                throw new IOException("Download target has no parent directory: " + target);
+            }
+            Files.createDirectories(parent);
+            temporary = Files.createTempFile(parent, target.getFileName() + ".", ".part");
+
             URL url = resolveDownloadUrl(downloadFile);
             httpConnection = (HttpURLConnection) url.openConnection();
             httpConnection.setDoOutput(false);
             httpConnection.setUseCaches(false);
+            httpConnection.setInstanceFollowRedirects(true);
             httpConnection.setConnectTimeout(CONNECT_TIMEOUT_MS);
             httpConnection.setReadTimeout(READ_TIMEOUT_MS);
             httpConnection.setRequestMethod("GET");
+            httpConnection.setRequestProperty("Accept-Encoding", "identity");
             this.setRequestProperties(httpConnection, engine.getEngineData().getHttPconf().getRequestProperties());
 
+            int status = httpConnection.getResponseCode();
+            if (status != HttpURLConnection.HTTP_OK) {
+                throw new IOException("Unexpected HTTP status " + status + " for " + url);
+            }
+            String contentType = httpConnection.getContentType();
+            if (contentType != null && contentType.toLowerCase(Locale.ROOT).startsWith("text/html")) {
+                throw new IOException("Unexpected HTML response for " + url);
+            }
+
+            long contentLength = httpConnection.getContentLengthLong();
+            if (expectedSize > 0L && contentLength >= 0L && contentLength != expectedSize) {
+                throw new IOException("Content-Length mismatch for " + url
+                        + ": expected=" + expectedSize + ", actual=" + contentLength);
+            }
+
+            MessageDigest md5 = MessageDigest.getInstance("MD5");
+            long written = 0L;
             byte[] buffer = new byte[BUFFER_SIZE];
             try (InputStream in = new BufferedInputStream(httpConnection.getInputStream(), BUFFER_SIZE);
-                 OutputStream out = new BufferedOutputStream(new FileOutputStream(savePath), BUFFER_SIZE)) {
+                 OutputStream out = new BufferedOutputStream(Files.newOutputStream(temporary), BUFFER_SIZE)) {
                 int read;
-                while ((read = in.read(buffer, 0, buffer.length)) != -1) {
+                while ((read = in.read(buffer)) != -1) {
                     out.write(buffer, 0, read);
-                    long current = downloaded.addAndGet(read);
-                    updateProgress(current, false);
+                    md5.update(buffer, 0, read);
+                    written += read;
+                    updateProgress(downloaded.addAndGet(read), false);
                 }
+                out.flush();
             }
+
+            if (contentLength >= 0L && written != contentLength) {
+                throw new IOException("Incomplete HTTP response for " + url
+                        + ": declared=" + contentLength + ", received=" + written);
+            }
+            if (expectedSize > 0L && written != expectedSize) {
+                throw new IOException("Downloaded size mismatch for " + url
+                        + ": expected=" + expectedSize + ", received=" + written);
+            }
+
+            String actualHash = HexFormat.of().formatHex(md5.digest());
+            if (expectedHash != null && !expectedHash.isBlank()
+                    && !actualHash.equalsIgnoreCase(expectedHash.trim())) {
+                throw new IOException("Downloaded MD5 mismatch for " + url
+                        + ": expected=" + expectedHash.trim() + ", actual=" + actualHash);
+            }
+
+            moveIntoPlace(temporary, target);
+            temporary = null;
             updateProgress(downloaded.get(), false);
-        } catch (IOException e) {
-            throw new RuntimeException(e);
+            Engine.LOGGER.debug("Download completed: target={} bytes={} md5={}", target, written, actualHash);
+        } catch (IOException | NoSuchAlgorithmException e) {
+            throw new RuntimeException("Unable to download " + downloadFile + " to " + target + ": " + e.getMessage(), e);
         } finally {
             if (httpConnection != null) {
                 httpConnection.disconnect();
             }
+            if (temporary != null) {
+                try {
+                    Files.deleteIfExists(temporary);
+                } catch (IOException cleanupError) {
+                    Engine.LOGGER.warn("Unable to remove incomplete download {}: {}", temporary, cleanupError.getMessage());
+                }
+            }
+        }
+    }
+
+    private void moveIntoPlace(Path temporary, Path target) throws IOException {
+        try {
+            Files.move(temporary, target, StandardCopyOption.ATOMIC_MOVE, StandardCopyOption.REPLACE_EXISTING);
+        } catch (AtomicMoveNotSupportedException ignored) {
+            Files.move(temporary, target, StandardCopyOption.REPLACE_EXISTING);
         }
     }
 
@@ -142,39 +217,149 @@ public class DownloadUtils extends HTTPrequest {
         return String.format("%.2f MB/s", bytesPerSecond / (1024.0 * 1024.0));
     }
 
-    @SuppressWarnings({"unused", "ResultOfMethodCallIgnored"})
-    public void unpack(String path, File dir_to) {
-        File fileZip = new File(path);
-        try (ZipFile zip = new ZipFile(path, StandardCharsets.UTF_8)) {
+    public void unpack(String path, File destination) {
+        Path archive = Path.of(path).toAbsolutePath().normalize();
+        Path target = destination.toPath().toAbsolutePath().normalize();
+        try {
+            Files.createDirectories(target);
+            extractZip(archive, target, false);
+            Files.deleteIfExists(archive);
+        } catch (IOException error) {
+            throw new RuntimeException("Unable to unpack archive " + archive + " into " + target, error);
+        }
+    }
+
+    /**
+     * Extracts a runtime into one flat, fully-qualified installation directory, stripping the
+     * vendor archive's single top-level directory. The target is published atomically.
+     */
+    public void unpackFlatRuntime(String path, File targetDirectory) {
+        Path archive = Path.of(path).toAbsolutePath().normalize();
+        Path target = targetDirectory.toPath().toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        Path temporary = null;
+        try {
+            if (parent == null) {
+                throw new IOException("Runtime target has no parent directory: " + target);
+            }
+            Files.createDirectories(parent);
+            temporary = Files.createTempDirectory(parent, target.getFileName() + ".extract-");
+            extractZip(archive, temporary, true);
+
+            Path javaExecutable = temporary.resolve("bin").resolve(runtimeJavaExecutableName());
+            if (!Files.isRegularFile(javaExecutable)) {
+                throw new IOException("Runtime archive does not contain " + javaExecutable);
+            }
+
+            deleteRecursively(target);
+            moveAtomically(temporary, target);
+            temporary = null;
+            Files.deleteIfExists(archive);
+        } catch (IOException error) {
+            if (temporary != null) {
+                try {
+                    deleteRecursively(temporary);
+                } catch (IOException cleanupError) {
+                    error.addSuppressed(cleanupError);
+                }
+            }
+            throw new RuntimeException("Unable to install runtime " + archive + " into " + target, error);
+        }
+    }
+
+    private void extractZip(Path archive, Path destination, boolean stripSingleRoot) throws IOException {
+        try (ZipFile zip = new ZipFile(archive.toFile(), StandardCharsets.UTF_8)) {
+            String rootPrefix = stripSingleRoot ? commonArchiveRoot(zip) : "";
             Enumeration<? extends ZipEntry> entries = zip.entries();
-            LinkedList<ZipEntry> zfiles = new LinkedList<>();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
+                String entryName = normalizeZipEntryName(entry.getName());
+                if (!rootPrefix.isEmpty() && entryName.startsWith(rootPrefix)) {
+                    entryName = entryName.substring(rootPrefix.length());
+                }
+                if (entryName.isBlank()) {
+                    continue;
+                }
+
+                Path output = destination.resolve(entryName).normalize();
+                if (!output.startsWith(destination)) {
+                    throw new IOException("ZIP entry escapes extraction directory: " + entry.getName());
+                }
                 if (entry.isDirectory()) {
-                    new File(dir_to + File.separator + entry.getName()).mkdirs();
-                } else {
-                    zfiles.add(entry);
+                    Files.createDirectories(output);
+                    continue;
+                }
+                Path outputParent = output.getParent();
+                if (outputParent != null) {
+                    Files.createDirectories(outputParent);
+                }
+                try (InputStream input = new BufferedInputStream(zip.getInputStream(entry), BUFFER_SIZE);
+                     OutputStream outputStream = new BufferedOutputStream(Files.newOutputStream(output), BUFFER_SIZE)) {
+                    input.transferTo(outputStream);
                 }
             }
-            for (ZipEntry entry : zfiles) {
-                File outFile = new File(dir_to, entry.getName());
-                try (InputStream in = zip.getInputStream(entry);
-                     OutputStream out = new FileOutputStream(outFile)) {
-                    if (!outFile.getParentFile().exists()) {
-                        outFile.getParentFile().mkdirs();
-                    }
-                    byte[] buffer = new byte[1024];
-                    int len;
-                    while ((len = in.read(buffer)) >= 0) {
-                        out.write(buffer, 0, len);
-                    }
-                }
-            }
-        } catch (IOException e) {
-            throw new RuntimeException(e);
         }
-        fileZip.delete();
     }
+
+    private String commonArchiveRoot(ZipFile zip) throws IOException {
+        String common = null;
+        Enumeration<? extends ZipEntry> entries = zip.entries();
+        while (entries.hasMoreElements()) {
+            ZipEntry entry = entries.nextElement();
+            if (entry.isDirectory()) {
+                continue;
+            }
+            String name = normalizeZipEntryName(entry.getName());
+            int separator = name.indexOf('/');
+            if (separator <= 0) {
+                return "";
+            }
+            String first = name.substring(0, separator);
+            if (common == null) {
+                common = first;
+            } else if (!common.equals(first)) {
+                return "";
+            }
+        }
+        return common == null ? "" : common + '/';
+    }
+
+    private String normalizeZipEntryName(String rawName) throws IOException {
+        String name = rawName == null ? "" : rawName.replace('\\', '/');
+        while (name.startsWith("/")) {
+            name = name.substring(1);
+        }
+        if (name.indexOf('\0') >= 0) {
+            throw new IOException("ZIP entry contains a null byte.");
+        }
+        return name;
+    }
+
+    private String runtimeJavaExecutableName() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win")
+                ? "java.exe"
+                : "java";
+    }
+
+    private void moveAtomically(Path source, Path target) throws IOException {
+        try {
+            Files.move(source, target, StandardCopyOption.ATOMIC_MOVE);
+        } catch (AtomicMoveNotSupportedException unsupported) {
+            Files.move(source, target);
+        }
+    }
+
+    private void deleteRecursively(Path root) throws IOException {
+        if (root == null || !Files.exists(root)) {
+            return;
+        }
+        try (var paths = Files.walk(root)) {
+            for (Path path : paths.sorted(Comparator.reverseOrder()).toList()) {
+                Files.deleteIfExists(path);
+            }
+        }
+    }
+
 
     public void setTotalSize(long totalSize) {
         this.totalSize = Math.max(0L, totalSize);

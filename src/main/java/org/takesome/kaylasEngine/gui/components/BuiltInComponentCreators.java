@@ -49,6 +49,7 @@ import java.util.Objects;
 import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
 
 /** Registers and constructs the engine-owned primitive component set. */
+@SuppressWarnings("removal")
 final class BuiltInComponentCreators {
     private final ComponentFactory factory;
     private final Engine engine;

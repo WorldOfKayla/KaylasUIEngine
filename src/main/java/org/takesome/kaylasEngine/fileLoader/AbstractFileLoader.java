@@ -172,6 +172,8 @@ public abstract class AbstractFileLoader {
                 .whenComplete((ignored, throwable) -> {
                     if (throwable != null) {
                         Engine.LOGGER.error("Error while downloading files", throwable);
+                        SwingUtilities.invokeLater(() -> fileLoaderListener.onDownloadFailed(throwable));
+                        return;
                     }
                     if (!isCancelled.get()) {
                         SwingUtilities.invokeLater(() -> {

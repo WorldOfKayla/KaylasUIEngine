@@ -6,6 +6,7 @@ import org.takesome.kaylasEngine.gui.components.compositeSlider.CompositeSlider;
 import org.takesome.kaylasEngine.gui.components.combobox.Combobox;
 import org.takesome.kaylasEngine.gui.components.fileSelector.FileSelector;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBar;
+import org.takesome.kaylasEngine.gui.components.textfield.TextField;
 
 import javax.swing.AbstractButton;
 import javax.swing.JComboBox;
@@ -58,6 +59,12 @@ public final class DefaultComponentValueAdapters {
                         intValue(value, component.getSelectedIndex())
                 ),
                 100
+        );
+        registry.registerWritable(
+                TextField.class,
+                TextField::getValue,
+                (component, value) -> component.setText(value == null ? "" : String.valueOf(value)),
+                50
         );
         registry.registerWritable(
                 JPasswordField.class,

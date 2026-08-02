@@ -6,7 +6,13 @@ import org.takesome.kaylasEngine.gui.components.passfield.PassField;
 import java.awt.Color;
 import java.awt.Graphics;
 
-/** Look and Feel enhanced engine password field. */
+/**
+ * Look and Feel enhanced engine password field.
+ *
+ * @deprecated Look-and-feel adapter for the legacy password field.
+ */
+@Deprecated(forRemoval = true)
+@SuppressWarnings("removal")
 public class KaylasPassField extends PassField {
     /** Creates a themed password field. */
     public KaylasPassField(ComponentFactory componentFactory, String placeholder) {

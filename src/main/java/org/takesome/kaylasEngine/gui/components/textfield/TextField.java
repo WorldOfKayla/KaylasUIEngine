@@ -27,6 +27,8 @@ public class TextField extends JTextField {
 	private Color selectedTextColor = Color.white;
 	private Timer caretTimer;
 	private final String placeholder;
+	private boolean maskingEnabled;
+	private char maskCharacter = '*';
 
 	public TextField(ComponentFactory componentFactory) {
 		this.placeholder = componentFactory.getEngine().getLANG().getString(componentFactory.getComponentAttribute().getLocaleKey());
@@ -135,15 +137,17 @@ public class TextField extends JTextField {
 		int x = paddingX;
 		int y = paddingY + g.getFontMetrics().getAscent();
 
-		String text = getText();
-		if (text != null) {
-			g.drawString(text, x, y);
+		String sourceText = getText();
+		String displayText = toDisplayText(sourceText);
+		if (displayText != null) {
+			g.drawString(displayText, x, y);
 		}
 
 		// Draw the caret only when visible and the text field has focus
 		if (isFocusOwner() && caretVisible) {
 			try {
-				int caretX = x + g.getFontMetrics().stringWidth(getText().substring(0, getCaretPosition()));
+				int caretPosition = Math.max(0, Math.min(getCaretPosition(), displayText.length()));
+				int caretX = x + g.getFontMetrics().stringWidth(displayText.substring(0, caretPosition));
 				int caretY = y - g.getFontMetrics().getAscent();
 				g.drawLine(caretX, caretY, caretX, caretY + g.getFontMetrics().getHeight());
 			} catch (StringIndexOutOfBoundsException ignored) {}
@@ -155,11 +159,12 @@ public class TextField extends JTextField {
 			int end = Math.max(getSelectionStart(), getSelectionEnd());
 			g.setColor(selectionColor);
 
-			// Ensure that selected text exists before drawing
-			String selectedText = getSelectedText();
-			if (selectedText != null) {
-				int selStart = x + g.getFontMetrics().stringWidth(getText().substring(0, start));
-				int selEnd = x + g.getFontMetrics().stringWidth(getText().substring(0, end));
+			int safeStart = Math.max(0, Math.min(start, displayText.length()));
+			int safeEnd = Math.max(safeStart, Math.min(end, displayText.length()));
+			if (safeStart < safeEnd) {
+				String selectedText = displayText.substring(safeStart, safeEnd);
+				int selStart = x + g.getFontMetrics().stringWidth(displayText.substring(0, safeStart));
+				int selEnd = x + g.getFontMetrics().stringWidth(displayText.substring(0, safeEnd));
 				g.fillRect(selStart, y - g.getFontMetrics().getAscent(), selEnd - selStart, g.getFontMetrics().getHeight());
 				g.setColor(selectedTextColor);
 				g.drawString(selectedText, selStart, y);
@@ -195,6 +200,38 @@ public class TextField extends JTextField {
 		});
 	}
 
+	private String toDisplayText(String sourceText) {
+		if (sourceText == null || !maskingEnabled || sourceText.equals(placeholder)) {
+			return sourceText == null ? "" : sourceText;
+		}
+		return String.valueOf(maskCharacter).repeat(sourceText.length());
+	}
+
+	public void setMaskingEnabled(boolean maskingEnabled) {
+		this.maskingEnabled = maskingEnabled;
+		repaint();
+	}
+
+	public boolean isMaskingEnabled() {
+		return maskingEnabled;
+	}
+
+	public void setMaskCharacter(char maskCharacter) {
+		if (Character.isISOControl(maskCharacter)) {
+			throw new IllegalArgumentException("maskCharacter must be printable");
+		}
+		this.maskCharacter = maskCharacter;
+		repaint();
+	}
+
+	public char getMaskCharacter() {
+		return maskCharacter;
+	}
+
+	public String getDisplayText() {
+		return toDisplayText(getText());
+	}
+
 	public void setPaddingX(int paddingX) {
 		this.paddingX = paddingX;
 	}
@@ -216,7 +253,8 @@ public class TextField extends JTextField {
 	}
 
 	public String getValue() {
-		return this.getText();
+		String text = getText();
+		return text == null || text.equals(placeholder) ? "" : text;
 	}
 
 	public Color getSelectedTextColor() {

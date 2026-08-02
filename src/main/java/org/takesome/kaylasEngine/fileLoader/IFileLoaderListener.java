@@ -18,6 +18,10 @@ public interface IFileLoaderListener {
         onNewFileFound(fileLoader);
     }
 
+    default void onDownloadFailed(Throwable error) {
+        // Optional lifecycle callback for download failures.
+    }
+
     void onCancel();
     void filesProcessed();
 }

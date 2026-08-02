@@ -31,7 +31,6 @@ import org.takesome.kaylasEngine.utils.Crypt.CryptUtils;
 import org.takesome.kaylasEngine.gui.loadingManager.LoadingManager;
 import org.takesome.kaylasEngine.utils.hook.BiHookSet;
 import org.takesome.kaylasEngine.utils.request.RequestClient;
-import org.fusesource.jansi.AnsiConsole;
 
 import javax.swing.*;
 import java.awt.*;
@@ -183,9 +182,6 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         System.setProperty("log.dir", System.getProperty("user.dir"));
         System.setProperty("log.level", engineData.getLogLevel());
         LOGGER = LogManager.getLogger(this.getClass());
-        AnsiConsole.systemInstall();
-
-        Runtime.getRuntime().addShutdownHook(new Thread(AnsiConsole::systemUninstall, "ansi-console-shutdown"));
         appTitle = engineData.getLauncherBrand() + '-' + engineData.getLauncherVersion();
         this.panelVisibility = new PanelVisibility(this);
 

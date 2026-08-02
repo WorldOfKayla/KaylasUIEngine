@@ -10,6 +10,11 @@ import java.awt.image.BufferedImage;
 import static org.takesome.kaylasEngine.utils.FontUtils.hexToColor;
 
 
+/**
+ * @deprecated Styling for the legacy {@link PassField}; scheduled for removal.
+ */
+@Deprecated(forRemoval = true)
+@SuppressWarnings("removal")
 public class PassFieldStyle {
     private ComponentFactory componentFactory;
     public String fontName = "";
