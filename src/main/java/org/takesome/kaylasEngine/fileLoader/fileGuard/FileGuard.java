@@ -1,228 +1,315 @@
 package org.takesome.kaylasEngine.fileLoader.fileGuard;
 
+import com.google.gson.JsonElement;
+import com.google.gson.JsonParser;
 import org.apache.logging.log4j.Logger;
 import org.takesome.kaylasEngine.game.GameLauncher;
 
 import java.io.File;
 import java.io.IOException;
-import java.nio.file.*;
-import java.util.*;
-import java.util.concurrent.CopyOnWriteArrayList;
-import java.util.concurrent.atomic.AtomicInteger;
-import java.util.stream.Stream;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.Collection;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.CopyOnWriteArraySet;
 
+/**
+ * Asynchronous, fail-closed guard for the downloaded game tree.
+ *
+ * <p>The guard never follows symbolic links or junctions, confines every operation to the game
+ * root, removes unlisted entries, and verifies that every listed file covered by a check root is
+ * still present as a regular file before reporting success.</p>
+ */
 @SuppressWarnings("unused")
 public class FileGuard {
-    private FileGuardListener fileGuardListener;
-    private final List<Path> checkList;
-    private final Set<Path> ignoreList;
-    private final String[] basicIgnoreDirs = {"saves", "resourcepacks", "shaderpacks", "screenshots", "logs", "config"};
+    private static final List<String> BASIC_IGNORE_DIRS = List.of(
+            "saves",
+            "resourcepacks",
+            "shaderpacks",
+            "screenshots",
+            "logs",
+            "config"
+    );
+
     private final GameLauncher gameLauncher;
     private final Logger logger;
-    private final AtomicInteger totalFiles = new AtomicInteger(0);
-    private final AtomicInteger checkedFiles = new AtomicInteger(0);
-    private final AtomicInteger filesDeleted = new AtomicInteger(0);
+    private final Path gameRoot;
+    private final Path clientRoot;
+    private final List<Path> checkList;
+    private final Set<Path> ignoreList = new CopyOnWriteArraySet<>();
+    private volatile FileGuardListener fileGuardListener;
 
     public FileGuard(GameLauncher gameLauncher, List<String> checkList) {
-        this.gameLauncher = gameLauncher;
-        this.logger = this.gameLauncher.getLogger();
-        this.checkList = new CopyOnWriteArrayList<>(convertToPaths(checkList));
-        this.ignoreList = new HashSet<>();
+        this.gameLauncher = Objects.requireNonNull(gameLauncher, "gameLauncher");
+        this.logger = gameLauncher.getLogger();
+        this.gameRoot = gameLauncher.getPathBuilders().buildGameDir().toAbsolutePath().normalize();
+        this.clientRoot = gameLauncher.getPathBuilders().buildClientDir().toAbsolutePath().normalize();
+        if (!clientRoot.startsWith(gameRoot) || clientRoot.equals(gameRoot)) {
+            throw new IllegalArgumentException("Client directory escaped the game root: " + clientRoot);
+        }
+        this.checkList = convertToPaths(checkList);
         buildBasicIgnoreList();
     }
 
-    private List<Path> convertToPaths(List<String> paths) {
-        List<Path> result = new ArrayList<>();
-        for (String path : paths) {
-            result.add(Paths.get(path).normalize());
-        }
-        return result;
-    }
-
+    /**
+     * Starts a guard pass and preserves the legacy fire-and-forget API.
+     */
     public void scanAndDeleteFilesInSubdirectories(Set<String> filesToKeep) {
-        this.gameLauncher.getEngine().getExecutorServiceProvider().submitTask(() -> {
-            totalFiles.set(countTotalFiles());
-            resetCounters();
-
-            logger.info("Ignoring the following directories:");
-            ignoreList.forEach(dir -> logger.info("  - {}", dir));
-
-            for (Path dir : checkList) {
-                logger.debug("Checking Directory: {}", dir);
-                if (fileGuardListener != null) {
-                    fileGuardListener.onDirCheck(dir.toString());
-                }
-                scanAndDeleteFilesRecursively(dir, convertToPaths(new ArrayList<>(filesToKeep)));
-            }
-
-            if (fileGuardListener != null) {
-                fileGuardListener.onFilesChecked(filesDeleted.get());
-            }
-        }, "fileGuard");
+        scanAsync(filesToKeep, List.of());
     }
 
-    private void resetCounters() {
-        checkedFiles.set(0);
-        filesDeleted.set(0);
+    /**
+     * Starts a guard pass with cleanup targets that must be removed safely before scanning.
+     */
+    public void scanAndDeleteFilesInSubdirectories(
+            Set<String> filesToKeep,
+            Collection<Path> cleanupTargets
+    ) {
+        scanAsync(filesToKeep, cleanupTargets);
     }
 
-    private int countTotalFiles() {
-        return checkList.stream()
-                .filter(Files::exists)
-                .mapToInt(this::countFilesInDirectory)
-                .sum();
+    public CompletableFuture<FileGuardReport> scanAsync(Set<String> filesToKeep) {
+        return scanAsync(filesToKeep, List.of());
     }
 
-    private int countFilesInDirectory(Path directory) {
-        try {
-            return (int) Files.walk(directory)
-                    .filter(Files::isRegularFile)
-                    .count();
-        } catch (Exception e) {
-            logger.error("Error counting files in directory: {}", directory, e);
-            return 0;
-        }
-    }
+    public CompletableFuture<FileGuardReport> scanAsync(
+            Set<String> filesToKeep,
+            Collection<Path> cleanupTargets
+    ) {
+        Set<String> manifestSnapshot = copyManifest(filesToKeep);
+        List<Path> cleanupSnapshot = cleanupTargets == null
+                ? List.of()
+                : List.copyOf(cleanupTargets);
+        Set<Path> ignoreSnapshot = Set.copyOf(ignoreList);
+        FileGuardListener listenerSnapshot = fileGuardListener;
+        long startedAt = System.nanoTime();
 
-    public void removeEmptyFolders(Path dir) {
-        if (dir == null || !Files.exists(dir)) {
-            return;
-        }
+        CompletableFuture<FileGuardReport> future = gameLauncher
+                .getEngine()
+                .getExecutorServiceProvider()
+                .supplyAsyncQuietly(() -> {
+                    GuardedFileTree guardedTree = new GuardedFileTree(
+                            gameRoot,
+                            checkList,
+                            ignoreSnapshot,
+                            listenerSnapshot
+                    );
+                    for (Path cleanupTarget : cleanupSnapshot) {
+                        if (cleanupTarget == null) {
+                            throw new IllegalArgumentException("File guard cleanup target cannot be null");
+                        }
+                        guardedTree.deleteTree(cleanupTarget);
+                    }
+                    logger.info("Starting FileGuard: roots={}, manifestFiles={}, ignoredRoots={}",
+                            checkList.size(), manifestSnapshot.size(), ignoreSnapshot.size());
+                    return guardedTree.scan(manifestSnapshot);
+                }, "fileGuard");
 
-        try {
-            try (Stream<Path> subPaths = Files.list(dir)) {
-                subPaths.filter(Files::isDirectory).forEach(this::removeEmptyFolders);
-            }
-
-            boolean isEmpty;
-            try (Stream<Path> dirContents = Files.list(dir)) {
-                isEmpty = dirContents.findAny().isEmpty();
-            }
-
-            if (isEmpty) {
-                Files.delete(dir);
-                logger.debug("Removed empty directory: {}", dir);
-            }
-        } catch (DirectoryNotEmptyException e) {
-            logger.debug("Directory is not empty (concurrent modification?): {}", dir);
-        } catch (IOException e) {
-            logger.error("Error while processing directory: {}", dir, e);
-        }
-    }
-
-    private void scanAndDeleteFilesRecursively(Path directory, List<Path> filesToKeep) {
-        try {
-            if (isInIgnoreList(directory)) {
-                logger.info("Skipping directory (ignored): {}", directory);
+        future.whenComplete((report, failure) -> {
+            if (failure == null) {
+                logger.info(
+                        "FileGuard completed in {} ms: checked={}, kept={}, deleted={}, symlinksDeleted={}, emptyDirsDeleted={}",
+                        report.durationMillis(),
+                        report.filesChecked(),
+                        report.filesKept(),
+                        report.filesDeleted(),
+                        report.symbolicLinksDeleted(),
+                        report.directoriesDeleted()
+                );
+                notifyCompleted(listenerSnapshot, report);
                 return;
             }
 
-            logger.debug("Scanning directory: {}", directory);
-
-            Files.list(directory).forEach(path -> {
-                if (Files.isRegularFile(path)) {
-                    checkAndDeleteFile(path, filesToKeep);
-                } else if (Files.isDirectory(path)) {
-                    scanAndDeleteFilesRecursively(path, filesToKeep);
-                    removeEmptyFolders(path);
-                }
-            });
-        } catch (Exception e) {
-            logger.error("Error scanning directory: {}", directory, e);
-        }
-    }
-
-
-    private void checkAndDeleteFile(Path file, List<Path> filesToKeep) {
-        if (fileGuardListener != null) {
-            fileGuardListener.onFileCheck(file.toFile());
-        }
-        String relativePath = getRelativePath(file);
-        if (!filesToKeep.contains(Paths.get(relativePath)) && !isUserConfig(file) && !isInIgnoreList(file)) {
-            try {
-                Files.delete(file);
-                logger.debug("Deleted unlisted file: {}", relativePath);
-                filesDeleted.incrementAndGet();
-            } catch (Exception e) {
-                logger.error("Failed to delete file: {}. Error: {}", relativePath, e.getMessage());
-            }
-        } else {
-            logger.debug("{} is checked", relativePath);
-        }
-        checkedFiles.incrementAndGet();
-    }
-
-    @SuppressWarnings({"ResultOfMethodCallIgnored"})
-    public void recursiveDelete(File file) {
-        if (!file.exists()) return;
-
-        if (file.isDirectory()) {
-            Arrays.stream(Optional.ofNullable(file.listFiles()).orElse(new File[0]))
-                    .forEach(this::recursiveDelete);
-        }
-
-        if (file.delete()) {
-            logger.debug("Deleted file/directory: {}", file);
-        } else {
-            logger.error("Failed to delete: {}", file);
-        }
-    }
-    private String getRelativePath(Path filePath) {
-        Path relativePath = gameLauncher.getPathBuilders().buildGameDir().relativize(filePath);
-        return relativePath.toString().replace("\\", "/");
-    }
-
-    private boolean isInIgnoreList(Path filePath) {
-        Path absolutePath = filePath.normalize().toAbsolutePath();
-        return ignoreList.stream()
-                .map(Path::toAbsolutePath)
-                .anyMatch(absolutePath::startsWith);
-    }
-
-
-    private void buildBasicIgnoreList() {
-        Arrays.stream(basicIgnoreDirs).forEach(dir -> {
-            try {
-                Path ignoreDirPath = gameLauncher.getPathBuilders()
-                        .buildClientDir()
-                        .resolve(dir)
-                        .normalize()
-                        .toAbsolutePath();
-
-                ignoreList.add(ignoreDirPath);
-                logger.debug("Added to ignore list: {}", ignoreDirPath);
-            } catch (Exception e) {
-                logger.error("Error building ignore list for directory: {}", dir, e);
-            }
+            Throwable cause = unwrap(failure);
+            FileGuardReport partialReport = cause instanceof FileGuardScanException scanFailure
+                    ? scanFailure.report()
+                    : FileGuardReport.failed(elapsedMillis(startedAt));
+            logger.error(
+                    "FileGuard failed closed after {} ms; Minecraft launch is blocked.",
+                    partialReport.durationMillis(),
+                    cause
+            );
+            notifyFailed(listenerSnapshot, partialReport, cause);
         });
+        return future;
+    }
+
+    /**
+     * Deletes a tree without following symbolic links. The game root itself is never accepted.
+     */
+    public void recursiveDelete(File file) {
+        Objects.requireNonNull(file, "file");
+        try {
+            new GuardedFileTree(gameRoot, List.of(), Set.of(), fileGuardListener)
+                    .deleteTree(file.toPath());
+        } catch (IOException | RuntimeException error) {
+            throw new IllegalStateException("Unable to safely delete guarded path: " + file, error);
+        }
+    }
+
+    public void removeEmptyFolders(Path directory) {
+        Objects.requireNonNull(directory, "directory");
+        try {
+            new GuardedFileTree(gameRoot, List.of(), Set.of(), fileGuardListener)
+                    .removeEmptyDirectories(directory);
+        } catch (IOException | RuntimeException error) {
+            throw new IllegalStateException("Unable to safely remove empty directories below: " + directory, error);
+        }
     }
 
     public void addIgnoreDirs(String dirs) {
-        if (dirs != null) {
-            Arrays.stream(dirs.split(","))
-                    .map(dir -> {
-                        try {
-                            return gameLauncher.getPathBuilders()
-                                    .buildClientDir()
-                                    .resolve(dir)
-                                    .normalize()
-                                    .toAbsolutePath();
-                        } catch (Exception e) {
-                            logger.error("Error adding ignore directory: {}", dir, e);
-                            return null;
-                        }
-                    })
-                    .filter(Objects::nonNull)
-                    .forEach(ignoreList::add);
-        }
+        parseIgnoreDirectories(dirs).stream()
+                .map(this::resolveClientRelativeDirectory)
+                .forEach(ignoreList::add);
     }
 
+    static List<String> parseIgnoreDirectories(String dirs) {
+        if (dirs == null || dirs.isBlank()) {
+            return List.of();
+        }
 
-    private boolean isUserConfig(Path file) {
-        return file.getFileName().toString().endsWith(".txt");
+        String source = dirs.trim();
+        if (source.startsWith("[")) {
+            try {
+                JsonElement root = JsonParser.parseString(source);
+                if (!root.isJsonArray()) {
+                    throw new IllegalArgumentException("ignoreDirs JSON must be an array");
+                }
+                List<String> result = new ArrayList<>();
+                for (JsonElement element : root.getAsJsonArray()) {
+                    if (!element.isJsonPrimitive() || !element.getAsJsonPrimitive().isString()) {
+                        throw new IllegalArgumentException("ignoreDirs JSON entries must be strings");
+                    }
+                    String value = element.getAsString().trim();
+                    if (!value.isEmpty()) {
+                        result.add(value);
+                    }
+                }
+                return List.copyOf(result);
+            } catch (RuntimeException error) {
+                throw new IllegalArgumentException("Invalid FileGuard ignoreDirs JSON: " + source, error);
+            }
+        }
+
+        return Arrays.stream(source.split(","))
+                .map(String::trim)
+                .map(FileGuard::stripOptionalQuotes)
+                .filter(value -> !value.isEmpty())
+                .toList();
+    }
+
+    private static String stripOptionalQuotes(String value) {
+        if (value.length() >= 2) {
+            char first = value.charAt(0);
+            char last = value.charAt(value.length() - 1);
+            if ((first == '"' && last == '"') || (first == '\'' && last == '\'')) {
+                return value.substring(1, value.length() - 1).trim();
+            }
+        }
+        return value;
     }
 
     public void setFileGuardListener(FileGuardListener fileGuardListener) {
         this.fileGuardListener = fileGuardListener;
+    }
+
+    private List<Path> convertToPaths(List<String> paths) {
+        if (paths == null || paths.isEmpty()) {
+            throw new IllegalArgumentException("File guard check roots are missing");
+        }
+        List<Path> result = new ArrayList<>();
+        for (String path : paths) {
+            if (path == null || path.isBlank()) {
+                throw new IllegalArgumentException("File guard check root is empty");
+            }
+            Path normalized = Path.of(path).toAbsolutePath().normalize();
+            if (!normalized.startsWith(gameRoot)) {
+                throw new IllegalArgumentException("File guard check root escaped the game root: " + path);
+            }
+            result.add(normalized);
+        }
+        return List.copyOf(result);
+    }
+
+    private void buildBasicIgnoreList() {
+        BASIC_IGNORE_DIRS.stream()
+                .map(this::resolveClientRelativeDirectory)
+                .forEach(ignoreList::add);
+    }
+
+    private Path resolveClientRelativeDirectory(String rawPath) {
+        String portable = rawPath.trim().replace('\\', '/');
+        Path relative = Path.of(portable);
+        if (relative.isAbsolute() || relative.getRoot() != null || containsParentTraversal(relative)) {
+            throw new IllegalArgumentException("Unsafe FileGuard ignore directory: " + rawPath);
+        }
+
+        Path normalizedRelative = relative.normalize();
+        Path resolved = clientRoot.resolve(normalizedRelative).normalize();
+        if (normalizedRelative.getNameCount() == 0
+                || normalizedRelative.toString().equals(".")
+                || !resolved.startsWith(clientRoot)
+                || resolved.equals(clientRoot)) {
+            throw new IllegalArgumentException("Unsafe FileGuard ignore directory: " + rawPath);
+        }
+        return resolved;
+    }
+
+    private Set<String> copyManifest(Set<String> filesToKeep) {
+        if (filesToKeep == null) {
+            throw new IllegalArgumentException("File guard manifest is missing");
+        }
+        return Set.copyOf(new LinkedHashSet<>(filesToKeep));
+    }
+
+    private boolean containsParentTraversal(Path path) {
+        for (Path part : path) {
+            if (part.toString().equals("..")) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void notifyCompleted(FileGuardListener listener, FileGuardReport report) {
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.onGuardCompleted(report);
+        } catch (RuntimeException error) {
+            logger.error("FileGuard completion listener failed", error);
+        }
+    }
+
+    private void notifyFailed(FileGuardListener listener, FileGuardReport report, Throwable error) {
+        if (listener == null) {
+            return;
+        }
+        try {
+            listener.onGuardFailed(report, error);
+        } catch (RuntimeException callbackError) {
+            logger.error("FileGuard failure listener failed", callbackError);
+        }
+    }
+
+    private Throwable unwrap(Throwable failure) {
+        Throwable current = failure;
+        while ((current instanceof CompletionException || current instanceof java.util.concurrent.ExecutionException)
+                && current.getCause() != null
+                && current.getCause() != current) {
+            current = current.getCause();
+        }
+        return current;
+    }
+
+    private long elapsedMillis(long startedAt) {
+        return Math.max(0L, java.util.concurrent.TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startedAt));
     }
 }

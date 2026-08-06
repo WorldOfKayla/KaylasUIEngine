@@ -2,6 +2,7 @@ package org.takesome.kaylasEngine.gui.components.image;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.w3c.dom.NamedNodeMap;
 import org.w3c.dom.Node;
 import org.w3c.dom.NodeList;
@@ -13,7 +14,6 @@ import javax.imageio.stream.ImageInputStream;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
 import javax.swing.SwingWorker;
-import javax.swing.Timer;
 import java.awt.AlphaComposite;
 import java.awt.Dimension;
 import java.awt.Graphics;
@@ -32,8 +32,8 @@ import java.util.Objects;
 /**
  * Reusable Swing GIF player owned by KaylasUIEngine.
  *
- * <p>Frame decoding runs outside the EDT. Playback uses a coalesced one-shot Swing timer rather
- * than a dedicated executor thread for every component. The decoder applies GIF disposal methods
+ * <p>Frame decoding runs outside the EDT. Playback is scheduled through the shared
+ * {@link AnimationEngine}; no component-local clock is created. The decoder applies GIF disposal methods
  * and frame offsets before publishing immutable, fully composed animation frames.</p>
  */
 public final class GifPlayer extends JPanel implements AutoCloseable {
@@ -49,7 +49,7 @@ public final class GifPlayer extends JPanel implements AutoCloseable {
     private volatile Throwable loadFailure;
     private volatile double speedFactor = 1.0d;
 
-    private Timer playbackTimer;
+    private AnimationEngine.Handle playbackAnimation;
     private int currentFrameIndex;
     private boolean playRequested = true;
     private boolean running;
@@ -213,10 +213,10 @@ public final class GifPlayer extends JPanel implements AutoCloseable {
         stopTimerOnly();
         int baseDelay = frames.get(currentFrameIndex).delayMs();
         int adjustedDelay = Math.max(MIN_FRAME_DELAY_MS, (int) Math.round(baseDelay / speedFactor));
-        playbackTimer = new Timer(adjustedDelay, event -> advanceFrame());
-        playbackTimer.setRepeats(false);
-        playbackTimer.setCoalesce(true);
-        playbackTimer.start();
+        playbackAnimation = AnimationEngine.shared().delay(adjustedDelay, () -> {
+            playbackAnimation = null;
+            advanceFrame();
+        });
     }
 
     private void advanceFrame() {
@@ -235,9 +235,9 @@ public final class GifPlayer extends JPanel implements AutoCloseable {
     }
 
     private void stopTimerOnly() {
-        if (playbackTimer != null) {
-            playbackTimer.stop();
-            playbackTimer = null;
+        if (playbackAnimation != null) {
+            playbackAnimation.cancel();
+            playbackAnimation = null;
         }
     }
 

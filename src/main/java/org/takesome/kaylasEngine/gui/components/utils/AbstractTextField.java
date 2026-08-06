@@ -1,11 +1,11 @@
 package org.takesome.kaylasEngine.gui.components.utils;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.FocusAdapter;
 import java.awt.event.FocusEvent;
-import java.awt.event.ActionEvent;
-import java.awt.event.ActionListener;
 import java.awt.image.BufferedImage;
 
 public abstract class AbstractTextField extends JComponent {
@@ -15,7 +15,7 @@ public abstract class AbstractTextField extends JComponent {
     protected boolean hasFocus = false;
     protected int paddingX = 0;
     protected int paddingY = 0;
-    protected Timer caretTimer;
+    protected AnimationEngine.Handle caretAnimation;
 
     public AbstractTextField(String placeholder) {
         this.placeholder = placeholder;
@@ -39,27 +39,34 @@ public abstract class AbstractTextField extends JComponent {
     }
 
     private void startCaretBlinking() {
-        if (caretTimer == null || !caretTimer.isRunning()) {
-            caretTimer = new Timer(500, new ActionListener() {
-                private boolean caretVisibleState = true;
-
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    caretVisible = caretVisibleState;
-                    caretVisibleState = !caretVisibleState;
-                    repaint();
-                }
-            });
-            caretTimer.start();
+        if (caretAnimation != null && caretAnimation.isActive()) {
+            return;
         }
+        caretVisible = true;
+        caretAnimation = AnimationEngine.shared().interval(500, 500, () -> {
+            if (!hasFocus || !isDisplayable()) {
+                caretAnimation = null;
+                return false;
+            }
+            caretVisible = !caretVisible;
+            repaint();
+            return true;
+        });
     }
 
     private void stopCaretBlinking() {
-        if (caretTimer != null) {
-            caretTimer.stop();
+        if (caretAnimation != null) {
+            caretAnimation.cancel();
+            caretAnimation = null;
         }
         caretVisible = true;
         repaint();
+    }
+
+    @Override
+    public void removeNotify() {
+        stopCaretBlinking();
+        super.removeNotify();
     }
 
     @Override

@@ -66,11 +66,23 @@ public class ArgsReader {
                 jvmArguments = applyRules(arrayOrEmpty(argumentsObject, "jvm"));
                 gameArguments = applyRules(arrayOrEmpty(argumentsObject, "game"));
             } else {
+                jvmArguments = legacyJvmArgumentsArray();
                 gameArguments = minecraftArgumentsArray(jsonObject);
+                Engine.LOGGER.debug("Using legacy Minecraft JVM argument defaults for {}", path);
             }
         } catch (IOException error) {
             Engine.LOGGER.error("Error reading args file {}: {}", path, error.getMessage(), error);
         }
+    }
+
+    private JsonArray legacyJvmArgumentsArray() {
+        JsonArray arguments = new JsonArray();
+        arguments.add("-Djava.library.path=${natives_directory}");
+        arguments.add("-Dminecraft.launcher.brand=${launcher_name}");
+        arguments.add("-Dminecraft.launcher.version=${launcher_version}");
+        arguments.add("-cp");
+        arguments.add("${classpath}");
+        return arguments;
     }
 
     private JsonArray minecraftArgumentsArray(JsonObject jsonObject) {

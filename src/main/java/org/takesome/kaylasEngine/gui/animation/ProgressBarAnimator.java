@@ -9,6 +9,7 @@ import javax.swing.JProgressBar;
 import java.util.List;
 import java.util.function.Consumer;
 import java.util.function.IntConsumer;
+import java.util.function.DoubleConsumer;
 import java.util.function.IntSupplier;
 
 /**
@@ -43,7 +44,11 @@ public class ProgressBarAnimator {
         private boolean resetOnStop = true;
         private boolean hideOnStop = false;
         private boolean animateEntrance = true;
+        private boolean animateActive = true;
+        private boolean animateComplete = true;
         private boolean animateExit = true;
+        private int activeTimelineDurationMs = 1200;
+        private int completeTimelineDurationMs = 260;
 
         public Options() {
         }
@@ -66,7 +71,11 @@ public class ProgressBarAnimator {
             this.resetOnStop = source.resetOnStop;
             this.hideOnStop = source.hideOnStop;
             this.animateEntrance = source.animateEntrance;
+            this.animateActive = source.animateActive;
+            this.animateComplete = source.animateComplete;
             this.animateExit = source.animateExit;
+            this.activeTimelineDurationMs = source.activeTimelineDurationMs;
+            this.completeTimelineDurationMs = source.completeTimelineDurationMs;
         }
 
         public int progressUpdateMs() { return progressUpdateMs; }
@@ -83,7 +92,11 @@ public class ProgressBarAnimator {
         public boolean resetOnStop() { return resetOnStop; }
         public boolean hideOnStop() { return hideOnStop; }
         public boolean animateEntrance() { return animateEntrance; }
+        public boolean animateActive() { return animateActive; }
+        public boolean animateComplete() { return animateComplete; }
         public boolean animateExit() { return animateExit; }
+        public int activeTimelineDurationMs() { return activeTimelineDurationMs; }
+        public int completeTimelineDurationMs() { return completeTimelineDurationMs; }
 
         public Options setProgressUpdateMs(int progressUpdateMs) {
             this.progressUpdateMs = Math.max(1, progressUpdateMs);
@@ -155,6 +168,26 @@ public class ProgressBarAnimator {
             return this;
         }
 
+        public Options setAnimateActive(boolean animateActive) {
+            this.animateActive = animateActive;
+            return this;
+        }
+
+        public Options setAnimateComplete(boolean animateComplete) {
+            this.animateComplete = animateComplete;
+            return this;
+        }
+
+        public Options setActiveTimelineDurationMs(int activeTimelineDurationMs) {
+            this.activeTimelineDurationMs = Math.max(1, activeTimelineDurationMs);
+            return this;
+        }
+
+        public Options setCompleteTimelineDurationMs(int completeTimelineDurationMs) {
+            this.completeTimelineDurationMs = Math.max(1, completeTimelineDurationMs);
+            return this;
+        }
+
         public Options setAnimateExit(boolean animateExit) {
             this.animateExit = animateExit;
             return this;
@@ -188,6 +221,9 @@ public class ProgressBarAnimator {
                 progressBar::getMaximum,
                 progressText::setText,
                 progressText::setVisible,
+                ignored -> { },
+                ignored -> { },
+                ignored -> { },
                 ignored -> { }
         );
     }
@@ -217,7 +253,10 @@ public class ProgressBarAnimator {
                 progressBar::getMaximum,
                 progressBar::setString,
                 progressBar::setStringPainted,
-                progressBar::setShowPercent
+                progressBar::setShowPercent,
+                progressBar::setAnimationOpacity,
+                progressBar::setGlowIntensity,
+                progressBar::setShinePosition
         );
     }
 
@@ -231,7 +270,10 @@ public class ProgressBarAnimator {
                                 IntSupplier progressMaximumSupplier,
                                 Consumer<String> progressTextSetter,
                                 Consumer<Boolean> progressTextVisibilitySetter,
-                                Consumer<Boolean> progressPercentVisibilitySetter) {
+                                Consumer<Boolean> progressPercentVisibilitySetter,
+                                DoubleConsumer progressOpacitySetter,
+                                DoubleConsumer progressGlowSetter,
+                                DoubleConsumer progressShineSetter) {
         controller = ProgressAnimationController.create(new ProgressAnimationController.Config(
                 progressBar,
                 progressText,
@@ -244,6 +286,9 @@ public class ProgressBarAnimator {
                 progressTextSetter,
                 progressTextVisibilitySetter,
                 progressPercentVisibilitySetter,
+                progressOpacitySetter,
+                progressGlowSetter,
+                progressShineSetter,
                 this::resolveMessages
         ));
     }

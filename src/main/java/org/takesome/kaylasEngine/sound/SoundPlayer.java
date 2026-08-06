@@ -20,8 +20,14 @@ import java.util.Map;
 import java.util.Set;
 import java.util.Timer;
 import java.util.TimerTask;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.ThreadFactory;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 /**
  * Small sound playback service for launcher/UI sounds.
@@ -34,6 +40,9 @@ public class SoundPlayer implements LineListener {
     private static final int DEFAULT_UPDATE_RATE_MS = 100;
     private static final int PCM_READ_BUFFER_BYTES = 16 * 1024;
     private static final int MAX_ACTIVE_EFFECT_CLIPS = 16;
+    private static final int FADE_OUT_DURATION_MS = 650;
+    private static final int FADE_OUT_FRAME_MS = 25;
+    private static final int FORCE_CLOSE_TIMEOUT_MS = 1500;
     private static final long UI_SOUND_COOLDOWN_NANOS = 90_000_000L;
     private static final long SLOW_SOUND_WARN_NANOS = 35_000_000L;
     private static final long LOG_THROTTLE_NANOS = 1_000_000_000L;
@@ -42,13 +51,17 @@ public class SoundPlayer implements LineListener {
 
     private final Engine engine;
     private final VorbisAudioFileReader vorbisAudioFileReader;
+    private final Object playbackLock = new Object();
+    private final SoundPlaybackGate playbackGate = new SoundPlaybackGate();
     private final Set<Clip> activeClips = ConcurrentHashMap.newKeySet();
+    private final Set<Clip> fadingClips = ConcurrentHashMap.newKeySet();
     private final Map<Clip, PlaybackStatusListener> clipListeners = new ConcurrentHashMap<>();
     private final Map<Clip, String> clipPaths = new ConcurrentHashMap<>();
     private final Map<Clip, Timer> clipTimers = new ConcurrentHashMap<>();
     private final Map<String, CachedAudio> audioCache = new ConcurrentHashMap<>();
     private final Map<String, Long> lastPlayNanosByPath = new ConcurrentHashMap<>();
-    private final AtomicReference<Runnable> stopAllSoundsCallback = new AtomicReference<>();
+    private final ExecutorService audioFadeExecutor;
+    private final ScheduledExecutorService audioWatchdogExecutor;
 
     private volatile long lastDroppedSoundLogNanos;
     private volatile long lastSlowSoundLogNanos;
@@ -56,6 +69,8 @@ public class SoundPlayer implements LineListener {
     public SoundPlayer(Engine engine) {
         this.engine = engine;
         this.vorbisAudioFileReader = new VorbisAudioFileReader();
+        this.audioFadeExecutor = Executors.newCachedThreadPool(daemonThreadFactory("sound-fade-"));
+        this.audioWatchdogExecutor = Executors.newSingleThreadScheduledExecutor(daemonThreadFactory("sound-watchdog-"));
     }
 
     public void playSound(String path, boolean loop, PlaybackStatusListener listener) {
@@ -67,15 +82,26 @@ public class SoundPlayer implements LineListener {
             return;
         }
 
+        SoundPlaybackGate.Ticket ticket = playbackGate.reserve();
+        if (ticket == null) {
+            Engine.LOGGER.debug("[SOUND] playback rejected while launcher audio is suspended: {}", path);
+            return;
+        }
         if (!loop && !claimUiSoundSlot(path)) {
+            playbackGate.abandon(ticket);
             return;
         }
 
         long submittedAt = System.nanoTime();
-        engine.getExecutorServiceProvider().submitTask(
-                () -> playSoundInternal(path, loop, listener, submittedAt),
-                "Play Sound Task"
-        );
+        try {
+            engine.getExecutorServiceProvider().submitTask(
+                    () -> playSoundInternal(path, loop, listener, submittedAt, ticket),
+                    "Play Sound Task"
+            );
+        } catch (RuntimeException error) {
+            playbackGate.abandon(ticket);
+            throw error;
+        }
     }
 
     public void playSound(String path, boolean loop) {
@@ -113,33 +139,47 @@ public class SoundPlayer implements LineListener {
         }
     }
 
-    private void playSoundInternal(String path, boolean loop, PlaybackStatusListener listener, long submittedAtNanos) {
-        if (loop) {
-            playStreamingSound(path, true, listener, submittedAtNanos);
-            return;
-        }
+    private void playSoundInternal(String path,
+                                   boolean loop,
+                                   PlaybackStatusListener listener,
+                                   long submittedAtNanos,
+                                   SoundPlaybackGate.Ticket ticket) {
+        try {
+            if (loop) {
+                playStreamingSound(path, true, listener, submittedAtNanos, ticket);
+                return;
+            }
 
-        long startedAt = System.nanoTime();
-        CachedAudio cachedAudio = getCachedAudio(path);
-        if (cachedAudio == null) {
-            return;
-        }
+            long startedAt = System.nanoTime();
+            CachedAudio cachedAudio = getCachedAudio(path);
+            if (cachedAudio == null) {
+                return;
+            }
 
-        try (AudioInputStream audioInputStream = cachedAudio.openStream()) {
-            long clipOpenStartedAt = System.nanoTime();
-            Clip clip = AudioSystem.getClip();
-            clip.open(audioInputStream);
-            long clipOpenElapsed = System.nanoTime() - clipOpenStartedAt;
+            try (AudioInputStream audioInputStream = cachedAudio.openStream()) {
+                long clipOpenStartedAt = System.nanoTime();
+                Clip clip = AudioSystem.getClip();
+                clip.open(audioInputStream);
+                long clipOpenElapsed = System.nanoTime() - clipOpenStartedAt;
 
-            registerAndStartClip(clip, path, false, listener);
-            long totalElapsed = System.nanoTime() - startedAt;
-            logSlowPlayback(path, submittedAtNanos, startedAt, clipOpenElapsed, totalElapsed, false);
-        } catch (IOException | LineUnavailableException ex) {
-            Engine.LOGGER.error("Failed to play sound: {}", path, ex);
+                if (!registerAndStartClip(clip, path, false, listener, ticket)) {
+                    return;
+                }
+                long totalElapsed = System.nanoTime() - startedAt;
+                logSlowPlayback(path, submittedAtNanos, startedAt, clipOpenElapsed, totalElapsed, false);
+            } catch (IOException | LineUnavailableException ex) {
+                Engine.LOGGER.error("Failed to play sound: {}", path, ex);
+            }
+        } finally {
+            playbackGate.abandon(ticket);
         }
     }
 
-    private void playStreamingSound(String path, boolean loop, PlaybackStatusListener listener, long submittedAtNanos) {
+    private void playStreamingSound(String path,
+                                    boolean loop,
+                                    PlaybackStatusListener listener,
+                                    long submittedAtNanos,
+                                    SoundPlaybackGate.Ticket ticket) {
         long startedAt = System.nanoTime();
         try (InputStream inputStream = this.getClass().getClassLoader().getResourceAsStream(path)) {
             if (inputStream == null) {
@@ -153,7 +193,9 @@ public class SoundPlayer implements LineListener {
                 clip.open(audioInputStream);
                 long clipOpenElapsed = System.nanoTime() - clipOpenStartedAt;
 
-                registerAndStartClip(clip, path, loop, listener);
+                if (!registerAndStartClip(clip, path, loop, listener, ticket)) {
+                    return;
+                }
                 long totalElapsed = System.nanoTime() - startedAt;
                 logSlowPlayback(path, submittedAtNanos, startedAt, clipOpenElapsed, totalElapsed, loop);
             }
@@ -162,25 +204,44 @@ public class SoundPlayer implements LineListener {
         }
     }
 
-    private void registerAndStartClip(Clip clip, String path, boolean loop, PlaybackStatusListener listener) {
-        clip.addLineListener(this);
+    private boolean registerAndStartClip(Clip clip,
+                                         String path,
+                                         boolean loop,
+                                         PlaybackStatusListener listener,
+                                         SoundPlaybackGate.Ticket ticket) {
+        synchronized (playbackLock) {
+            if (!playbackGate.activate(ticket)) {
+                closeQuietly(clip);
+                return false;
+            }
 
-        activeClips.add(clip);
-        clipPaths.put(clip, path);
-        if (listener != null) {
-            clipListeners.put(clip, listener);
+            clip.addLineListener(this);
+            activeClips.add(clip);
+            clipPaths.put(clip, path);
+            if (listener != null) {
+                clipListeners.put(clip, listener);
+            }
+
+            try {
+                setVolume(clip, resolveVolume(path));
+                if (loop) {
+                    clip.loop(Clip.LOOP_CONTINUOUSLY);
+                }
+                clip.start();
+            } catch (RuntimeException error) {
+                cleanupClip(clip, false);
+                Engine.LOGGER.error("Unable to start sound clip: {}", path, error);
+                return false;
+            }
         }
 
-        setVolume(clip, resolveVolume(path));
-        if (loop) {
-            clip.loop(Clip.LOOP_CONTINUOUSLY);
-        }
-        clip.start();
-
-        if (listener != null) {
+        if (listener != null && activeClips.contains(clip)) {
             listener.onPlaybackStarted(path);
         }
-        startPlaybackTimer(clip, path, listener);
+        if (activeClips.contains(clip)) {
+            startPlaybackTimer(clip, path, listener);
+        }
+        return true;
     }
 
     private CachedAudio getCachedAudio(String path) {
@@ -287,14 +348,24 @@ public class SoundPlayer implements LineListener {
     }
 
     private void setVolume(Clip clip, float volume) {
-        if (!clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
-            Engine.LOGGER.debug("Clip does not support MASTER_GAIN volume control");
+        FloatControl volumeControl = resolveVolumeControl(clip);
+        if (volumeControl == null) {
+            Engine.LOGGER.debug("Clip does not support MASTER_GAIN or VOLUME control");
             return;
         }
-        FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-        float range = gainControl.getMaximum() - gainControl.getMinimum();
-        float gain = (range * volume) + gainControl.getMinimum();
-        gainControl.setValue(gain);
+        float range = volumeControl.getMaximum() - volumeControl.getMinimum();
+        float gain = (range * volume) + volumeControl.getMinimum();
+        volumeControl.setValue(gain);
+    }
+
+    private FloatControl resolveVolumeControl(Clip clip) {
+        if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
+            return (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
+        }
+        if (clip.isControlSupported(FloatControl.Type.VOLUME)) {
+            return (FloatControl) clip.getControl(FloatControl.Type.VOLUME);
+        }
+        return null;
     }
 
     private void startPlaybackTimer(Clip clip, String path, PlaybackStatusListener listener) {
@@ -310,73 +381,155 @@ public class SoundPlayer implements LineListener {
         timer.scheduleAtFixedRate(new TimerTask() {
             @Override
             public void run() {
-                listener.onPlaybackProgress(path, clip.getMicrosecondPosition(), clip.getMicrosecondLength());
+                if (activeClips.contains(clip)) {
+                    listener.onPlaybackProgress(path, clip.getMicrosecondPosition(), clip.getMicrosecondLength());
+                }
             }
         }, 0, updateRateMs);
     }
 
     public void changeActiveVolume(float volume) {
         float safeVolume = Math.max(0.0f, Math.min(1.0f, volume));
-        for (Clip clip : activeClips) {
-            setVolume(clip, safeVolume);
+        for (Clip clip : Set.copyOf(activeClips)) {
+            try {
+                setVolume(clip, safeVolume);
+            } catch (RuntimeException error) {
+                Engine.LOGGER.debug("Unable to change active clip volume", error);
+            }
         }
     }
 
-    public void stopAllSounds(Runnable onStopAction) {
-        stopAllSoundsCallback.set(onStopAction);
-        for (Clip clip : Set.copyOf(activeClips)) {
-            if (clip.isRunning()) {
-                fadeOut(clip);
-            } else {
-                cleanupClip(clip, true);
-            }
+    /**
+     * Smoothly closes current audio, rejects every queued/new sound, and completes only after active
+     * native clips are closed. This is the launch barrier used before spawning Minecraft.
+     */
+    public CompletableFuture<Void> fadeOutAndSuspend() {
+        return stopAllSoundsAsync(true);
+    }
+
+    public CompletableFuture<Void> stopAllSoundsAsync() {
+        return stopAllSoundsAsync(false);
+    }
+
+    private CompletableFuture<Void> stopAllSoundsAsync(boolean suspendFurtherPlayback) {
+        final CompletableFuture<Void> drained;
+        final Set<Clip> snapshot;
+        synchronized (playbackLock) {
+            drained = playbackGate.stopAndDrain(suspendFurtherPlayback);
+            snapshot = Set.copyOf(activeClips);
         }
-        checkAndRunCallback();
+
+        stopSnapshot(snapshot);
+        audioWatchdogExecutor.schedule(
+                () -> forceCloseRemaining(snapshot),
+                FORCE_CLOSE_TIMEOUT_MS,
+                TimeUnit.MILLISECONDS
+        );
+        return drained;
+    }
+
+    public void stopAllSounds(Runnable onStopAction) {
+        CompletableFuture<Void> stopped = stopAllSoundsAsync();
+        if (onStopAction != null) {
+            stopped.whenComplete((ignored, error) -> runCallback(onStopAction, error));
+        }
     }
 
     public void stopAllSounds() {
         stopAllSounds(null);
     }
 
-    private void checkAndRunCallback() {
-        Runnable callback = stopAllSoundsCallback.get();
-        if (activeClips.isEmpty() && callback != null && stopAllSoundsCallback.compareAndSet(callback, null)) {
-            callback.run();
+    public void resumePlayback() {
+        playbackGate.resume();
+    }
+
+    public boolean isPlaybackSuspended() {
+        return playbackGate.isSuspended();
+    }
+
+    private void stopSnapshot(Set<Clip> clips) {
+        for (Clip clip : clips) {
+            if (!activeClips.contains(clip)) {
+                continue;
+            }
+            try {
+                if (clip.isRunning()) {
+                    fadeOut(clip);
+                } else {
+                    cleanupClip(clip, true);
+                }
+            } catch (RuntimeException error) {
+                Engine.LOGGER.debug("Unable to inspect active sound clip; forcing cleanup", error);
+                cleanupClip(clip, true);
+            }
         }
     }
 
     private void fadeOut(Clip clip) {
-        engine.getExecutorServiceProvider().runAsync(() -> {
+        if (!fadingClips.add(clip)) {
+            return;
+        }
+        audioFadeExecutor.execute(() -> {
             try {
-                if (clip.isControlSupported(FloatControl.Type.MASTER_GAIN)) {
-                    FloatControl gainControl = (FloatControl) clip.getControl(FloatControl.Type.MASTER_GAIN);
-                    float minVolume = gainControl.getMinimum();
-                    float currentVolume = gainControl.getValue();
-                    while (currentVolume > minVolume && activeClips.contains(clip)) {
-                        currentVolume = Math.max(minVolume, currentVolume - 0.25f);
-                        gainControl.setValue(currentVolume);
-                        Thread.sleep(50);
+                FloatControl volumeControl = resolveVolumeControl(clip);
+                if (volumeControl != null) {
+                    float minimum = volumeControl.getMinimum();
+                    float start = volumeControl.getValue();
+                    int frames = Math.max(1, FADE_OUT_DURATION_MS / FADE_OUT_FRAME_MS);
+                    for (int frame = 1; frame <= frames && activeClips.contains(clip); frame++) {
+                        float progress = frame / (float) frames;
+                        float eased = progress * progress * (3.0f - 2.0f * progress);
+                        float gain = start + (minimum - start) * eased;
+                        volumeControl.setValue(Math.max(minimum, gain));
+                        Thread.sleep(FADE_OUT_FRAME_MS);
                     }
-                    gainControl.setValue(minVolume);
+                    if (activeClips.contains(clip)) {
+                        volumeControl.setValue(minimum);
+                    }
                 }
-                clip.stop();
-            } catch (InterruptedException ex) {
+                if (clip.isOpen()) {
+                    clip.stop();
+                }
+            } catch (InterruptedException error) {
                 Thread.currentThread().interrupt();
-                Engine.LOGGER.debug("Sound fade-out interrupted", ex);
+                Engine.LOGGER.debug("Sound fade-out interrupted", error);
+            } catch (RuntimeException error) {
+                Engine.LOGGER.debug("Native sound fade-out failed; clip will be closed", error);
             } finally {
+                fadingClips.remove(clip);
                 cleanupClip(clip, true);
             }
-        }, "Sound FadeOut Task");
+        });
+    }
+
+    private void forceCloseRemaining(Set<Clip> launchSnapshot) {
+        int forced = 0;
+        for (Clip clip : launchSnapshot) {
+            if (activeClips.contains(clip)) {
+                forced++;
+                cleanupClip(clip, true);
+            }
+        }
+        if (forced > 0) {
+            Engine.LOGGER.warn("[SOUND] force-closed {} clip(s) after fade-out timeout", forced);
+        }
     }
 
     public void onAllSoundsFinished(Runnable callback) {
         if (callback == null) {
             return;
         }
-        if (activeClips.isEmpty()) {
+        playbackGate.whenIdle().whenComplete((ignored, error) -> runCallback(callback, error));
+    }
+
+    private void runCallback(Runnable callback, Throwable error) {
+        if (error != null) {
+            Engine.LOGGER.warn("Sound completion callback received an error", error);
+        }
+        try {
             callback.run();
-        } else {
-            stopAllSoundsCallback.set(callback);
+        } catch (RuntimeException callbackError) {
+            Engine.LOGGER.error("Sound completion callback failed", callbackError);
         }
     }
 
@@ -388,24 +541,56 @@ public class SoundPlayer implements LineListener {
     }
 
     private void cleanupClip(Clip clip, boolean notifyListener) {
-        boolean wasActive = activeClips.remove(clip);
-        Timer timer = clipTimers.remove(clip);
-        if (timer != null) {
-            timer.cancel();
+        if (clip == null) {
+            return;
         }
 
-        PlaybackStatusListener listener = clipListeners.remove(clip);
-        String path = clipPaths.remove(clip);
+        PlaybackStatusListener listener;
+        String path;
+        synchronized (playbackLock) {
+            if (!activeClips.remove(clip)) {
+                return;
+            }
+            fadingClips.remove(clip);
+            Timer timer = clipTimers.remove(clip);
+            if (timer != null) {
+                timer.cancel();
+            }
+            listener = clipListeners.remove(clip);
+            path = clipPaths.remove(clip);
+        }
+
+        closeQuietly(clip);
+        playbackGate.deactivate();
         if (notifyListener && listener != null && path != null) {
-            listener.onPlaybackStopped(path);
+            try {
+                listener.onPlaybackStopped(path);
+            } catch (RuntimeException error) {
+                Engine.LOGGER.error("Sound playback listener failed for {}", path, error);
+            }
         }
+    }
 
-        if (clip.isOpen()) {
-            clip.close();
+    private void closeQuietly(Clip clip) {
+        if (clip == null) {
+            return;
         }
-        if (wasActive) {
-            checkAndRunCallback();
+        try {
+            if (clip.isOpen()) {
+                clip.close();
+            }
+        } catch (RuntimeException error) {
+            Engine.LOGGER.debug("Unable to close native sound clip", error);
         }
+    }
+
+    private ThreadFactory daemonThreadFactory(String prefix) {
+        AtomicInteger sequence = new AtomicInteger();
+        return task -> {
+            Thread thread = new Thread(task, prefix + sequence.incrementAndGet());
+            thread.setDaemon(true);
+            return thread;
+        };
     }
 
     public static void setUPDATE_RATE(int rate) {

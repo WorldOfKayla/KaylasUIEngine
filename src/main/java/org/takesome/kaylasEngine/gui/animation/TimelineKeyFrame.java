@@ -3,13 +3,16 @@ package org.takesome.kaylasEngine.gui.animation;
 import java.util.Comparator;
 import java.util.List;
 
-/** Data keyframe for simple Swing component geometry timelines. */
+/** Data keyframe for geometry and visual-effect animation channels. */
 public final class TimelineKeyFrame {
     private double time;
     private double scaleX = 1.0;
     private double scaleY = 1.0;
     private int offsetX;
     private int offsetY;
+    private double opacity = 1.0;
+    private double glow;
+    private double shine = -1.0;
     private String interpolation = "linear";
 
     public double time() {
@@ -30,6 +33,18 @@ public final class TimelineKeyFrame {
 
     public int offsetY() {
         return offsetY;
+    }
+
+    public double opacity() {
+        return opacity;
+    }
+
+    public double glow() {
+        return glow;
+    }
+
+    public double shine() {
+        return shine;
     }
 
     public String interpolation() {

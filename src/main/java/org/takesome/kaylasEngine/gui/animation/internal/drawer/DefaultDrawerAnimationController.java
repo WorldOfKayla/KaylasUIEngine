@@ -1,6 +1,7 @@
 package org.takesome.kaylasEngine.gui.animation.internal.drawer;
 
 import org.takesome.kaylasEngine.Engine;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.animation.SnapshotDrawerAnimator.Edge;
 import org.takesome.kaylasEngine.gui.animation.SnapshotDrawerAnimator.StateChange;
 
@@ -8,7 +9,6 @@ import javax.swing.ImageIcon;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import java.awt.Container;
 import java.awt.Dimension;
 import java.awt.DisplayMode;
@@ -175,8 +175,8 @@ final class DefaultDrawerAnimationController implements DrawerAnimationControlle
     }
 
     private boolean isAnimating(JComponent drawer) {
-        Object timerObject = drawer.getClientProperty(ANIMATION_KEY);
-        return timerObject instanceof Timer timer && timer.isRunning();
+        Object animationObject = drawer.getClientProperty(ANIMATION_KEY);
+        return animationObject instanceof AnimationEngine.Handle handle && handle.isActive();
     }
 
     private void animateSnapshot(JComponent drawer,
@@ -188,38 +188,32 @@ final class DefaultDrawerAnimationController implements DrawerAnimationControlle
                                  Rectangle endBounds,
                                  boolean targetOpen,
                                  JComponent control) {
-        long startedAt = System.nanoTime();
         int frameDelayMs = frameDelayMs(root);
-        long durationNanos = durationMs * 1_000_000L;
-
-        Timer timer = new Timer(frameDelayMs, null);
-        timer.setCoalesce(true);
-        timer.setRepeats(true);
-        drawer.putClientProperty(ANIMATION_KEY, timer);
-        timer.addActionListener(event -> {
-            try {
-                float progress = clamp01((System.nanoTime() - startedAt) / (float) durationNanos);
-                float eased = easeInOutCubic(progress);
-                int newX = Math.round(startBounds.x + (endBounds.x - startBounds.x) * eased);
-                int newY = Math.round(startBounds.y + (endBounds.y - startBounds.y) * eased);
-
-                Rectangle before = snapshot.getBounds();
-                if (before.x != newX || before.y != newY) {
-                    snapshot.setLocation(newX, newY);
-                    repaintUnion(root, before, snapshot.getBounds());
-                }
-
-                if (progress >= 1f) {
-                    timer.stop();
-                    finish(drawer, root, snapshot, openBounds, closedBounds, targetOpen, control);
-                }
-            } catch (Exception error) {
-                Engine.getLOGGER().error("Error during drawer animation", error);
-                timer.stop();
-                finish(drawer, root, snapshot, openBounds, closedBounds, targetOpen, control);
-            }
-        });
-        timer.start();
+        AnimationEngine.Handle[] handle = {null};
+        handle[0] = AnimationEngine.shared().tween(
+                durationMs,
+                frameDelayMs,
+                AnimationEngine.shared().curve("easeInOutCubic"),
+                eased -> {
+                    try {
+                        int newX = Math.round(startBounds.x + (endBounds.x - startBounds.x) * eased);
+                        int newY = Math.round(startBounds.y + (endBounds.y - startBounds.y) * eased);
+                        Rectangle before = snapshot.getBounds();
+                        if (before.x != newX || before.y != newY) {
+                            snapshot.setLocation(newX, newY);
+                            repaintUnion(root, before, snapshot.getBounds());
+                        }
+                    } catch (Exception error) {
+                        Engine.getLOGGER().error("Error during drawer animation", error);
+                        if (handle[0] != null) {
+                            handle[0].cancel();
+                        }
+                        finish(drawer, root, snapshot, openBounds, closedBounds, targetOpen, control);
+                    }
+                },
+                () -> finish(drawer, root, snapshot, openBounds, closedBounds, targetOpen, control)
+        );
+        drawer.putClientProperty(ANIMATION_KEY, handle[0]);
     }
 
     private void finish(JComponent drawer,

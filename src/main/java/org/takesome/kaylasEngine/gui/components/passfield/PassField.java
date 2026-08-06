@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.components.passfield;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 
 import javax.swing.*;
@@ -20,7 +21,7 @@ public class PassField extends JPasswordField {
     private boolean caretVisible = true;
     private int paddingX;
     private int paddingY;
-    private Timer caretTimer;
+    private AnimationEngine.Handle caretAnimation;
     private boolean isPasswordVisible = false;
     private JLabel iconLabel;
     private Icon showIcon;
@@ -70,27 +71,34 @@ public class PassField extends JPasswordField {
     }
 
     private void startCaretBlinking() {
-        if (caretTimer == null || !caretTimer.isRunning()) {
-            caretTimer = new Timer(500, new ActionListener() {
-                private boolean caretVisibleState = true;
-
-                @Override
-                public void actionPerformed(ActionEvent e) {
-                    caretVisible = caretVisibleState;
-                    caretVisibleState = !caretVisibleState;
-                    repaint();
-                }
-            });
-            caretTimer.start();
+        if (caretAnimation != null && caretAnimation.isActive()) {
+            return;
         }
+        caretVisible = true;
+        caretAnimation = AnimationEngine.shared().interval(500, 500, () -> {
+            if (!isFocusOwner() || !isDisplayable()) {
+                caretAnimation = null;
+                return false;
+            }
+            caretVisible = !caretVisible;
+            repaint();
+            return true;
+        });
     }
 
     private void stopCaretBlinking() {
-        if (caretTimer != null) {
-            caretTimer.stop();
+        if (caretAnimation != null) {
+            caretAnimation.cancel();
+            caretAnimation = null;
         }
         caretVisible = true;
         repaint();
+    }
+
+    @Override
+    public void removeNotify() {
+        stopCaretBlinking();
+        super.removeNotify();
     }
 
     private void togglePasswordVisibility() {

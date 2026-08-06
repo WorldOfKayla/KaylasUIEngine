@@ -1,7 +1,7 @@
 package org.takesome.kaylasEngine.gui.animation.internal.window;
 
 import org.takesome.kaylasEngine.Engine;
-import org.takesome.kaylasEngine.gui.animation.AnimationPulse;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.FloatingWindow;
 import org.takesome.kaylasEngine.gui.loadingManager.ScriptedLoadingUi;
 import org.takesome.kaylasEngine.utils.animation.AnimationStats;
@@ -22,7 +22,7 @@ final class DefaultScriptedWindowAnimationController implements ScriptedWindowAn
     private final ScriptedLoadingUi.Transition transition;
 
     private AnimationStats animationStats;
-    private AnimationPulse.Subscription activeAnimation;
+    private AnimationEngine.Handle activeAnimation;
     private boolean opacitySupported = true;
 
     DefaultScriptedWindowAnimationController(FloatingWindow window, ScriptedLoadingUi.Transition transition) {
@@ -62,10 +62,10 @@ final class DefaultScriptedWindowAnimationController implements ScriptedWindowAn
         ScriptedLoadingUi.Phase phase = transition.phase(entry);
         Point current = window.getLocation();
         Point start = phase.motion().enabled()
-                ? phase.motion().from().resolve(window, current)
+                ? phase.motion().resolveStart(window, current, entry)
                 : current;
         Point end = phase.motion().enabled()
-                ? phase.motion().to().resolve(window, current)
+                ? phase.motion().resolveEnd(window, current, entry)
                 : current;
         float startOpacity = phase.opacity().enabled()
                 ? phase.opacity().from()
@@ -88,11 +88,13 @@ final class DefaultScriptedWindowAnimationController implements ScriptedWindowAn
 
         int totalDurationMs = transition.enabled() ? phase.totalDurationMs() : 0;
         Engine.getLOGGER().info(
-                "[SCRIPTED-WINDOW] start: entry={}, duration={} ms, frameDelay={} ms, motion={} {} -> {}, opacity={} {} -> {}",
+                "[SCRIPTED-WINDOW] start: entry={}, duration={} ms, frameDelay={} ms, motion={} route={} direction={} {} -> {}, opacity={} {} -> {}",
                 entry,
                 totalDurationMs,
                 phase.frameDelayMs(),
                 phase.motion().enabled(),
+                phase.motion().usesRoute(),
+                phase.motion().route() == null ? "explicit" : phase.motion().route().direction(),
                 start,
                 end,
                 phase.opacity().enabled(),
@@ -111,7 +113,7 @@ final class DefaultScriptedWindowAnimationController implements ScriptedWindowAn
         long[] maxLagNanos = {0L};
         int[] tickCount = {0};
 
-        activeAnimation = AnimationPulse.shared().schedule(phase.frameDelayMs(), (now, deltaNanos) -> {
+        activeAnimation = AnimationEngine.shared().schedule(phase.frameDelayMs(), (now, deltaNanos) -> {
             if (!window.isDisplayable()) {
                 window.setAnimating(false);
                 activeAnimation = null;
@@ -120,7 +122,7 @@ final class DefaultScriptedWindowAnimationController implements ScriptedWindowAn
 
             long expectedDelayNanos = Math.max(
                     phase.frameDelayMs(),
-                    AnimationPulse.shared().adaptiveFrameDelayMs()
+                    AnimationEngine.shared().adaptiveFrameDelayMs()
             ) * 1_000_000L;
             long pulseLag = Math.max(0L, deltaNanos - expectedDelayNanos);
             tickCount[0]++;

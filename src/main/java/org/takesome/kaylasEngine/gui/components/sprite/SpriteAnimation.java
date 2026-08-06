@@ -1,6 +1,7 @@
 package org.takesome.kaylasEngine.gui.components.sprite;
 
 import org.takesome.kaylasEngine.Engine;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 
@@ -33,7 +34,7 @@ public class SpriteAnimation extends JComponent {
     private boolean repeat;
 
     private boolean alreadyPlayed = false;
-    private Timer timer;
+    private AnimationEngine.Handle frameAnimation;
     private boolean animationStopped = true;
 
     private float alpha = 1.0f;
@@ -219,7 +220,7 @@ public class SpriteAnimation extends JComponent {
             return;
         }
 
-        stopTimerOnly();
+        stopAnimationOnly();
 
         int lastFrame = calculateLastFrame();
         if (lastFrame <= 0) {
@@ -239,7 +240,7 @@ public class SpriteAnimation extends JComponent {
                 repeat
         );
 
-        timer = new Timer(delay, event -> {
+        frameAnimation = AnimationEngine.shared().interval(delay, delay, () -> {
             long now = System.nanoTime();
             long timerLag = Math.max(0L, now - lastTimerTickNanos - delay * 1_000_000L);
             lastTimerTickNanos = now;
@@ -248,7 +249,7 @@ public class SpriteAnimation extends JComponent {
             if (timerLag >= TIMER_LAG_WARN_NANOS && now - lastTimerLagWarnNanos >= LOG_INTERVAL_NANOS) {
                 lastTimerLagWarnNanos = now;
                 Engine.getLOGGER().warn(
-                        "[SPRITE][TIMER-LAG] delay={} ms, frame={}, maxLag={} ms",
+                        "[SPRITE][FRAME-LAG] delay={} ms, frame={}, maxLag={} ms",
                         nanosToMillis(timerLag),
                         currentFrame,
                         nanosToMillis(maxTimerLagNanos)
@@ -256,26 +257,26 @@ public class SpriteAnimation extends JComponent {
             }
 
             if (animationStopped || frames.length == 0) {
-                return;
+                frameAnimation = null;
+                return false;
             }
 
             if (currentFrame < lastFrame - 1) {
                 currentFrame++;
+            } else if (repeat) {
+                currentFrame = 0;
             } else {
-                if (repeat) {
-                    currentFrame = 0;
-                } else {
-                    currentFrame = lastFrame - 1;
-                    alreadyPlayed = true;
-                    stop();
-                }
+                currentFrame = lastFrame - 1;
+                alreadyPlayed = true;
+                animationStopped = true;
+                frameAnimation = null;
+                repaint(0, 0, Math.max(getWidth(), scaledWidth), Math.max(getHeight(), scaledHeight));
+                return false;
             }
 
             repaint(0, 0, Math.max(getWidth(), scaledWidth), Math.max(getHeight(), scaledHeight));
+            return true;
         });
-
-        timer.setCoalesce(true);
-        timer.start();
     }
 
     private int calculateLastFrame() {
@@ -358,15 +359,15 @@ public class SpriteAnimation extends JComponent {
     }
 
     private void stop() {
-        stopTimerOnly();
+        stopAnimationOnly();
         animationStopped = true;
     }
 
-    private void stopTimerOnly() {
-        if (timer != null) {
-            timer.stop();
-            timer = null;
-            Engine.getLOGGER().debug("[SPRITE] timer stopped; maxTimerLag={} ms", nanosToMillis(maxTimerLagNanos));
+    private void stopAnimationOnly() {
+        if (frameAnimation != null) {
+            frameAnimation.cancel();
+            frameAnimation = null;
+            Engine.getLOGGER().debug("[SPRITE] animation stopped; maxFrameLag={} ms", nanosToMillis(maxTimerLagNanos));
         }
     }
 
@@ -380,7 +381,7 @@ public class SpriteAnimation extends JComponent {
     public void addNotify() {
         super.addNotify();
 
-        if ((timer == null || !timer.isRunning()) && frames.length > 0 && (repeat || !alreadyPlayed)) {
+        if ((frameAnimation == null || !frameAnimation.isActive()) && frames.length > 0 && (repeat || !alreadyPlayed)) {
             animationStopped = false;
             startAnimation(repeat);
         }
@@ -447,8 +448,8 @@ public class SpriteAnimation extends JComponent {
     public void setDelay(int delay) {
         this.delay = normalizeDelay(delay);
 
-        if (timer != null && timer.isRunning()) {
-            stopTimerOnly();
+        if (frameAnimation != null && frameAnimation.isActive()) {
+            stopAnimationOnly();
             startAnimation(repeat);
         }
     }
@@ -462,8 +463,8 @@ public class SpriteAnimation extends JComponent {
         this.animationStopped = animationStopped;
 
         if (animationStopped) {
-            stopTimerOnly();
-        } else if (timer == null || !timer.isRunning()) {
+            stopAnimationOnly();
+        } else if (frameAnimation == null || !frameAnimation.isActive()) {
             startAnimation(repeat);
         }
     }

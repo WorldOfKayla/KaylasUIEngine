@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.components.progressBar;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.components.CompositeComponent;
 
 import javax.swing.DefaultBoundedRangeModel;
@@ -7,14 +8,17 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import javax.swing.event.ChangeListener;
+import javax.accessibility.AccessibleContext;
+import javax.accessibility.AccessibleRole;
+import javax.accessibility.AccessibleValue;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Font;
 import java.awt.FontMetrics;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
+import java.awt.LinearGradientPaint;
 import java.awt.Rectangle;
 import java.awt.RenderingHints;
 import java.awt.Shape;
@@ -158,17 +162,27 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
     private final DefaultBoundedRangeModel model = new DefaultBoundedRangeModel(0, 0, 0, 100);
     private final TrackLayer trackLayer = new TrackLayer();
     private final FillLayer fillLayer = new FillLayer();
+    private final HearthstoneEffectLayer hearthstoneEffectLayer = new HearthstoneEffectLayer();
     private final ProgressTextLabel textLayer = new ProgressTextLabel();
 
     private Configuration configuration = Configuration.defaults();
-    private Timer valueAnimationTimer;
-    private Timer visualTimer;
+    private AnimationEngine.Handle valueAnimation;
+    private AnimationEngine.Handle visualAnimation;
     private int displayedValue;
     private int animationStartValue;
     private int animationTargetValue;
+    private boolean immediateValueUpdate;
     private long animationStartedAt;
     private long visualStartedAt;
     private boolean indeterminate;
+    private float animationOpacity = 1.0f;
+    private float contentAnimationOpacity = 1.0f;
+    private int contentAnimationOffsetY;
+    private float contentAnimationScaleX = 1.0f;
+    private float contentAnimationScaleY = 1.0f;
+    private int textOffsetX;
+    private float glowIntensity;
+    private float shinePosition = -1.0f;
     private String progressString;
     private String styleName = "default";
 
@@ -179,14 +193,17 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
 
         trackLayer.setName("track");
         fillLayer.setName("fill");
+        hearthstoneEffectLayer.setName("hearthstoneEffect");
         textLayer.setName("text");
 
         addSubComponent(trackLayer);
         addSubComponent(fillLayer);
+        addSubComponent(hearthstoneEffectLayer);
         addSubComponent(textLayer);
         setComponentZOrder(textLayer, 0);
-        setComponentZOrder(fillLayer, 1);
-        setComponentZOrder(trackLayer, 2);
+        setComponentZOrder(hearthstoneEffectLayer, 1);
+        setComponentZOrder(fillLayer, 2);
+        setComponentZOrder(trackLayer, 3);
 
         model.addChangeListener(event -> onModelChanged());
         configure(configuration);
@@ -220,8 +237,8 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         int width = Math.max(0, getWidth());
         int height = Math.max(0, getHeight());
         trackLayer.setBounds(0, 0, width, height);
-        textLayer.setBounds(0, 0, width, height);
-        updateFillBounds();
+        hearthstoneEffectLayer.setBounds(0, 0, width, height);
+        updateContentLayerBounds();
     }
 
     @Override
@@ -232,9 +249,55 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
 
     @Override
     public void removeNotify() {
-        stopTimer(valueAnimationTimer);
-        stopTimer(visualTimer);
+        stopAnimation(valueAnimation);
+        valueAnimation = null;
+        stopAnimation(visualAnimation);
+        visualAnimation = null;
         super.removeNotify();
+    }
+
+    @Override
+    public AccessibleContext getAccessibleContext() {
+        if (accessibleContext == null) {
+            accessibleContext = new AccessibleProgressBar();
+        }
+        return accessibleContext;
+    }
+
+    protected final class AccessibleProgressBar extends AccessibleJComponent implements AccessibleValue {
+        @Override
+        public AccessibleRole getAccessibleRole() {
+            return AccessibleRole.PROGRESS_BAR;
+        }
+
+        @Override
+        public AccessibleValue getAccessibleValue() {
+            return this;
+        }
+
+        @Override
+        public Number getCurrentAccessibleValue() {
+            return ProgressBar.this.getValue();
+        }
+
+        @Override
+        public boolean setCurrentAccessibleValue(Number value) {
+            if (value == null) {
+                return false;
+            }
+            ProgressBar.this.setValue(value.intValue());
+            return true;
+        }
+
+        @Override
+        public Number getMinimumAccessibleValue() {
+            return ProgressBar.this.getMinimum();
+        }
+
+        @Override
+        public Number getMaximumAccessibleValue() {
+            return ProgressBar.this.getMaximum();
+        }
     }
 
     @Override
@@ -261,6 +324,22 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
 
     public void setValue(int value) {
         runOnEdt(() -> model.setValue(clamp(value, getMinimum(), getMaximum())));
+    }
+
+    /** Replaces both model and painted value without carrying interpolation across lifecycle cycles. */
+    public void setValueImmediately(int value) {
+        runOnEdt(() -> {
+            stopAnimation(valueAnimation);
+            valueAnimation = null;
+            immediateValueUpdate = true;
+            try {
+                model.setValue(clamp(value, getMinimum(), getMaximum()));
+            } finally {
+                immediateValueUpdate = false;
+            }
+            displayedValue = model.getValue();
+            updateLayers();
+        });
     }
 
     public int getMinimum() {
@@ -377,8 +456,14 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
     }
 
     public void setStyleName(String styleName) {
-        this.styleName = styleName == null || styleName.isBlank() ? "default" : styleName.trim();
-        putClientProperty("kaylas.ui.progress.style", this.styleName);
+        String resolvedStyle = styleName == null || styleName.isBlank() ? "default" : styleName.trim();
+        runOnEdt(() -> {
+            this.styleName = resolvedStyle;
+            visualStartedAt = System.nanoTime();
+            putClientProperty("kaylas.ui.progress.style", this.styleName);
+            updateVisualTimer();
+            updateLayers();
+        });
     }
 
     public Font getTextFont() {
@@ -400,6 +485,18 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
                 c.animationDurationMs(), c.animationFrameDelayMs(), c.indeterminateCycleMs(),
                 c.indeterminateSizePercent(), c.antialias()
         ));
+    }
+
+    public int getTextOffsetX() {
+        return textOffsetX;
+    }
+
+    /** Applies a layout-owned horizontal offset to progress text. */
+    public void setTextOffsetX(int textOffsetX) {
+        runOnEdt(() -> {
+            this.textOffsetX = textOffsetX;
+            textLayer.repaint();
+        });
     }
 
     public Color getTextColor() {
@@ -478,6 +575,115 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         return fillLayer;
     }
 
+    public void setAnimationOpacity(double value) {
+        runOnEdt(() -> {
+            animationOpacity = (float) Math.max(0.0, Math.min(1.0, value));
+            repaint();
+        });
+    }
+
+    public float getAnimationOpacity() {
+        return animationOpacity;
+    }
+
+    /** Returns whether this component currently uses the Hearthstone content-slide profile. */
+    public boolean usesHearthstoneEffect() {
+        return isHearthstoneStyle();
+    }
+
+    /** Moves only the fill and text vertically; the track/frame remains at its original bounds. */
+    public void setContentAnimationOffsetY(int offsetY) {
+        runOnEdt(() -> {
+            contentAnimationOffsetY = offsetY;
+            updateContentLayerBounds();
+            hearthstoneEffectLayer.repaint();
+        });
+    }
+
+    public int getContentAnimationOffsetY() {
+        return contentAnimationOffsetY;
+    }
+
+    /** Scales only fill, leading edge and progress text around the fixed track center. */
+    public void setContentAnimationScale(double scaleX, double scaleY) {
+        runOnEdt(() -> {
+            contentAnimationScaleX = (float) Math.max(0.01, Math.min(2.0, scaleX));
+            contentAnimationScaleY = (float) Math.max(0.01, Math.min(2.0, scaleY));
+            fillLayer.repaint();
+            hearthstoneEffectLayer.repaint();
+            textLayer.repaint();
+        });
+    }
+
+    public float getContentAnimationScaleX() {
+        return contentAnimationScaleX;
+    }
+
+    public float getContentAnimationScaleY() {
+        return contentAnimationScaleY;
+    }
+
+    /** Applies opacity only to the fill, leading edge and text, not to the frame. */
+    public void setContentAnimationOpacity(double value) {
+        runOnEdt(() -> {
+            contentAnimationOpacity = (float) Math.max(0.0, Math.min(1.0, value));
+            fillLayer.repaint();
+            hearthstoneEffectLayer.repaint();
+            textLayer.repaint();
+        });
+    }
+
+    public float getContentAnimationOpacity() {
+        return contentAnimationOpacity;
+    }
+
+    public void resetContentAnimation() {
+        runOnEdt(() -> {
+            contentAnimationOffsetY = 0;
+            contentAnimationOpacity = 1.0f;
+            contentAnimationScaleX = 1.0f;
+            contentAnimationScaleY = 1.0f;
+            updateContentLayerBounds();
+            repaint();
+        });
+    }
+
+    public void setGlowIntensity(double value) {
+        runOnEdt(() -> {
+            glowIntensity = (float) Math.max(0.0, Math.min(1.0, value));
+            fillLayer.repaint();
+        });
+    }
+
+    public float getGlowIntensity() {
+        return glowIntensity;
+    }
+
+    public void setShinePosition(double value) {
+        runOnEdt(() -> {
+            shinePosition = (float) Math.max(-1.0, Math.min(2.0, value));
+            fillLayer.repaint();
+        });
+    }
+
+    public float getShinePosition() {
+        return shinePosition;
+    }
+
+    public void resetAnimationEffects() {
+        runOnEdt(() -> {
+            animationOpacity = 1.0f;
+            contentAnimationOpacity = 1.0f;
+            contentAnimationOffsetY = 0;
+            contentAnimationScaleX = 1.0f;
+            contentAnimationScaleY = 1.0f;
+            glowIntensity = 0.0f;
+            shinePosition = -1.0f;
+            updateContentLayerBounds();
+            repaint();
+        });
+    }
+
     public void addChangeListener(ChangeListener listener) {
         model.addChangeListener(listener);
     }
@@ -488,7 +694,7 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
 
     private void onModelChanged() {
         int target = model.getValue();
-        if (!configuration.animateValue() || !isShowing()) {
+        if (immediateValueUpdate || !configuration.animateValue() || !isShowing()) {
             displayedValue = target;
             updateLayers();
             return;
@@ -497,44 +703,51 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
     }
 
     private void animateDisplayedValueTo(int target) {
-        stopTimer(valueAnimationTimer);
+        stopAnimation(valueAnimation);
         animationStartValue = displayedValue;
         animationTargetValue = target;
         animationStartedAt = System.nanoTime();
-        int durationMs = configuration.animationDurationMs();
-        valueAnimationTimer = new Timer(configuration.animationFrameDelayMs(), event -> {
-            double progress = Math.min(1.0,
-                    (System.nanoTime() - animationStartedAt) / (durationMs * 1_000_000.0));
-            double eased = 1.0 - Math.pow(1.0 - progress, 3.0);
-            displayedValue = (int) Math.round(animationStartValue
-                    + (animationTargetValue - animationStartValue) * eased);
-            updateLayers();
-            if (progress >= 1.0) {
-                stopTimer(valueAnimationTimer);
-                displayedValue = animationTargetValue;
-                updateLayers();
-            }
-        });
-        valueAnimationTimer.setInitialDelay(0);
-        valueAnimationTimer.setCoalesce(true);
-        valueAnimationTimer.start();
+        valueAnimation = AnimationEngine.shared().tween(
+                configuration.animationDurationMs(),
+                configuration.animationFrameDelayMs(),
+                AnimationEngine.shared().curve("easeOutCubic"),
+                eased -> {
+                    displayedValue = (int) Math.round(animationStartValue
+                            + (animationTargetValue - animationStartValue) * eased);
+                    updateLayers();
+                },
+                () -> {
+                    valueAnimation = null;
+                    displayedValue = animationTargetValue;
+                    updateLayers();
+                }
+        );
     }
 
     private void updateVisualTimer() {
         boolean animatedVisuals = indeterminate
+                || isHearthstoneStyle()
                 || (configuration.striped() && configuration.stripeSpeedMs() > 0);
         if (!animatedVisuals || !isDisplayable()) {
-            stopTimer(visualTimer);
-            visualTimer = null;
+            stopAnimation(visualAnimation);
+            visualAnimation = null;
             return;
         }
-        if (visualTimer != null && visualTimer.isRunning()) {
+        if (visualAnimation != null && visualAnimation.isActive()) {
             return;
         }
         visualStartedAt = System.nanoTime();
-        visualTimer = new Timer(configuration.animationFrameDelayMs(), event -> updateLayers());
-        visualTimer.setCoalesce(true);
-        visualTimer.start();
+        visualAnimation = AnimationEngine.shared().schedule(
+                configuration.animationFrameDelayMs(),
+                (now, delta) -> {
+                    if (!isDisplayable()) {
+                        visualAnimation = null;
+                        return false;
+                    }
+                    updateLayers();
+                    return true;
+                }
+        );
     }
 
     private void updateLayers() {
@@ -542,6 +755,7 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         updateText();
         trackLayer.repaint();
         fillLayer.repaint();
+        hearthstoneEffectLayer.repaint();
         textLayer.repaint();
     }
 
@@ -561,11 +775,11 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         if (configuration.orientation() == VERTICAL) {
             int fillHeight = (int) Math.round(area.height * percent);
             int y = configuration.inverted() ? area.y : area.y + area.height - fillHeight;
-            fillLayer.setBounds(area.x, y, area.width, Math.max(0, fillHeight));
+            setFillLayerBounds(area.x, y, area.width, Math.max(0, fillHeight));
         } else {
             int fillWidth = (int) Math.round(area.width * percent);
             int x = configuration.inverted() ? area.x + area.width - fillWidth : area.x;
-            fillLayer.setBounds(x, area.y, Math.max(0, fillWidth), area.height);
+            setFillLayerBounds(x, area.y, Math.max(0, fillWidth), area.height);
         }
     }
 
@@ -583,7 +797,7 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
             if (!configuration.inverted()) {
                 y = area.y + travelHeight - (y - area.y);
             }
-            fillLayer.setBounds(area.x, y, area.width, segmentHeight);
+            setFillLayerBounds(area.x, y, area.width, segmentHeight);
         } else {
             int segmentWidth = Math.max(1, (int) Math.round(area.width * segment));
             int travelWidth = Math.max(0, area.width - segmentWidth);
@@ -591,11 +805,27 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
             if (configuration.inverted()) {
                 x = area.x + travelWidth - (x - area.x);
             }
-            fillLayer.setBounds(x, area.y, segmentWidth, area.height);
+            setFillLayerBounds(x, area.y, segmentWidth, area.height);
         }
     }
 
+    private void updateContentLayerBounds() {
+        int width = Math.max(0, getWidth());
+        int height = Math.max(0, getHeight());
+        int offsetY = isHearthstoneStyle() ? contentAnimationOffsetY : 0;
+        textLayer.setBounds(0, offsetY, width, height);
+        updateFillBounds();
+    }
+
+    private void setFillLayerBounds(int x, int y, int width, int height) {
+        int offsetY = isHearthstoneStyle() ? contentAnimationOffsetY : 0;
+        fillLayer.setBounds(x, y + offsetY, width, height);
+    }
+
     private Rectangle contentArea() {
+        if (isHearthstoneStyle()) {
+            return HearthstoneProgressEffect.contentBounds(getWidth(), getHeight());
+        }
         int inset = configuration.trackPadding() + configuration.borderWidth();
         return new Rectangle(
                 inset,
@@ -687,16 +917,28 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
             }
             Graphics2D g2 = (Graphics2D) graphics.create();
             try {
+                g2.setComposite(AlphaComposite.SrcOver.derive(layerOpacity()));
                 if (configuration.antialias()) {
                     g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
                     g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
                     g2.setRenderingHint(RenderingHints.KEY_INTERPOLATION,
                             RenderingHints.VALUE_INTERPOLATION_BILINEAR);
                 }
+                if (contentLayer()) {
+                    prepareHearthstoneContentGraphics(g2, this);
+                }
                 paintLayer(g2);
             } finally {
                 g2.dispose();
             }
+        }
+
+        protected float layerOpacity() {
+            return animationOpacity;
+        }
+
+        protected boolean contentLayer() {
+            return false;
         }
 
         protected abstract void paintLayer(Graphics2D graphics);
@@ -706,6 +948,16 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         private final ScaledTextureCache textureCache = new ScaledTextureCache();
         @Override
         protected void paintLayer(Graphics2D graphics) {
+            if (isHearthstoneStyle()) {
+                HearthstoneProgressEffect.paintTrack(
+                        graphics,
+                        getWidth(),
+                        getHeight(),
+                        visualElapsedNanos()
+                );
+                return;
+            }
+
             int radius = Math.min(configuration.borderRadius(), Math.min(getWidth(), getHeight()));
             Shape shape = roundedShape(getWidth(), getHeight(), radius);
             graphics.setColor(configuration.trackColor());
@@ -731,16 +983,86 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
 
     private final class FillLayer extends Layer {
         private final ScaledTextureCache textureCache = new ScaledTextureCache();
+
+        @Override
+        protected float layerOpacity() {
+            return isHearthstoneStyle() ? contentAnimationOpacity : animationOpacity;
+        }
+
+        @Override
+        protected boolean contentLayer() {
+            return isHearthstoneStyle();
+        }
+
         @Override
         protected void paintLayer(Graphics2D graphics) {
             int radius = Math.min(configuration.fillBorderRadius(), Math.min(getWidth(), getHeight()));
             Shape shape = roundedShape(getWidth(), getHeight(), radius);
+            if (isHearthstoneStyle()) {
+                HearthstoneProgressEffect.paintFill(
+                        graphics,
+                        shape,
+                        getWidth(),
+                        getHeight(),
+                        visualElapsedNanos(),
+                        glowIntensity,
+                        shinePosition
+                );
+                return;
+            }
+
             graphics.setColor(configuration.fillColor());
             graphics.fill(shape);
             drawTexture(graphics, configuration.fillTexture(), shape, configuration.textureMode(), getWidth(), getHeight(), textureCache);
             if (configuration.striped()) {
                 paintStripes(graphics, shape);
             }
+            paintGlow(graphics, shape);
+            paintShine(graphics, shape);
+        }
+
+        private void paintGlow(Graphics2D graphics, Shape shape) {
+            if (glowIntensity <= 0.001f) {
+                return;
+            }
+            int alpha = Math.max(0, Math.min(120, Math.round(120f * glowIntensity)));
+            graphics.setComposite(AlphaComposite.SrcOver.derive(animationOpacity));
+            graphics.setColor(new Color(255, 255, 255, alpha));
+            graphics.fill(shape);
+            graphics.setStroke(new java.awt.BasicStroke(Math.max(1f, 1f + glowIntensity * 2f)));
+            graphics.setColor(new Color(255, 255, 255, Math.min(170, alpha + 30)));
+            graphics.draw(shape);
+        }
+
+        private void paintShine(Graphics2D graphics, Shape shape) {
+            if (shinePosition < -0.5f || getWidth() <= 0 || getHeight() <= 0) {
+                return;
+            }
+            Shape oldClip = graphics.getClip();
+            graphics.clip(shape);
+            float center = shinePosition * getWidth();
+            float spread = Math.max(12f, getWidth() * 0.16f);
+            float start = center - spread;
+            float end = center + spread;
+            if (Math.abs(end - start) < 0.01f) {
+                graphics.setClip(oldClip);
+                return;
+            }
+            graphics.setPaint(new LinearGradientPaint(
+                    start,
+                    0f,
+                    end,
+                    0f,
+                    new float[]{0f, 0.5f, 1f},
+                    new Color[]{
+                            new Color(255, 255, 255, 0),
+                            new Color(255, 255, 255, 145),
+                            new Color(255, 255, 255, 0)
+                    }
+            ));
+            graphics.fillRect((int) Math.floor(start), 0,
+                    Math.max(1, (int) Math.ceil(end - start)), getHeight());
+            graphics.setClip(oldClip);
         }
 
         private void paintStripes(Graphics2D graphics, Shape clip) {
@@ -774,6 +1096,40 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         }
     }
 
+    private final class HearthstoneEffectLayer extends Layer {
+        @Override
+        protected float layerOpacity() {
+            return isHearthstoneStyle() ? contentAnimationOpacity : animationOpacity;
+        }
+
+        @Override
+        protected boolean contentLayer() {
+            return isHearthstoneStyle();
+        }
+
+        private HearthstoneEffectLayer() {
+            setOpaque(false);
+            setFocusable(false);
+        }
+
+        @Override
+        protected void paintLayer(Graphics2D graphics) {
+            if (!isHearthstoneStyle()) {
+                return;
+            }
+            HearthstoneProgressEffect.paintLeadingEdge(
+                    graphics,
+                    fillLayer.getBounds(),
+                    getWidth(),
+                    getHeight(),
+                    configuration.orientation(),
+                    configuration.inverted(),
+                    visualElapsedNanos(),
+                    glowIntensity
+            );
+        }
+    }
+
     private final class ProgressTextLabel extends JLabel {
         private ProgressTextLabel() {
             setOpaque(false);
@@ -787,11 +1143,16 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
             }
             Graphics2D g2 = (Graphics2D) graphics.create();
             try {
+                float opacity = isHearthstoneStyle() ? contentAnimationOpacity : animationOpacity;
+                g2.setComposite(AlphaComposite.SrcOver.derive(opacity));
                 if (configuration.antialias()) {
                     g2.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING,
                             RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
                     g2.setRenderingHint(RenderingHints.KEY_FRACTIONALMETRICS,
                             RenderingHints.VALUE_FRACTIONALMETRICS_ON);
+                }
+                if (isHearthstoneStyle()) {
+                    prepareHearthstoneContentGraphics(g2, this);
                 }
                 FontMetrics metrics = g2.getFontMetrics(getFont());
                 int textWidth = metrics.stringWidth(getText());
@@ -799,22 +1160,68 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
                     case LEFT -> 4;
                     case RIGHT -> Math.max(4, getWidth() - textWidth - 4);
                     default -> Math.max(0, (getWidth() - textWidth) / 2);
-                };
+                } + textOffsetX;
                 int y = Math.max(metrics.getAscent(),
                         (getHeight() - metrics.getHeight()) / 2 + metrics.getAscent());
 
-                if (configuration.textShadow()) {
-                    g2.setColor(configuration.textShadowColor());
-                    g2.drawString(getText(),
-                            x + configuration.textShadowOffsetX(),
-                            y + configuration.textShadowOffsetY());
+                if (isHearthstoneStyle()) {
+                    g2.setColor(new Color(3, 11, 18, 235));
+                    for (int offsetY = -2; offsetY <= 2; offsetY++) {
+                        for (int offsetX = -2; offsetX <= 2; offsetX++) {
+                            if (offsetX == 0 && offsetY == 0) {
+                                continue;
+                            }
+                            if (Math.abs(offsetX) + Math.abs(offsetY) <= 3) {
+                                g2.drawString(getText(), x + offsetX, y + offsetY);
+                            }
+                        }
+                    }
+                    g2.setColor(new Color(248, 255, 255));
+                    g2.drawString(getText(), x, y);
+                    g2.setColor(new Color(255, 255, 255, 120));
+                    g2.drawString(getText(), x, y - 1);
+                } else {
+                    if (configuration.textShadow()) {
+                        g2.setColor(configuration.textShadowColor());
+                        g2.drawString(getText(),
+                                x + configuration.textShadowOffsetX(),
+                                y + configuration.textShadowOffsetY());
+                    }
+                    g2.setColor(configuration.textColor());
+                    g2.drawString(getText(), x, y);
                 }
-                g2.setColor(configuration.textColor());
-                g2.drawString(getText(), x, y);
             } finally {
                 g2.dispose();
             }
         }
+    }
+
+    private void prepareHearthstoneContentGraphics(Graphics2D graphics, JComponent layer) {
+        if (!isHearthstoneStyle()) {
+            return;
+        }
+        Rectangle opening = contentArea();
+        graphics.clip(new Rectangle(
+                opening.x - layer.getX(),
+                opening.y - layer.getY(),
+                opening.width,
+                opening.height
+        ));
+
+        double pivotX = opening.getCenterX() - layer.getX();
+        double pivotY = opening.getCenterY() + contentAnimationOffsetY - layer.getY();
+        graphics.translate(pivotX, pivotY);
+        graphics.scale(contentAnimationScaleX, contentAnimationScaleY);
+        graphics.translate(-pivotX, -pivotY);
+    }
+
+    private boolean isHearthstoneStyle() {
+        return HearthstoneProgressEffect.supportsStyle(styleName);
+    }
+
+    private long visualElapsedNanos() {
+        long startedAt = visualStartedAt;
+        return startedAt <= 0L ? 0L : Math.max(0L, System.nanoTime() - startedAt);
     }
 
     private Shape roundedShape(int width, int height, int radius) {
@@ -916,9 +1323,9 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         return Math.max(minimum, Math.min(maximum, value));
     }
 
-    private static void stopTimer(Timer timer) {
-        if (timer != null) {
-            timer.stop();
+    private static void stopAnimation(AnimationEngine.Handle animation) {
+        if (animation != null) {
+            animation.cancel();
         }
     }
 

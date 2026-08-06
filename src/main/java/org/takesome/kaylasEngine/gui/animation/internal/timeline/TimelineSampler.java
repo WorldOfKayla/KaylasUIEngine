@@ -32,7 +32,16 @@ final class TimelineSampler {
     }
 
     static TimelineFrameState stateFrom(TimelineKeyFrame frame, double progress) {
-        return new TimelineFrameState(progress, frame.scaleX(), frame.scaleY(), frame.offsetX(), frame.offsetY());
+        return new TimelineFrameState(
+                progress,
+                frame.scaleX(),
+                frame.scaleY(),
+                frame.offsetX(),
+                frame.offsetY(),
+                frame.opacity(),
+                frame.glow(),
+                frame.shine()
+        );
     }
 
     private static TimelineFrameState interpolate(TimelineKeyFrame current,
@@ -45,7 +54,10 @@ final class TimelineSampler {
                 lerp(current.scaleX(), next.scaleX(), eased),
                 lerp(current.scaleY(), next.scaleY(), eased),
                 (int) Math.round(lerp(current.offsetX(), next.offsetX(), eased)),
-                (int) Math.round(lerp(current.offsetY(), next.offsetY(), eased))
+                (int) Math.round(lerp(current.offsetY(), next.offsetY(), eased)),
+                lerp(current.opacity(), next.opacity(), eased),
+                lerp(current.glow(), next.glow(), eased),
+                lerp(current.shine(), next.shine(), eased)
         );
     }
 

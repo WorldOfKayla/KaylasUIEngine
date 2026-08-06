@@ -2,17 +2,24 @@ package org.takesome.kaylasEngine.gui.animation.internal.overlay;
 
 import org.apache.logging.log4j.Logger;
 import org.takesome.kaylasEngine.gui.animation.AnimationCurve;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 
 import javax.swing.JLayeredPane;
 import javax.swing.JPanel;
 import javax.swing.SwingUtilities;
-import javax.swing.Timer;
 import java.awt.AlphaComposite;
 import java.awt.Color;
 import java.awt.Container;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
+import java.awt.event.KeyAdapter;
+import java.awt.event.KeyEvent;
+import java.awt.event.MouseAdapter;
+import java.awt.event.MouseEvent;
+import java.awt.event.MouseMotionAdapter;
+import java.awt.event.MouseWheelEvent;
+import java.awt.image.BufferedImage;
 import java.util.Objects;
 import java.util.function.Supplier;
 
@@ -34,7 +41,8 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
     private final String logPrefix;
 
     private JPanel overlay;
-    private Timer fadeTimer;
+    private AnimationEngine.Handle fadeAnimation;
+    private BufferedImage frozenSnapshot;
     private int alpha;
 
     DefaultLayeredOverlayController(
@@ -142,7 +150,6 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
         }
 
         long startedAt = System.nanoTime();
-        long durationNanos = safeDurationMs * 1_000_000L;
         logger.debug(
                 "{} fade start: alpha {} -> {}, duration={} ms, frameDelay={} ms, easing={}",
                 logPrefix,
@@ -153,25 +160,23 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
                 curve.name()
         );
 
-        fadeTimer = new Timer(safeFrameDelayMs, event -> {
-            float progress = Math.min(1f, (System.nanoTime() - startedAt) / (float) durationNanos);
-            float eased = curve.apply(progress);
-            setAlpha(Math.round(startAlpha + delta * eased));
-            if (progress >= 1f) {
-                stopTimer();
-                setAlpha(targetAlpha);
-                logger.debug(
-                        "{} fade complete: targetAlpha={}, elapsed={} ms",
-                        logPrefix,
-                        targetAlpha,
-                        (System.nanoTime() - startedAt) / 1_000_000L
-                );
-                complete(removeAfterFade, onComplete);
-            }
-        });
-        fadeTimer.setInitialDelay(0);
-        fadeTimer.setCoalesce(true);
-        fadeTimer.start();
+        fadeAnimation = AnimationEngine.shared().tween(
+                safeDurationMs,
+                safeFrameDelayMs,
+                curve,
+                eased -> setAlpha(Math.round(startAlpha + delta * eased)),
+                () -> {
+                    fadeAnimation = null;
+                    setAlpha(targetAlpha);
+                    logger.debug(
+                            "{} fade complete: targetAlpha={}, elapsed={} ms",
+                            logPrefix,
+                            targetAlpha,
+                            (System.nanoTime() - startedAt) / 1_000_000L
+                    );
+                    complete(removeAfterFade, onComplete);
+                }
+        );
     }
 
     private void complete(boolean removeAfterFade, Runnable onComplete) {
@@ -184,19 +189,30 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
     }
 
     private void ensureOverlay() {
+        Rectangle bounds = safeBounds();
         if (overlay == null) {
+            frozenSnapshot = captureSnapshot(bounds);
             overlay = new JPanel() {
                 @Override
                 protected void paintComponent(Graphics graphics) {
                     super.paintComponent(graphics);
-                    if (alpha <= 0) {
-                        return;
-                    }
                     Graphics2D graphics2D = (Graphics2D) graphics.create();
                     try {
-                        graphics2D.setComposite(AlphaComposite.SrcOver.derive(alpha / 255f));
-                        graphics2D.setColor(color);
-                        graphics2D.fillRect(0, 0, getWidth(), getHeight());
+                        if (frozenSnapshot != null) {
+                            graphics2D.drawImage(
+                                    frozenSnapshot,
+                                    0,
+                                    0,
+                                    getWidth(),
+                                    getHeight(),
+                                    null
+                            );
+                        }
+                        if (alpha > 0) {
+                            graphics2D.setComposite(AlphaComposite.SrcOver.derive(alpha / 255f));
+                            graphics2D.setColor(color);
+                            graphics2D.fillRect(0, 0, getWidth(), getHeight());
+                        }
                     } finally {
                         graphics2D.dispose();
                     }
@@ -205,16 +221,82 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
             overlay.setName(name);
             overlay.setOpaque(false);
             overlay.setDoubleBuffered(true);
-            logger.debug("{} overlay '{}' created", logPrefix, name);
+            overlay.setFocusable(true);
+            overlay.setFocusTraversalKeysEnabled(false);
+            installInputBlockers(overlay);
+            logger.debug(
+                    "{} frozen overlay '{}' created: bounds={} snapshot={}x{}",
+                    logPrefix,
+                    name,
+                    bounds,
+                    frozenSnapshot == null ? 0 : frozenSnapshot.getWidth(),
+                    frozenSnapshot == null ? 0 : frozenSnapshot.getHeight()
+            );
         }
 
-        overlay.setBounds(safeBounds());
+        overlay.setBounds(bounds);
         if (overlay.getParent() != layeredPane) {
             layeredPane.add(overlay, JLayeredPane.POPUP_LAYER);
         }
         layeredPane.setLayer(overlay, JLayeredPane.POPUP_LAYER);
         overlay.setVisible(true);
+        overlay.requestFocusInWindow();
         overlay.repaint();
+    }
+
+    private BufferedImage captureSnapshot(Rectangle bounds) {
+        int width = Math.max(1, bounds.width);
+        int height = Math.max(1, bounds.height);
+        BufferedImage snapshot = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
+        Graphics2D graphics = snapshot.createGraphics();
+        try {
+            graphics.translate(-bounds.x, -bounds.y);
+            layeredPane.printAll(graphics);
+        } catch (RuntimeException error) {
+            logger.warn("{} unable to capture frozen overlay snapshot: {}", logPrefix, error.getMessage());
+            return null;
+        } finally {
+            graphics.dispose();
+        }
+        return snapshot;
+    }
+
+    private void installInputBlockers(JPanel target) {
+        MouseAdapter mouseBlocker = new MouseAdapter() {
+            @Override
+            public void mousePressed(MouseEvent event) { event.consume(); }
+
+            @Override
+            public void mouseReleased(MouseEvent event) { event.consume(); }
+
+            @Override
+            public void mouseClicked(MouseEvent event) { event.consume(); }
+
+            @Override
+            public void mouseEntered(MouseEvent event) { event.consume(); }
+
+            @Override
+            public void mouseExited(MouseEvent event) { event.consume(); }
+        };
+        target.addMouseListener(mouseBlocker);
+        target.addMouseMotionListener(new MouseMotionAdapter() {
+            @Override
+            public void mouseDragged(MouseEvent event) { event.consume(); }
+
+            @Override
+            public void mouseMoved(MouseEvent event) { event.consume(); }
+        });
+        target.addMouseWheelListener((MouseWheelEvent event) -> event.consume());
+        target.addKeyListener(new KeyAdapter() {
+            @Override
+            public void keyTyped(KeyEvent event) { event.consume(); }
+
+            @Override
+            public void keyPressed(KeyEvent event) { event.consume(); }
+
+            @Override
+            public void keyReleased(KeyEvent event) { event.consume(); }
+        });
     }
 
     private Rectangle safeBounds() {
@@ -236,6 +318,7 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
             parent.repaint();
         }
         alpha = 0;
+        frozenSnapshot = null;
         overlay = null;
     }
 
@@ -247,9 +330,9 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
     }
 
     private void stopTimer() {
-        if (fadeTimer != null) {
-            fadeTimer.stop();
-            fadeTimer = null;
+        if (fadeAnimation != null) {
+            fadeAnimation.cancel();
+            fadeAnimation = null;
         }
     }
 

@@ -164,8 +164,34 @@ public class LibraryReader {
         if (artifact == null) {
             artifact = coordinatesArtifact(library);
         }
-        library.setArtifact(artifact);
+        library.setArtifact(normalizeArtifactPath(artifact));
         return library;
+    }
+
+    private Artifact normalizeArtifactPath(Artifact artifact) {
+        if (artifact == null || artifact.getPath() == null || artifact.getPath().isBlank()) {
+            return artifact;
+        }
+
+        String normalizedPath = artifact.getPath().trim().replace('\\', '/');
+        while (normalizedPath.startsWith("./")) {
+            normalizedPath = normalizedPath.substring(2);
+        }
+        while (normalizedPath.startsWith("/")) {
+            normalizedPath = normalizedPath.substring(1);
+        }
+
+        Path librariesRoot = this.gameLauncher.getPathBuilders().buildLibrariesPath();
+        Path rootName = librariesRoot.getFileName();
+        if (rootName != null && "libraries".equalsIgnoreCase(rootName.toString())) {
+            String prefix = "libraries/";
+            while (normalizedPath.regionMatches(true, 0, prefix, 0, prefix.length())) {
+                normalizedPath = normalizedPath.substring(prefix.length());
+            }
+        }
+
+        artifact.setPath(normalizedPath);
+        return artifact;
     }
 
     private Artifact nativeArtifact(JsonObject libraryObject) {

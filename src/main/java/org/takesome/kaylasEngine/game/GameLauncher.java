@@ -147,8 +147,12 @@ public abstract class GameLauncher {
             return buildGameDir().resolve("versions").resolve(serverVersion());
         }
 
+        /**
+         * The serverVersion is already the canonical distribution identifier (for example
+         * 1.21.1-NeoForge), so coreType must not create another physical directory level.
+         */
         public Path buildVersionDir() {
-            return buildVersionRootDir().resolve(coreTypeName());
+            return buildVersionRootDir();
         }
 
         public Path getArgsFile() {

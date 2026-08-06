@@ -1,6 +1,6 @@
 package org.takesome.kaylasEngine.gui.animation.internal.timeline;
 
-import org.takesome.kaylasEngine.gui.animation.AnimationPulse;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.animation.SwingTimerGroup;
 import org.takesome.kaylasEngine.gui.animation.TimelineFrameState;
 import org.takesome.kaylasEngine.gui.animation.TimelineKeyFrame;
@@ -23,14 +23,14 @@ final class DefaultTimelineExecution implements TimelineExecution {
     }
 
     @Override
-    public void animate(int durationMs,
-                        List<TimelineKeyFrame> keyFrames,
-                        Consumer<TimelineFrameState> updater,
-                        Runnable onComplete) {
+    public AnimationEngine.Handle animate(int durationMs,
+                                          List<TimelineKeyFrame> keyFrames,
+                                          Consumer<TimelineFrameState> updater,
+                                          Runnable onComplete) {
         Objects.requireNonNull(updater, "updater");
         if (keyFrames == null || keyFrames.isEmpty()) {
             complete(onComplete);
-            return;
+            return AnimationEngine.shared().completed();
         }
         List<TimelineKeyFrame> frames = new ArrayList<>(keyFrames);
         frames.sort(Comparator.comparingDouble(TimelineKeyFrame::time));
@@ -39,20 +39,35 @@ final class DefaultTimelineExecution implements TimelineExecution {
                 updater.accept(TimelineSampler.stateFrom(frames.get(0), 1.0));
                 complete(onComplete);
             });
-            return;
+            return AnimationEngine.shared().completed();
         }
-        SwingEdt.run(() -> start(Math.max(1, durationMs), frames, updater, onComplete));
+        if (!javax.swing.SwingUtilities.isEventDispatchThread()) {
+            final AnimationEngine.Handle[] handle = {AnimationEngine.shared().completed()};
+            try {
+                javax.swing.SwingUtilities.invokeAndWait(() ->
+                        handle[0] = start(Math.max(1, durationMs), frames, updater, onComplete));
+            } catch (Exception error) {
+                throw new IllegalStateException("Unable to start timeline on EDT", error);
+            }
+            return handle[0];
+        }
+        return start(Math.max(1, durationMs), frames, updater, onComplete);
     }
 
-    private void start(int durationMs,
+    private AnimationEngine.Handle start(int durationMs,
                        List<TimelineKeyFrame> frames,
                        Consumer<TimelineFrameState> updater,
                        Runnable onComplete) {
         long startedAt = System.nanoTime();
         long durationNanos = durationMs * 1_000_000L;
         int[] segmentIndex = {0};
-        AnimationPulse.Subscription[] subscription = {null};
-        subscription[0] = timers.track(AnimationPulse.shared().schedule(frameDelayMs, (now, delta) -> {
+
+        // Publish the exact initial state synchronously. Components may become visible immediately
+        // after animate() returns; waiting for the first pulse would expose stale or empty content.
+        updater.accept(TimelineSampler.sample(frames, 0.0, segmentIndex));
+
+        AnimationEngine.Handle[] subscription = {null};
+        subscription[0] = timers.track(AnimationEngine.shared().schedule(frameDelayMs, (now, delta) -> {
             double progress = TimelineSampler.clamp01((now - startedAt) / (double) durationNanos);
             updater.accept(TimelineSampler.sample(frames, progress, segmentIndex));
             if (progress >= 1.0) {
@@ -62,6 +77,7 @@ final class DefaultTimelineExecution implements TimelineExecution {
             }
             return true;
         }));
+        return subscription[0];
     }
 
     private static void complete(Runnable onComplete) {

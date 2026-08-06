@@ -5,6 +5,7 @@ import org.takesome.kaylasEngine.Engine;
 import javax.swing.*;
 import java.io.File;
 import java.util.ArrayList;
+import java.nio.file.Path;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Objects;
@@ -251,17 +252,15 @@ public abstract class AbstractFileLoader {
     }
 
     protected String localPath(FileAttributes attribute) {
-        if (attribute == null) {
-            return "";
-        }
+        Objects.requireNonNull(attribute, "attribute");
         String localPath = attribute.getLocalPath();
         if (localPath != null && !localPath.isBlank()) {
             return normalizeLocalPath(localPath);
         }
         String filename = attribute.getFilename();
         String replaceMask = attribute.getReplaceMask();
-        if (filename == null) {
-            return "";
+        if (filename == null || filename.isBlank()) {
+            throw new IllegalArgumentException("File metadata does not contain a local path or filename");
         }
         if (replaceMask == null || replaceMask.isBlank()) {
             return normalizeLocalPath(filename);
@@ -270,11 +269,42 @@ public abstract class AbstractFileLoader {
     }
 
     private String normalizeLocalPath(String path) {
-        String normalized = path.replace('\\', '/');
-        while (normalized.startsWith("/")) {
-            normalized = normalized.substring(1);
+        if (path == null || path.isBlank()) {
+            throw new IllegalArgumentException("Local file path is empty");
         }
-        return normalized;
+
+        String portable = path.trim().replace('\\', '/');
+        while (portable.startsWith("/")) {
+            portable = portable.substring(1);
+        }
+        while (portable.startsWith("./")) {
+            portable = portable.substring(2);
+        }
+
+        Path relative = Path.of(portable);
+        if (relative.isAbsolute() || relative.getRoot() != null || containsParentTraversal(relative)) {
+            throw new IllegalArgumentException("Unsafe local file path: " + path);
+        }
+        Path normalizedRelative = relative.normalize();
+        if (normalizedRelative.getNameCount() == 0 || normalizedRelative.toString().equals(".")) {
+            throw new IllegalArgumentException("Unsafe local file path: " + path);
+        }
+
+        Path homeRoot = Path.of(homeDir).toAbsolutePath().normalize();
+        Path resolved = homeRoot.resolve(normalizedRelative).normalize();
+        if (!resolved.startsWith(homeRoot) || resolved.equals(homeRoot)) {
+            throw new IllegalArgumentException("Local file path escaped the launcher home: " + path);
+        }
+        return normalizedRelative.toString().replace('\\', '/');
+    }
+
+    private boolean containsParentTraversal(Path path) {
+        for (Path part : path) {
+            if (part.toString().equals("..")) {
+                return true;
+            }
+        }
+        return false;
     }
 
     // Getters used by listeners and subclasses.

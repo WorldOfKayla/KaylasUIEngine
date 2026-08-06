@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.components.textfield;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 
 import javax.swing.*;
@@ -25,7 +26,7 @@ public class TextField extends JTextField {
 	private boolean selected = false;
 	private Color selectionColor;
 	private Color selectedTextColor = Color.white;
-	private Timer caretTimer;
+	private AnimationEngine.Handle caretAnimation;
 	private final String placeholder;
 	private boolean maskingEnabled;
 	private char maskCharacter = '*';
@@ -99,27 +100,34 @@ public class TextField extends JTextField {
 	}
 
 	private void startCaretBlinking() {
-		if (caretTimer == null || !caretTimer.isRunning()) {
-			caretTimer = new Timer(carretDelay, new ActionListener() {
-				private boolean caretVisibleState = true;
-
-				@Override
-				public void actionPerformed(ActionEvent e) {
-					caretVisible = caretVisibleState;
-					caretVisibleState = !caretVisibleState;
-					repaint();
-				}
-			});
-			caretTimer.start();
+		if (caretAnimation != null && caretAnimation.isActive()) {
+			return;
 		}
+		caretVisible = true;
+		caretAnimation = AnimationEngine.shared().interval(carretDelay, carretDelay, () -> {
+			if (!isFocusOwner() || !isDisplayable()) {
+				caretAnimation = null;
+				return false;
+			}
+			caretVisible = !caretVisible;
+			repaint();
+			return true;
+		});
 	}
 
 	private void stopCaretBlinking() {
-		if (caretTimer != null) {
-			caretTimer.stop();
+		if (caretAnimation != null) {
+			caretAnimation.cancel();
+			caretAnimation = null;
 		}
 		caretVisible = true;
 		repaint();
+	}
+
+	@Override
+	public void removeNotify() {
+		stopCaretBlinking();
+		super.removeNotify();
 	}
 
 	@Override

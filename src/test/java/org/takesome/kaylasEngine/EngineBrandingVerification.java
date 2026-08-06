@@ -6,10 +6,14 @@ public final class EngineBrandingVerification {
     }
 
     public static void verify() {
+        require("KAYLAS UI ENGINE // KINETICA 2.4".equals(
+                        Engine.engineGenerationLabel("2.4.0-KINETICA")
+                ),
+                "KINETICA 2.4 version did not produce the expected engine generation label");
         require("KAYLAS UI ENGINE // KINETICA 2.3".equals(
                         Engine.engineGenerationLabel("2.3.0-KINETICA")
                 ),
-                "KINETICA version did not produce the expected engine generation label");
+                "KINETICA 2.3 compatibility label was not derived from the version");
         require("KAYLAS UI ENGINE // AURELIA 2.2".equals(
                         Engine.engineGenerationLabel("2.2.0-AURELIA")
                 ),

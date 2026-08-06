@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.animation.internal.timeline;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.animation.SwingTimerGroup;
 import org.takesome.kaylasEngine.gui.animation.TimelineFrameState;
 import org.takesome.kaylasEngine.gui.animation.TimelineKeyFrame;
@@ -13,8 +14,8 @@ public interface TimelineExecution {
         return new DefaultTimelineExecution(timers, frameDelayMs);
     }
 
-    void animate(int durationMs,
-                 List<TimelineKeyFrame> keyFrames,
-                 Consumer<TimelineFrameState> updater,
-                 Runnable onComplete);
+    AnimationEngine.Handle animate(int durationMs,
+                                   List<TimelineKeyFrame> keyFrames,
+                                   Consumer<TimelineFrameState> updater,
+                                   Runnable onComplete);
 }

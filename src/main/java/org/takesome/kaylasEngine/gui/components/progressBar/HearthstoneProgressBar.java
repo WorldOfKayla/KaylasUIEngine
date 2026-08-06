@@ -1,100 +1,158 @@
 package org.takesome.kaylasEngine.gui.components.progressBar;
 
-import javax.swing.*;
-import java.awt.*;
-import java.util.TimerTask;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 
+import javax.swing.JFrame;
+import javax.swing.JPanel;
+import javax.swing.JProgressBar;
+import javax.swing.SwingConstants;
+import java.awt.Dimension;
+import java.awt.FlowLayout;
+import java.awt.Graphics;
+import java.awt.Graphics2D;
+import java.awt.Rectangle;
+import java.awt.RenderingHints;
+
+/**
+ * Standalone compatibility component that uses the same animated arcane-energy painter as the
+ * declarative {@link ProgressBar} {@code hearthstone} style.
+ */
 public class HearthstoneProgressBar extends JProgressBar {
+    private static final int FRAME_DELAY_MS = 16;
+
+    private AnimationEngine.Handle visualAnimation;
+    private long visualStartedAt = System.nanoTime();
 
     public HearthstoneProgressBar() {
         setMinimum(0);
         setMaximum(100);
-        setBorderPainted(false); // Disable the default Swing border.
-        setOpaque(false); // Keep the component transparent for custom painting.
+        setBorderPainted(false);
+        setOpaque(false);
+        setDoubleBuffered(true);
     }
 
-    /**
-     * Sets the progress value in the inclusive range {@code 0.0..1.0}.
-     */
+    /** Sets progress in the inclusive range {@code 0.0..1.0}. */
     public void setProgress(double progress) {
-        progress = Math.max(0.0, Math.min(1.0, progress));
-        setValue((int) (progress * 100));
+        double normalized = Math.max(0.0, Math.min(1.0, progress));
+        setValue((int) Math.round(normalized * 100.0));
     }
 
-    /**
-     * Returns the current progress value in the inclusive range {@code 0.0..1.0}.
-     */
+    /** Returns progress in the inclusive range {@code 0.0..1.0}. */
     public double getProgress() {
-        return (double) getValue() / 100.0;
+        int span = getMaximum() - getMinimum();
+        if (span <= 0) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(1.0, (getValue() - getMinimum()) / (double) span));
     }
 
     @Override
-    protected void paintComponent(Graphics g) {
-        Graphics2D g2 = (Graphics2D) g.create();
-        g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+    public void addNotify() {
+        super.addNotify();
+        startVisualAnimation();
+    }
 
+    @Override
+    public void removeNotify() {
+        stopVisualAnimation();
+        super.removeNotify();
+    }
+
+    @Override
+    protected void paintComponent(Graphics graphics) {
         int width = getWidth();
         int height = getHeight();
-        int arc = 20;
-
-        // Background.
-        g2.setColor(new Color(40, 40, 40));
-        g2.fillRoundRect(0, 0, width, height, arc, arc);
-
-        // Gradient fill.
-        int fillWidth = (int) (width * getProgress());
-        if (fillWidth > 0) {
-            GradientPaint gradient = new GradientPaint(0, 0, new Color(0, 200, 0), fillWidth, 0, new Color(255, 215, 0));
-            g2.setPaint(gradient);
-            g2.fillRoundRect(0, 0, fillWidth, height, arc, arc);
+        if (width <= 0 || height <= 0) {
+            return;
         }
 
-        // Outline.
-        g2.setColor(Color.BLACK);
-        g2.setStroke(new BasicStroke(2));
-        g2.drawRoundRect(0, 0, width - 1, height - 1, arc, arc);
+        Graphics2D g2 = (Graphics2D) graphics.create();
+        try {
+            g2.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+            g2.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
+            long elapsed = Math.max(0L, System.nanoTime() - visualStartedAt);
+            HearthstoneProgressEffect.paintTrack(g2, width, height, elapsed);
 
-        if (getValue() > 0 && getValue() < 100) {
-            int sparkSize = 20;
-            int sparkX = Math.min(fillWidth, width - sparkSize) - sparkSize / 2;
-            int sparkY = height / 2 - sparkSize / 2;
-            RadialGradientPaint sparkPaint = new RadialGradientPaint(
-                    new Point(sparkX + sparkSize / 2, sparkY + sparkSize / 2),
-                    sparkSize / 2,
-                    new float[]{0f, 1f},
-                    new Color[]{Color.WHITE, new Color(255, 255, 255, 0)}
-            );
-            g2.setPaint(sparkPaint);
-            g2.fillOval(sparkX, sparkY, sparkSize, sparkSize);
+            Rectangle content = HearthstoneProgressEffect.contentBounds(width, height);
+            int fillWidth = Math.max(0, (int) Math.round(content.width * getProgress()));
+            if (fillWidth > 0) {
+                Rectangle fillBounds = new Rectangle(content.x, content.y, fillWidth, content.height);
+                java.awt.Shape fill = new java.awt.geom.RoundRectangle2D.Double(
+                        fillBounds.x,
+                        fillBounds.y,
+                        fillBounds.width,
+                        fillBounds.height,
+                        Math.max(5, content.height * 0.55),
+                        Math.max(5, content.height * 0.55)
+                );
+                HearthstoneProgressEffect.paintFill(
+                        g2,
+                        fill,
+                        width,
+                        height,
+                        elapsed,
+                        0.42f,
+                        -1.0f
+                );
+                HearthstoneProgressEffect.paintLeadingEdge(
+                        g2,
+                        fillBounds,
+                        width,
+                        height,
+                        SwingConstants.HORIZONTAL,
+                        false,
+                        elapsed,
+                        0.42f
+                );
+            }
+        } finally {
+            g2.dispose();
         }
+    }
 
-        g2.dispose();
+    private void startVisualAnimation() {
+        if (!isDisplayable() || visualAnimation != null && visualAnimation.isActive()) {
+            return;
+        }
+        visualStartedAt = System.nanoTime();
+        visualAnimation = AnimationEngine.shared().schedule(FRAME_DELAY_MS, (now, delta) -> {
+            if (!isDisplayable()) {
+                visualAnimation = null;
+                return false;
+            }
+            repaint();
+            return true;
+        });
+    }
+
+    private void stopVisualAnimation() {
+        if (visualAnimation != null) {
+            visualAnimation.cancel();
+            visualAnimation = null;
+        }
     }
 
     public static void main(String[] args) {
         JFrame frame = new JFrame("Hearthstone Progress Bar Demo");
         frame.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
-        frame.setSize(400, 150);
+        frame.setSize(440, 160);
         frame.setLocationRelativeTo(null);
 
         HearthstoneProgressBar progressBar = new HearthstoneProgressBar();
-        progressBar.setPreferredSize(new Dimension(350, 50));
+        progressBar.setPreferredSize(new Dimension(370, 42));
 
-        JPanel panel = new JPanel();
-        panel.setLayout(new FlowLayout(FlowLayout.CENTER, 10, 20));
+        JPanel panel = new JPanel(new FlowLayout(FlowLayout.CENTER, 10, 30));
         panel.add(progressBar);
         frame.add(panel);
-
         frame.setVisible(true);
 
-        Timer timer = new Timer(20, e -> {
-            double currentProgress = progressBar.getProgress();
-            if (currentProgress >= 1.0) {
-                ((Timer) e.getSource()).stop();
-            } else {
-                progressBar.setProgress(currentProgress + 0.01);
+        AnimationEngine.shared().interval(38, 250, () -> {
+            double progress = progressBar.getProgress();
+            if (progress >= 1.0) {
+                return false;
             }
+            progressBar.setProgress(progress + 0.008);
+            return true;
         });
-        timer.start();
     }
 }

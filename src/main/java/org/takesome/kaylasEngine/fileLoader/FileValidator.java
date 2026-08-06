@@ -1,50 +1,42 @@
 package org.takesome.kaylasEngine.fileLoader;
 
+import org.takesome.kaylasEngine.fileLoader.hash.FileHasher;
+
 import java.io.File;
-import java.io.FileInputStream;
-import java.security.MessageDigest;
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.LinkOption;
+import java.nio.file.Path;
+import java.nio.file.attribute.BasicFileAttributes;
 
 /**
- * Default file validator that verifies the integrity of a local file.
- * This class implements {@link IFileValidator}, allowing applications to replace it with another implementation when required.
+ * Default validator for files described by launcher metadata.
+ *
+ * <p>Bare MD5, SHA-1 and SHA-256 values are supported. Metadata may also use an explicit
+ * {@code md5:}, {@code sha1:} or {@code sha256:} prefix. Symbolic links and files that change
+ * during hashing are rejected.</p>
  */
 public class FileValidator implements IFileValidator {
-
-    /**
-     * Determines whether a local file is invalid relative to the expected metadata.
-     *
-     * @param file         local file to validate
-     * @param expectedHash expected MD5 hash
-     * @param expectedSize expected file size in bytes
-     * @return {@code true} when the file is missing, has an unexpected size, or has a mismatched hash; otherwise {@code false}
-     */
     @Override
     public boolean isInvalidFile(File file, String expectedHash, long expectedSize) {
-        if (!file.exists() || file.length() != expectedSize) {
+        if (file == null || expectedSize < 0) {
             return true;
         }
 
+        Path path = file.toPath().toAbsolutePath().normalize();
         try {
-            MessageDigest md = MessageDigest.getInstance("MD5");
-            byte[] dataBytes = new byte[1024];
-            int bytesRead;
-
-            try (FileInputStream fis = new FileInputStream(file)) {
-                while ((bytesRead = fis.read(dataBytes)) != -1) {
-                    md.update(dataBytes, 0, bytesRead);
-                }
+            BasicFileAttributes attributes = Files.readAttributes(
+                    path,
+                    BasicFileAttributes.class,
+                    LinkOption.NOFOLLOW_LINKS
+            );
+            if (!attributes.isRegularFile()
+                    || attributes.isSymbolicLink()
+                    || attributes.size() != expectedSize) {
+                return true;
             }
-
-            byte[] digestBytes = md.digest();
-            StringBuilder hexString = new StringBuilder();
-
-            for (byte digestByte : digestBytes) {
-                hexString.append(String.format("%02x", digestByte));
-            }
-
-            return !hexString.toString().equals(expectedHash);
-        } catch (Exception e) {
-            e.printStackTrace();
+            return !FileHasher.matches(path, expectedHash);
+        } catch (IOException | IllegalArgumentException | SecurityException error) {
             return true;
         }
     }

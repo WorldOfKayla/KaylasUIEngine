@@ -6,7 +6,10 @@ import org.takesome.kaylasEngine.service.ExecutorServiceProvider;
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.IOException;
+import java.io.ByteArrayInputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
+import java.net.HttpURLConnection;
 import java.net.URI;
 import java.net.URLConnection;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -18,10 +21,12 @@ import java.security.NoSuchAlgorithmException;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.UnaryOperator;
 
 /**
@@ -35,6 +40,8 @@ public final class AsyncImageCache {
     private static final int DEFAULT_MEMORY_ENTRIES = 128;
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 20_000;
+    private static final int MAX_IMAGE_BYTES = 32 * 1024 * 1024;
+    private static final AtomicBoolean IMAGE_IO_PLUGINS_SCANNED = new AtomicBoolean();
 
     private final ExecutorServiceProvider executorServiceProvider;
     private final ConcurrentMap<String, CompletableFuture<BufferedImage>> inFlight = new ConcurrentHashMap<>();
@@ -80,7 +87,7 @@ public final class AsyncImageCache {
             return existing;
         }
 
-        executorServiceProvider.supplyAsync(
+        executorServiceProvider.supplyAsyncQuietly(
                 () -> loadOrDownload(
                         source,
                         normalizedCacheDirectory,
@@ -161,17 +168,104 @@ public final class AsyncImageCache {
     }
 
     private BufferedImage download(URI source) throws IOException {
+        ensureImageIoPlugins();
         URLConnection connection = source.toURL().openConnection();
         connection.setConnectTimeout(CONNECT_TIMEOUT_MS);
         connection.setReadTimeout(READ_TIMEOUT_MS);
         connection.setUseCaches(true);
         connection.setRequestProperty("User-Agent", "KaylasUIEngine/AsyncImageCache");
+        connection.setRequestProperty("Accept", "image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.1");
+
+        if (connection instanceof HttpURLConnection http) {
+            http.setInstanceFollowRedirects(true);
+            int status = http.getResponseCode();
+            if (status < 200 || status >= 300) {
+                http.disconnect();
+                throw new IOException("Image request returned HTTP " + status + " for " + source);
+            }
+        }
+
+        String contentType = normalizeContentType(connection.getContentType());
+        long declaredLength = connection.getContentLengthLong();
+        if (declaredLength > MAX_IMAGE_BYTES) {
+            disconnect(connection);
+            throw new IOException("Image response is too large (" + declaredLength + " bytes) for " + source);
+        }
+
+        byte[] payload;
         try (InputStream input = connection.getInputStream()) {
+            payload = readBounded(input, MAX_IMAGE_BYTES);
+        } finally {
+            disconnect(connection);
+        }
+        if (payload.length == 0) {
+            throw new IOException("Empty image response from " + source);
+        }
+
+        try (ByteArrayInputStream input = new ByteArrayInputStream(payload)) {
             BufferedImage image = ImageIO.read(input);
             if (image == null) {
-                throw new IOException("Unsupported or empty image response from " + source);
+                throw new IOException(
+                        "Unsupported image response from " + source
+                                + " (contentType=" + contentType + ", bytes=" + payload.length + ")"
+                );
             }
+            Engine.LOGGER.debug(
+                    "Decoded remote image {} as {}x{} (contentType={}, bytes={})",
+                    source,
+                    image.getWidth(),
+                    image.getHeight(),
+                    contentType,
+                    payload.length
+            );
             return image;
+        }
+    }
+
+    private static void ensureImageIoPlugins() {
+        if (IMAGE_IO_PLUGINS_SCANNED.compareAndSet(false, true)) {
+            ImageIO.scanForPlugins();
+            boolean webpAvailable = ImageIO.getImageReadersByFormatName("webp").hasNext();
+            if (Engine.LOGGER != null) {
+                if (webpAvailable) {
+                    Engine.LOGGER.debug("ImageIO WebP reader registered.");
+                } else {
+                    Engine.LOGGER.warn("ImageIO WebP reader is unavailable; WebP resources will use caller fallbacks.");
+                }
+            }
+        }
+    }
+
+    private static byte[] readBounded(InputStream input, int maximumBytes) throws IOException {
+        ByteArrayOutputStream output = new ByteArrayOutputStream(Math.min(64 * 1024, maximumBytes));
+        byte[] buffer = new byte[16 * 1024];
+        int total = 0;
+        int read;
+        while ((read = input.read(buffer)) >= 0) {
+            if (read == 0) {
+                continue;
+            }
+            total += read;
+            if (total > maximumBytes) {
+                throw new IOException("Image response exceeds " + maximumBytes + " bytes");
+            }
+            output.write(buffer, 0, read);
+        }
+        return output.toByteArray();
+    }
+
+    private static String normalizeContentType(String contentType) {
+        if (contentType == null || contentType.isBlank()) {
+            return "unknown";
+        }
+        int separator = contentType.indexOf(';');
+        String normalized = separator >= 0 ? contentType.substring(0, separator) : contentType;
+        return normalized.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static void disconnect(URLConnection connection) {
+        if (connection instanceof HttpURLConnection http) {
+            http.disconnect();
         }
     }
 

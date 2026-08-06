@@ -158,6 +158,22 @@ public class ExecutorServiceProvider {
      * Submits a tracked task and returns a CompletableFuture for composition.
      */
     public <T> CompletableFuture<T> supplyAsync(Callable<T> task, String taskName) {
+        return supplyAsyncInternal(task, taskName, true);
+    }
+
+    /**
+     * Submits a recoverable task whose failure is expected to be handled by the returned future.
+     * The executor does not emit a duplicate ERROR stack trace or rethrow the failure on its worker.
+     */
+    public <T> CompletableFuture<T> supplyAsyncQuietly(Callable<T> task, String taskName) {
+        return supplyAsyncInternal(task, taskName, false);
+    }
+
+    private <T> CompletableFuture<T> supplyAsyncInternal(
+            Callable<T> task,
+            String taskName,
+            boolean logUnhandledFailure
+    ) {
         UUID taskId = UUID.randomUUID();
         String safeTaskName = normalizeTaskName(taskName);
         CompletableFuture<T> resultFuture = new CompletableFuture<>();
@@ -171,8 +187,17 @@ public class ExecutorServiceProvider {
                 resultFuture.complete(result);
             } catch (Throwable throwable) {
                 resultFuture.completeExceptionally(throwable);
-                Engine.LOGGER.error("Error executing task: {} with ID: {}", safeTaskName, taskId, throwable);
-                rethrowUnchecked(throwable);
+                if (logUnhandledFailure) {
+                    Engine.LOGGER.error("Error executing task: {} with ID: {}", safeTaskName, taskId, throwable);
+                    rethrowUnchecked(throwable);
+                } else {
+                    Engine.LOGGER.debug(
+                            "Recoverable task failed and was delegated to its future: {} with ID: {} ({})",
+                            safeTaskName,
+                            taskId,
+                            throwable.toString()
+                    );
+                }
             } finally {
                 executorProgress.removeTask(taskId.toString());
                 taskMap.remove(taskId);

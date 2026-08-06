@@ -8,6 +8,7 @@ import org.takesome.kaylasEngine.gui.descriptor.XmlUiDescriptorLoader;
 import org.takesome.kaylasEngine.gui.components.constructor.ComponentNode;
 import org.takesome.kaylasEngine.gui.components.constructor.CompositeComponentDefinition;
 import org.takesome.kaylasEngine.gui.components.fileSelector.SelectionMode;
+import org.takesome.kaylasEngine.gui.components.progressBar.HearthstoneProgressBarVerification;
 import org.takesome.kaylasEngine.gui.components.progressBar.ProgressBarStyleVerification;
 import org.takesome.kaylasEngine.gui.components.tabs.TabDefinition;
 import org.takesome.kaylasEngine.gui.components.tabs.Tabs;
@@ -39,6 +40,7 @@ public final class ComponentRuntimeVerification {
 
         EngineBrandingVerification.verify();
         ProgressBarStyleVerification.verify();
+        HearthstoneProgressBarVerification.verify();
         verifyXmlDescriptorPolicy();
         TextAreaColorVerification.verify();
         verifySelectionModes();
@@ -51,7 +53,7 @@ public final class ComponentRuntimeVerification {
         verifyComponentCatalog();
         verifySignalRouter();
 
-        System.out.println("KINETICA Component Runtime 2.3 verification passed.");
+        System.out.println("KINETICA Component Runtime 2.4 verification passed.");
     }
 
     private static void verifyXmlDescriptorPolicy() {

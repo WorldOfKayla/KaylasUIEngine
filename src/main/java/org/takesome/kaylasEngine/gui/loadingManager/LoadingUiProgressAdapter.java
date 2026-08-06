@@ -14,6 +14,8 @@ final class LoadingUiProgressAdapter {
                 .setInitialDelayMs(progress.initialDelayMs)
                 .setCycleDelayMs(progress.cycleDelayMs)
                 .setTimelineDurationMs(progress.timelineDurationMs)
+                .setActiveTimelineDurationMs(progress.activeTimelineDurationMs)
+                .setCompleteTimelineDurationMs(progress.completeTimelineDurationMs)
                 .setTimelineFrameDelayMs(progress.timelineFrameDelayMs)
                 .setMaxValue(progress.maxValue)
                 .setLoop(progress.loop)
@@ -23,6 +25,8 @@ final class LoadingUiProgressAdapter {
                 .setResetOnStop(progress.resetOnStop)
                 .setHideOnStop(progress.hideOnStop)
                 .setAnimateEntrance(progress.animateEntrance)
+                .setAnimateActive(progress.animateActive)
+                .setAnimateComplete(progress.animateComplete)
                 .setAnimateExit(progress.animateExit);
     }
 }

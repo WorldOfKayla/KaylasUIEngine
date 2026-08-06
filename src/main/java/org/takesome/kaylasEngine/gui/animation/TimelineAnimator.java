@@ -13,10 +13,10 @@ public final class TimelineAnimator {
         this.execution = TimelineExecution.create(timers, frameDelayMs);
     }
 
-    public void animate(int durationMs,
-                        List<TimelineKeyFrame> keyFrames,
-                        Consumer<TimelineFrameState> updater,
-                        Runnable onComplete) {
-        execution.animate(durationMs, keyFrames, updater, onComplete);
+    public AnimationEngine.Handle animate(int durationMs,
+                                          List<TimelineKeyFrame> keyFrames,
+                                          Consumer<TimelineFrameState> updater,
+                                          Runnable onComplete) {
+        return execution.animate(durationMs, keyFrames, updater, onComplete);
     }
 }

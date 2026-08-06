@@ -109,6 +109,7 @@ public class ComponentAttributes extends Attributes {
     private Integer borderWidth;
     private Integer fillBorderRadius;
     private Integer trackPadding;
+    private Integer textOffsetX;
     private Integer textShadowOffsetX;
     private Integer textShadowOffsetY;
     private Integer animationDurationMs;
@@ -360,6 +361,7 @@ public class ComponentAttributes extends Attributes {
     public Integer getBorderWidth() { return borderWidth; }
     public Integer getFillBorderRadius() { return fillBorderRadius; }
     public Integer getTrackPadding() { return trackPadding; }
+    public Integer getTextOffsetX() { return textOffsetX; }
     public Integer getTextShadowOffsetX() { return textShadowOffsetX; }
     public Integer getTextShadowOffsetY() { return textShadowOffsetY; }
     public Integer getAnimationDurationMs() { return animationDurationMs; }

@@ -1,5 +1,7 @@
 package org.takesome.kaylasEngine.gui.components.utils.tooltip;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
+
 import javax.swing.*;
 import java.awt.*;
 import java.awt.event.*;
@@ -10,8 +12,8 @@ import java.util.List;
 public class CustomTooltip extends JWindow {
     private static final List<WeakReference<CustomTooltip>> activeTooltips = new ArrayList<>();
     private final JLabel label;
-    private Timer tooltipTimer;
-    private Timer fadeOutTimer;
+    private AnimationEngine.Handle autoHideAnimation;
+    private AnimationEngine.Handle fadeOutAnimation;
     private float currentOpacity = 1.0f;
 
     public CustomTooltip(Color backgroundColor, Color textColor, int borderRadius, Font font) {
@@ -50,27 +52,28 @@ public class CustomTooltip extends JWindow {
             activeTooltips.add(new WeakReference<>(this));
 
             component.addMouseListener(new MouseAdapter() {
-                private javax.swing.Timer hoverDelayTimer;
+                private AnimationEngine.Handle hoverDelayAnimation;
 
                 @Override
                 public void mouseEntered(MouseEvent e) {
-                    hoverDelayTimer = new javax.swing.Timer(500, evt -> {
+                    cancel(hoverDelayAnimation);
+                    hoverDelayAnimation = AnimationEngine.shared().delay(500, () -> {
+                        hoverDelayAnimation = null;
                         if (component.isShowing()) {
                             Point location = component.getLocationOnScreen();
                             setLocation(location.x, location.y + component.getHeight() + 5);
+                            currentOpacity = 1.0f;
+                            repaint();
                             setVisible(true);
                             startAutoHideTimer(autoHideDelay);
                         }
                     });
-                    hoverDelayTimer.setRepeats(false);
-                    hoverDelayTimer.start();
                 }
 
                 @Override
                 public void mouseExited(MouseEvent e) {
-                    if (hoverDelayTimer != null) {
-                        hoverDelayTimer.stop();
-                    }
+                    cancel(hoverDelayAnimation);
+                    hoverDelayAnimation = null;
                     cancelAutoHideTimer();
                     fadeOutTooltip();
                 }
@@ -80,36 +83,51 @@ public class CustomTooltip extends JWindow {
 
     private void startAutoHideTimer(int delay) {
         cancelAutoHideTimer();
-        tooltipTimer = new javax.swing.Timer(delay, e -> fadeOutTooltip());
-        tooltipTimer.setRepeats(false);
-        tooltipTimer.start();
+        autoHideAnimation = AnimationEngine.shared().delay(Math.max(0, delay), () -> {
+            autoHideAnimation = null;
+            fadeOutTooltip();
+        });
     }
 
     private void cancelAutoHideTimer() {
-        if (tooltipTimer != null) {
-            tooltipTimer.stop();
-            tooltipTimer = null;
-        }
+        cancel(autoHideAnimation);
+        autoHideAnimation = null;
     }
 
     private void fadeOutTooltip() {
-        if (fadeOutTimer != null) {
-            fadeOutTimer.stop();
-        }
+        cancel(fadeOutAnimation);
+        float startOpacity = currentOpacity;
+        fadeOutAnimation = AnimationEngine.shared().tween(
+                300,
+                16,
+                AnimationEngine.shared().curve("easeOutCubic"),
+                eased -> {
+                    currentOpacity = Math.max(0.0f, startOpacity * (1.0f - eased));
+                    repaint();
+                },
+                () -> {
+                    fadeOutAnimation = null;
+                    currentOpacity = 0.0f;
+                    setVisible(false);
+                    activeTooltips.removeIf(ref -> ref.get() == CustomTooltip.this);
+                    dispose();
+                }
+        );
+    }
 
-        fadeOutTimer = new javax.swing.Timer(30, e -> {
-            if (currentOpacity > 0) {
-                currentOpacity -= 0.05f;
-                currentOpacity = Math.max(0.0f, currentOpacity);
-                repaint();
-            } else {
-                setVisible(false);
-                dispose();
-                activeTooltips.removeIf(ref -> ref.get() == CustomTooltip.this);
-                fadeOutTimer.stop();
-            }
-        });
-        fadeOutTimer.start();
+    @Override
+    public void dispose() {
+        cancel(autoHideAnimation);
+        autoHideAnimation = null;
+        cancel(fadeOutAnimation);
+        fadeOutAnimation = null;
+        super.dispose();
+    }
+
+    private static void cancel(AnimationEngine.Handle animation) {
+        if (animation != null) {
+            animation.cancel();
+        }
     }
 
     public void clearAllTooltips() {

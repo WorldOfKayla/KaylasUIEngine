@@ -6,6 +6,7 @@ import javax.swing.JComponent;
 import javax.swing.JLabel;
 import java.util.List;
 import java.util.function.Consumer;
+import java.util.function.DoubleConsumer;
 import java.util.function.IntConsumer;
 import java.util.function.IntSupplier;
 import java.util.function.Supplier;
@@ -24,6 +25,9 @@ public interface ProgressAnimationController {
             Consumer<String> progressTextSetter,
             Consumer<Boolean> progressTextVisibilitySetter,
             Consumer<Boolean> progressPercentVisibilitySetter,
+            DoubleConsumer progressOpacitySetter,
+            DoubleConsumer progressGlowSetter,
+            DoubleConsumer progressShineSetter,
             Supplier<List<String>> messageResolver
     ) { }
 

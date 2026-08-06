@@ -46,7 +46,9 @@ final class ScriptedLoadingUiDefaults {
                         1,
                         0,
                         0,
-                        500,
+                        320,
+                        1200,
+                        260,
                         16,
                         -1,
                         true,
@@ -55,6 +57,8 @@ final class ScriptedLoadingUiDefaults {
                         false,
                         true,
                         false,
+                        true,
+                        true,
                         true,
                         true,
                         "progressMessages",
@@ -75,9 +79,16 @@ final class ScriptedLoadingUiDefaults {
                                         0,
                                         300,
                                         16,
-                                        AnimationCurve.named("easeInOutSine"),
+                                        AnimationCurve.named("easeOutBack"),
                                         ScriptedLoadingUi.Position.frame(0.5, 0.0, 0.5, 1.0, 0, 0),
-                                        ScriptedLoadingUi.Position.frame(0.5, 0.5, 0.5, 0.5, 0, 0)
+                                        ScriptedLoadingUi.Position.frame(0.5, 0.5, 0.5, 0.5, 0, 0),
+                                        new ScriptedLoadingUi.MotionRoute(
+                                                ScriptedLoadingUi.MotionDirection.TOP,
+                                                ScriptedLoadingUi.Position.frame(0.5, 0.5, 0.5, 0.5, 0, 0),
+                                                16,
+                                                0,
+                                                0
+                                        )
                                 ),
                                 new ScriptedLoadingUi.Opacity(
                                         true,
@@ -95,9 +106,16 @@ final class ScriptedLoadingUiDefaults {
                                         0,
                                         300,
                                         16,
-                                        AnimationCurve.named("easeInOutSine"),
+                                        AnimationCurve.named("easeInBack"),
                                         ScriptedLoadingUi.Position.current(0, 0),
-                                        ScriptedLoadingUi.Position.frame(1.0, 0.5, 0.0, 0.5, 0, 0)
+                                        ScriptedLoadingUi.Position.frame(0.5, 0.0, 0.5, 1.0, 0, 0),
+                                        new ScriptedLoadingUi.MotionRoute(
+                                                ScriptedLoadingUi.MotionDirection.TOP,
+                                                ScriptedLoadingUi.Position.frame(0.5, 0.5, 0.5, 0.5, 0, 0),
+                                                16,
+                                                0,
+                                                0
+                                        )
                                 ),
                                 new ScriptedLoadingUi.Opacity(
                                         true,

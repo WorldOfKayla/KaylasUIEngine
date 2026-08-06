@@ -35,6 +35,10 @@ public final class ScriptedLoadingUiVerification {
                 "fallback loader sprite changed");
         require(fallback.transition().entry().totalDurationMs() == 300,
                 "fallback entry transition duration changed");
+        require(fallback.transition().entry().motion().usesRoute()
+                        && fallback.transition().entry().motion().route().direction()
+                        == ScriptedLoadingUi.MotionDirection.TOP,
+                "engine fallback must enter from the top");
     }
 
     private static void verifyProfileParsing() {
@@ -84,8 +88,17 @@ public final class ScriptedLoadingUiVerification {
                 "entry", Map.of(
                         "motion", Map.of(
                                 "durationMs", 420,
-                                "from", Map.of("anchor", "frameCenter"),
-                                "to", Map.of("anchor", "frameBottom")
+                                "direction", "top",
+                                "anchor", "center",
+                                "outsideGap", 24,
+                                "offsetX", -12
+                        )
+                ),
+                "exit", Map.of(
+                        "motion", Map.of(
+                                "direction", "right",
+                                "outsideGap", 30,
+                                "offsetY", 9
                         )
                 )
         ));
@@ -105,22 +118,44 @@ public final class ScriptedLoadingUiVerification {
                 "numeric Lua list ordering is incorrect");
         require(parsed.transition().entry().motion().durationMs() == 420,
                 "transition motion duration was not parsed");
-        require(parsed.transition().entry().motion().from().referenceX() == 0.5,
-                "named position anchor was not resolved");
+        require(parsed.transition().entry().motion().usesRoute()
+                        && parsed.transition().entry().motion().route().direction()
+                        == ScriptedLoadingUi.MotionDirection.TOP,
+                "declarative entry direction was not parsed");
+        require(parsed.transition().entry().motion().route().outsideGap() == 24
+                        && parsed.transition().entry().motion().route().offsetX() == -12,
+                "declarative entry trajectory offsets were not parsed");
+        require(parsed.transition().exit().motion().route().direction()
+                        == ScriptedLoadingUi.MotionDirection.RIGHT,
+                "configurable exit direction was not parsed");
+
+        ScriptedLoadingUi explicit = ScriptedLoadingUiParser.parse(
+                Map.of("transition", Map.of("entry", Map.of("motion", Map.of(
+                        "from", Map.of("anchor", "frameCenter"),
+                        "to", Map.of("anchor", "frameBottom")
+                )))),
+                0,
+                fallback
+        );
+        require(!explicit.transition().entry().motion().usesRoute()
+                        && explicit.transition().entry().motion().from().referenceX() == 0.5,
+                "explicit from/to compatibility override was not preserved");
     }
 
     private static void verifyProgressAdapter() {
         ScriptedLoadingUi parsed = ScriptedLoadingUiParser.parse(
-                Map.of("progress", Map.of(
-                        "updateMs", 42,
-                        "step", 4,
-                        "initialDelayMs", 10,
-                        "cycleDelayMs", 20,
-                        "timelineDurationMs", 700,
-                        "timelineFrameDelayMs", 14,
-                        "maxValue", 300,
-                        "loop", false,
-                        "randomMessages", false
+                Map.of("progress", Map.ofEntries(
+                        Map.entry("updateMs", 42),
+                        Map.entry("step", 4),
+                        Map.entry("initialDelayMs", 10),
+                        Map.entry("cycleDelayMs", 20),
+                        Map.entry("timelineDurationMs", 320),
+                        Map.entry("activeTimelineDurationMs", 1400),
+                        Map.entry("completeTimelineDurationMs", 280),
+                        Map.entry("timelineFrameDelayMs", 14),
+                        Map.entry("maxValue", 300),
+                        Map.entry("loop", false),
+                        Map.entry("randomMessages", false)
                 )),
                 0,
                 ScriptedLoadingUiDefaults.create()
@@ -130,7 +165,10 @@ public final class ScriptedLoadingUiVerification {
                 "progress timing adapter is incorrect");
         require(options.initialDelayMs() == 10 && options.cycleDelayMs() == 20,
                 "progress delay adapter is incorrect");
-        require(options.timelineDurationMs() == 700 && options.timelineFrameDelayMs() == 14,
+        require(options.timelineDurationMs() == 320
+                        && options.activeTimelineDurationMs() == 1400
+                        && options.completeTimelineDurationMs() == 280
+                        && options.timelineFrameDelayMs() == 14,
                 "timeline adapter is incorrect");
         require(options.maxValue() == 300 && !options.loop() && !options.randomMessages(),
                 "progress policy flags were not adapted");
@@ -146,6 +184,11 @@ public final class ScriptedLoadingUiVerification {
         require(LoadingUiConfigSupport.clamp01(-1.0f) == 0.0f
                         && LoadingUiConfigSupport.clamp01(2.0f) == 1.0f,
                 "opacity clamping failed");
+        require(ScriptedLoadingUi.MotionDirection.from("topLeft", null)
+                        == ScriptedLoadingUi.MotionDirection.TOP_LEFT
+                        && ScriptedLoadingUi.MotionDirection.from("south-east", null)
+                        == ScriptedLoadingUi.MotionDirection.BOTTOM_RIGHT,
+                "motion direction aliases were not normalized");
     }
 
     private static void require(boolean condition, String message) {

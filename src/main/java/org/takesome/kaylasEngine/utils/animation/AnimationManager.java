@@ -2,7 +2,7 @@ package org.takesome.kaylasEngine.utils.animation;
 
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.FloatingWindow;
-import org.takesome.kaylasEngine.gui.animation.AnimationPulse;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 
 import javax.swing.SwingUtilities;
 import java.awt.Point;
@@ -24,7 +24,7 @@ public class AnimationManager {
     private AnimationStats animationStats;
     private final int animationDuration;
     private final int frameDelayMs;
-    private AnimationPulse.Subscription activeAnimation;
+    private AnimationEngine.Handle activeAnimation;
 
     public AnimationManager(FloatingWindow floatingWindow, int animationDuration, int animationSpeed) {
         this.floatingWindow = floatingWindow;
@@ -95,7 +95,7 @@ public class AnimationManager {
         long[] maxLagNanos = {0L};
         int[] tickCount = {0};
 
-        activeAnimation = AnimationPulse.shared().schedule(frameDelayMs, (now, deltaNanos) -> {
+        activeAnimation = AnimationEngine.shared().schedule(frameDelayMs, (now, deltaNanos) -> {
             if (!floatingWindow.isDisplayable()) {
                 floatingWindow.setAnimating(false);
                 activeAnimation = null;
@@ -104,7 +104,7 @@ public class AnimationManager {
 
             long expectedDelayNanos = Math.max(
                     frameDelayMs,
-                    AnimationPulse.shared().adaptiveFrameDelayMs()
+                    AnimationEngine.shared().adaptiveFrameDelayMs()
             ) * 1_000_000L;
             long tickDelay = Math.max(0L, deltaNanos - expectedDelayNanos);
             tickCount[0]++;

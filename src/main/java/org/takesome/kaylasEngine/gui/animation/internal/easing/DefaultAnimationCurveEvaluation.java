@@ -45,7 +45,8 @@ final class DefaultAnimationCurveEvaluation implements AnimationCurveEvaluation 
             return (float) clamp01(sampleCubicBezier(value));
         }
 
-        double eased = switch (normalize(name)) {
+        String normalizedName = normalize(name);
+        double eased = switch (normalizedName) {
             case "easeinquad", "inquad" -> value * value;
             case "easeoutquad", "outquad" -> 1.0 - square(1.0 - value);
             case "easeinoutquad", "inoutquad" -> value < 0.5
@@ -66,9 +67,12 @@ final class DefaultAnimationCurveEvaluation implements AnimationCurveEvaluation 
             case "easeoutsine", "outsine" -> Math.sin((value * Math.PI) / 2.0);
             case "smoothstep" -> value * value * (3.0 - 2.0 * value);
             case "smootherstep" -> value * value * value * (value * (value * 6.0 - 15.0) + 10.0);
+            case "easeinback", "inback" -> easeInBack(value);
+            case "easeoutback", "outback" -> easeOutBack(value);
+            case "easeinoutback", "inoutback" -> easeInOutBack(value);
             default -> value;
         };
-        return (float) clamp01(eased);
+        return (float) (allowsOvershoot(normalizedName) ? eased : clamp01(eased));
     }
 
     private double sampleCubicBezier(double progress) {
@@ -131,6 +135,37 @@ final class DefaultAnimationCurveEvaluation implements AnimationCurveEvaluation 
                 .replace("-", "")
                 .replace("_", "")
                 .replace(" ", "");
+    }
+
+    private static boolean allowsOvershoot(String normalizedName) {
+        return normalizedName.equals("easeinback")
+                || normalizedName.equals("inback")
+                || normalizedName.equals("easeoutback")
+                || normalizedName.equals("outback")
+                || normalizedName.equals("easeinoutback")
+                || normalizedName.equals("inoutback");
+    }
+
+    private static double easeInBack(double value) {
+        double overshoot = 1.70158;
+        return (overshoot + 1.0) * value * value * value - overshoot * value * value;
+    }
+
+    private static double easeOutBack(double value) {
+        double overshoot = 1.70158;
+        double shifted = value - 1.0;
+        return 1.0 + (overshoot + 1.0) * shifted * shifted * shifted
+                + overshoot * shifted * shifted;
+    }
+
+    private static double easeInOutBack(double value) {
+        double overshoot = 1.70158 * 1.525;
+        if (value < 0.5) {
+            double doubled = 2.0 * value;
+            return doubled * doubled * ((overshoot + 1.0) * doubled - overshoot) / 2.0;
+        }
+        double doubled = 2.0 * value - 2.0;
+        return (doubled * doubled * ((overshoot + 1.0) * doubled + overshoot) + 2.0) / 2.0;
     }
 
     private static double square(double value) { return value * value; }

@@ -19,6 +19,7 @@ import org.takesome.kaylasEngine.gui.components.frame.FrameConstructor;
 import org.takesome.kaylasEngine.gui.components.frame.OptionGroups;
 import org.takesome.kaylasEngine.gui.components.panel.listener.PanelListenerRegistry;
 import org.takesome.kaylasEngine.gui.components.panel.PanelVisibility;
+import org.takesome.kaylasEngine.gui.dialog.MessageDialogs;
 import org.takesome.kaylasEngine.gui.styles.StyleProvider;
 import org.takesome.kaylasEngine.locale.LanguageProvider;
 import org.takesome.kaylasEngine.news.News;
@@ -43,6 +44,8 @@ import java.lang.management.ManagementFactory;
 import java.lang.management.OperatingSystemMXBean;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.*;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -367,23 +370,85 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
      * @param jvmDir JVM directory relative to runtime (used to compose the path).
      */
     public void restartApplication(int xmx, String jvmDir) {
-        String path = this.config.getFullPath();
-        List<String> params = new LinkedList<>();
-        params.add(path + "/runtime/"+ jvmDir + "/bin/java");
-        params.add("-Xmx"+xmx+"M");
-        params.add("-jar");
-        params.add(appPath().substring(1));
-
-        ProcessBuilder builder = new ProcessBuilder(params);
-        builder.redirectErrorStream(true);
-        builder.directory(new File(path + File.separator));
+        Path applicationDirectory = toLocalPath(this.config.getFullPath());
+        Path application = toLocalPath(appPath());
         try {
+            Path javaExecutable = resolveRestartJava(applicationDirectory, jvmDir);
+            if (!Files.isRegularFile(application)) {
+                throw new IOException("Launcher JAR does not exist: " + application);
+            }
+
+            List<String> params = new LinkedList<>();
+            params.add(javaExecutable.toString());
+            params.add("-Xmx" + Math.max(256, xmx) + "M");
+            params.add("-jar");
+            params.add(application.toString());
+
+            ProcessBuilder builder = new ProcessBuilder(params);
+            builder.redirectErrorStream(true);
+            builder.directory(applicationDirectory.toFile());
             builder.start();
             shutdownExecutorService();
             System.exit(0);
-        } catch (IOException e) {
-            JOptionPane.showMessageDialog(null, "Restart Error occurred \n PLease try again" + e, "Restart Error", JOptionPane.ERROR_MESSAGE);
+        } catch (IOException | RuntimeException error) {
+            LOGGER.error("Unable to restart application", error);
+            MessageDialogs.show(
+                    getFrame() == null ? null : getFrame().getRootPane(),
+                    "Unable to restart the launcher.\n" + safeErrorMessage(error),
+                    "Restart Error",
+                    JOptionPane.ERROR_MESSAGE,
+                    getFONTUTILS() == null ? null : getFONTUTILS().getFont("primary", 12.0F)
+            );
         }
+    }
+
+    private Path resolveRestartJava(Path applicationDirectory, String jvmDir) throws IOException {
+        String executableName = isWindows() ? "java.exe" : "java";
+        if (jvmDir != null && !jvmDir.isBlank()) {
+            Path requested = applicationDirectory
+                    .resolve("runtime")
+                    .resolve(jvmDir.trim())
+                    .resolve("bin")
+                    .resolve(executableName)
+                    .normalize();
+            if (Files.isRegularFile(requested)) {
+                return requested;
+            }
+            LOGGER.warn("Requested restart runtime is unavailable: {}", requested);
+        }
+
+        String javaHome = System.getProperty("java.home", "");
+        if (!javaHome.isBlank()) {
+            Path current = Path.of(javaHome).resolve("bin").resolve(executableName).toAbsolutePath().normalize();
+            if (Files.isRegularFile(current)) {
+                LOGGER.info("Restarting launcher with current JVM: {}", current);
+                return current;
+            }
+        }
+        throw new IOException("No usable Java executable was found for launcher restart.");
+    }
+
+    private static Path toLocalPath(String rawPath) {
+        if (rawPath == null || rawPath.isBlank()) {
+            throw new IllegalArgumentException("Application path is empty");
+        }
+        String normalized = rawPath.trim();
+        if (isWindows() && normalized.matches("^/[A-Za-z]:/.*")) {
+            normalized = normalized.substring(1);
+        }
+        return Path.of(normalized).toAbsolutePath().normalize();
+    }
+
+    private static boolean isWindows() {
+        return System.getProperty("os.name", "").toLowerCase(Locale.ROOT).contains("win");
+    }
+
+    private static String safeErrorMessage(Throwable error) {
+        if (error == null) {
+            return "Unknown restart error.";
+        }
+        String message = error.getMessage();
+        return message == null || message.isBlank() ? error.getClass().getSimpleName() : message;
     }
 
     /**
@@ -399,9 +464,14 @@ public abstract class Engine implements ActionListener, GuiBuilderListener, Focu
         SwingUtilities.invokeLater(() -> {
             String errorMessage = this.getLANG().getString(messageKey);
             this.emitSound("other", messageKey);
-            UIManager.put("OptionPane.messageFont", this.getFONTUTILS().getFont("mcfont", 12.0F));
             String localizedTitle = this.getLANG().getString(errorTitle);
-            JOptionPane.showMessageDialog(this.getFrame().getRootPane(), errorMessage, localizedTitle, warningMessage);
+            MessageDialogs.showNow(
+                    this.getFrame().getRootPane(),
+                    errorMessage,
+                    localizedTitle,
+                    warningMessage,
+                    this.getFONTUTILS().getFont("primary", 12.0F)
+            );
             if (terminate) {
                 System.exit(0);
             }

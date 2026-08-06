@@ -283,6 +283,16 @@ final class ScriptedLoadingUiParser {
                 ),
                 LuaConfigValues.integer(
                         table,
+                        "activeTimelineDurationMs",
+                        fallback.activeTimelineDurationMs
+                ),
+                LuaConfigValues.integer(
+                        table,
+                        "completeTimelineDurationMs",
+                        fallback.completeTimelineDurationMs
+                ),
+                LuaConfigValues.integer(
+                        table,
                         "timelineFrameDelayMs",
                         fallback.timelineFrameDelayMs
                 ),
@@ -294,6 +304,8 @@ final class ScriptedLoadingUiParser {
                 LuaConfigValues.bool(table, "resetOnStop", fallback.resetOnStop),
                 LuaConfigValues.bool(table, "hideOnStop", fallback.hideOnStop),
                 LuaConfigValues.bool(table, "animateEntrance", fallback.animateEntrance),
+                LuaConfigValues.bool(table, "animateActive", fallback.animateActive),
+                LuaConfigValues.bool(table, "animateComplete", fallback.animateComplete),
                 LuaConfigValues.bool(table, "animateExit", fallback.animateExit),
                 LuaConfigValues.string(table, "messagesSection", fallback.messagesSection),
                 LuaConfigValues.string(table, "messagesResource", fallback.messagesResource),
@@ -317,36 +329,91 @@ final class ScriptedLoadingUiParser {
     ) {
         return new ScriptedLoadingUi.Transition(
                 LuaConfigValues.bool(table, "enabled", fallback.enabled),
-                phase(LuaConfigValues.map(table, "entry"), fallback.entry),
-                phase(LuaConfigValues.map(table, "exit"), fallback.exit)
+                phase(LuaConfigValues.map(table, "entry"), fallback.entry, true),
+                phase(LuaConfigValues.map(table, "exit"), fallback.exit, false)
         );
     }
 
     private static ScriptedLoadingUi.Phase phase(
             Map<String, Object> table,
-            ScriptedLoadingUi.Phase fallback
+            ScriptedLoadingUi.Phase fallback,
+            boolean entryPhase
     ) {
         return new ScriptedLoadingUi.Phase(
-                motion(LuaConfigValues.map(table, "motion"), fallback.motion),
+                motion(LuaConfigValues.map(table, "motion"), fallback.motion, entryPhase),
                 opacity(LuaConfigValues.map(table, "opacity"), fallback.opacity)
         );
     }
 
     private static ScriptedLoadingUi.Motion motion(
             Map<String, Object> table,
-            ScriptedLoadingUi.Motion fallback
+            ScriptedLoadingUi.Motion fallback,
+            boolean entryPhase
     ) {
         if (table == null || table.isEmpty()) {
             return fallback;
         }
+        Map<String, Object> fromTable = LuaConfigValues.map(table, "from");
+        Map<String, Object> toTable = LuaConfigValues.map(table, "to");
+        boolean explicitPositions = (fromTable != null && !fromTable.isEmpty())
+                || (toTable != null && !toTable.isEmpty());
+        ScriptedLoadingUi.MotionRoute route = explicitPositions
+                ? null
+                : motionRoute(table, fallback.route, entryPhase);
         return new ScriptedLoadingUi.Motion(
                 LuaConfigValues.bool(table, "enabled", fallback.enabled),
                 LuaConfigValues.integer(table, "delayMs", fallback.delayMs),
                 LuaConfigValues.integer(table, "durationMs", fallback.durationMs),
                 LuaConfigValues.integer(table, "frameDelayMs", fallback.frameDelayMs),
                 LoadingUiConfigSupport.curve(table, "easing", fallback.curve),
-                position(LuaConfigValues.map(table, "from"), fallback.from),
-                position(LuaConfigValues.map(table, "to"), fallback.to)
+                position(fromTable, fallback.from),
+                position(toTable, fallback.to),
+                route
+        );
+    }
+
+    private static ScriptedLoadingUi.MotionRoute motionRoute(
+            Map<String, Object> motionTable,
+            ScriptedLoadingUi.MotionRoute fallback,
+            boolean entryPhase
+    ) {
+        Map<String, Object> nested = LuaConfigValues.map(motionTable, "route");
+        Map<String, Object> table = nested == null || nested.isEmpty() ? motionTable : nested;
+        ScriptedLoadingUi.MotionDirection defaultDirection = fallback == null
+                ? ScriptedLoadingUi.MotionDirection.TOP
+                : fallback.direction;
+        ScriptedLoadingUi.Position defaultAnchor = fallback == null
+                ? ScriptedLoadingUi.Position.frame(0.5, 0.5, 0.5, 0.5, 0, 0)
+                : fallback.anchorPosition;
+        int defaultGap = fallback == null ? 16 : fallback.outsideGap;
+        int defaultOffsetX = fallback == null ? 0 : fallback.offsetX;
+        int defaultOffsetY = fallback == null ? 0 : fallback.offsetY;
+
+        String directionValue = LuaConfigValues.string(
+                table,
+                "direction",
+                defaultDirection.name()
+        );
+        String anchorName = LuaConfigValues.string(table, "anchor", "center");
+        ScriptedLoadingUi.Position anchor = namedAnchor(anchorName, defaultAnchor);
+        int anchorOffsetX = LuaConfigValues.integer(table, "anchorOffsetX", anchor.offsetX);
+        int anchorOffsetY = LuaConfigValues.integer(table, "anchorOffsetY", anchor.offsetY);
+        anchor = new ScriptedLoadingUi.Position(
+                anchor.reference,
+                anchor.referenceX,
+                anchor.referenceY,
+                anchor.windowX,
+                anchor.windowY,
+                anchorOffsetX,
+                anchorOffsetY
+        );
+
+        return new ScriptedLoadingUi.MotionRoute(
+                ScriptedLoadingUi.MotionDirection.from(directionValue, defaultDirection),
+                anchor,
+                LuaConfigValues.integer(table, "outsideGap", defaultGap),
+                LuaConfigValues.integer(table, "offsetX", defaultOffsetX),
+                LuaConfigValues.integer(table, "offsetY", defaultOffsetY)
         );
     }
 

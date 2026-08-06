@@ -43,6 +43,11 @@ public class DownloadUtils extends HTTPrequest {
     private volatile long totalSize;
     private volatile long startedAtMillis;
 
+    @FunctionalInterface
+    public interface ExtractionProgressListener {
+        void onProgress(int percent, String entryName);
+    }
+
     public DownloadUtils(Engine engine) {
         super(engine, "GET");
         this.engine = engine;
@@ -218,14 +223,70 @@ public class DownloadUtils extends HTTPrequest {
     }
 
     public void unpack(String path, File destination) {
+        unpack(path, destination, null);
+    }
+
+    public void unpack(String path, File destination, ExtractionProgressListener listener) {
         Path archive = Path.of(path).toAbsolutePath().normalize();
         Path target = destination.toPath().toAbsolutePath().normalize();
         try {
             Files.createDirectories(target);
-            extractZip(archive, target, false);
+            extractZip(archive, target, false, listener);
             Files.deleteIfExists(archive);
         } catch (IOException error) {
             throw new RuntimeException("Unable to unpack archive " + archive + " into " + target, error);
+        }
+    }
+
+    /**
+     * Installs an assets bundle whose archive contains a single top-level {@code assets/} directory.
+     * Extraction happens in a sibling temporary directory and is published only after the mandatory
+     * Minecraft assets layout has been validated.
+     */
+    public void unpackAssetsBundle(String path, File assetsDirectory) {
+        unpackAssetsBundle(path, assetsDirectory, null);
+    }
+
+    public void unpackAssetsBundle(String path,
+                                   File assetsDirectory,
+                                   ExtractionProgressListener listener) {
+        Path archive = Path.of(path).toAbsolutePath().normalize();
+        Path target = assetsDirectory.toPath().toAbsolutePath().normalize();
+        Path parent = target.getParent();
+        Path temporary = null;
+        try {
+            if (parent == null) {
+                throw new IOException("Assets target has no parent directory: " + target);
+            }
+            Files.createDirectories(parent);
+            temporary = Files.createTempDirectory(parent, target.getFileName() + ".extract-");
+            extractZip(archive, temporary, true, listener);
+
+            Path indexes = temporary.resolve("indexes");
+            Path objects = temporary.resolve("objects");
+            if (!Files.isDirectory(indexes) || !Files.isDirectory(objects)) {
+                throw new IOException("Assets archive must contain assets/indexes and assets/objects: " + archive);
+            }
+            try (var indexFiles = Files.list(indexes)) {
+                if (indexFiles.noneMatch(pathEntry -> Files.isRegularFile(pathEntry)
+                        && pathEntry.getFileName().toString().toLowerCase(Locale.ROOT).endsWith(".json"))) {
+                    throw new IOException("Assets archive contains no index JSON files: " + archive);
+                }
+            }
+
+            deleteRecursively(target);
+            moveAtomically(temporary, target);
+            temporary = null;
+            Files.deleteIfExists(archive);
+        } catch (IOException error) {
+            if (temporary != null) {
+                try {
+                    deleteRecursively(temporary);
+                } catch (IOException cleanupError) {
+                    error.addSuppressed(cleanupError);
+                }
+            }
+            throw new RuntimeException("Unable to install assets bundle " + archive + " into " + target, error);
         }
     }
 
@@ -234,6 +295,12 @@ public class DownloadUtils extends HTTPrequest {
      * vendor archive's single top-level directory. The target is published atomically.
      */
     public void unpackFlatRuntime(String path, File targetDirectory) {
+        unpackFlatRuntime(path, targetDirectory, null);
+    }
+
+    public void unpackFlatRuntime(String path,
+                                  File targetDirectory,
+                                  ExtractionProgressListener listener) {
         Path archive = Path.of(path).toAbsolutePath().normalize();
         Path target = targetDirectory.toPath().toAbsolutePath().normalize();
         Path parent = target.getParent();
@@ -244,7 +311,7 @@ public class DownloadUtils extends HTTPrequest {
             }
             Files.createDirectories(parent);
             temporary = Files.createTempDirectory(parent, target.getFileName() + ".extract-");
-            extractZip(archive, temporary, true);
+            extractZip(archive, temporary, true, listener);
 
             Path javaExecutable = temporary.resolve("bin").resolve(runtimeJavaExecutableName());
             if (!Files.isRegularFile(javaExecutable)) {
@@ -267,9 +334,22 @@ public class DownloadUtils extends HTTPrequest {
         }
     }
 
-    private void extractZip(Path archive, Path destination, boolean stripSingleRoot) throws IOException {
+    private void extractZip(Path archive,
+                            Path destination,
+                            boolean stripSingleRoot,
+                            ExtractionProgressListener listener) throws IOException {
         try (ZipFile zip = new ZipFile(archive.toFile(), StandardCharsets.UTF_8)) {
             String rootPrefix = stripSingleRoot ? commonArchiveRoot(zip) : "";
+            long totalBytes = zip.stream()
+                    .filter(entry -> !entry.isDirectory())
+                    .mapToLong(entry -> Math.max(0L, entry.getSize()))
+                    .sum();
+            int totalFiles = (int) zip.stream().filter(entry -> !entry.isDirectory()).count();
+            long completedBytes = 0L;
+            int completedFiles = 0;
+            int lastPercent = -1;
+            publishExtractionProgress(listener, 0, "");
+
             Enumeration<? extends ZipEntry> entries = zip.entries();
             while (entries.hasMoreElements()) {
                 ZipEntry entry = entries.nextElement();
@@ -293,11 +373,53 @@ public class DownloadUtils extends HTTPrequest {
                 if (outputParent != null) {
                     Files.createDirectories(outputParent);
                 }
+
+                long currentEntryBytes = 0L;
+                byte[] buffer = new byte[BUFFER_SIZE];
                 try (InputStream input = new BufferedInputStream(zip.getInputStream(entry), BUFFER_SIZE);
                      OutputStream outputStream = new BufferedOutputStream(Files.newOutputStream(output), BUFFER_SIZE)) {
-                    input.transferTo(outputStream);
+                    int read;
+                    while ((read = input.read(buffer)) != -1) {
+                        outputStream.write(buffer, 0, read);
+                        currentEntryBytes += read;
+                        int percent = extractionPercent(
+                                completedBytes + currentEntryBytes,
+                                totalBytes,
+                                completedFiles,
+                                totalFiles
+                        );
+                        if (percent != lastPercent) {
+                            publishExtractionProgress(listener, percent, entryName);
+                            lastPercent = percent;
+                        }
+                    }
+                    outputStream.flush();
                 }
+                completedBytes += currentEntryBytes;
+                completedFiles++;
             }
+            publishExtractionProgress(listener, 100, "");
+        }
+    }
+
+    private int extractionPercent(long completedBytes,
+                                  long totalBytes,
+                                  int completedFiles,
+                                  int totalFiles) {
+        if (totalBytes > 0L) {
+            return (int) Math.max(0L, Math.min(99L, completedBytes * 100L / totalBytes));
+        }
+        if (totalFiles > 0) {
+            return Math.max(0, Math.min(99, completedFiles * 100 / totalFiles));
+        }
+        return 0;
+    }
+
+    private void publishExtractionProgress(ExtractionProgressListener listener,
+                                           int percent,
+                                           String entryName) {
+        if (listener != null) {
+            listener.onProgress(Math.max(0, Math.min(100, percent)), entryName == null ? "" : entryName);
         }
     }
 

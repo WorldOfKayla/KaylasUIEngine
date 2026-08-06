@@ -124,6 +124,15 @@ final class KaylasUIDefaults {
         defaults.put("ToolTip.foreground", foreground);
         defaults.put("ToolTip.border", new EmptyBorder(6, 9, 6, 9));
 
+        // JOptionPane must use a coherent surface/foreground pair. Without these values,
+        // FlatLaf may fall back to a light option-pane surface while labels keep the dark-theme
+        // foreground, producing visually empty message windows.
+        defaults.put("OptionPane.background", elevated);
+        defaults.put("OptionPane.foreground", foreground);
+        defaults.put("OptionPane.messageForeground", foreground);
+        defaults.put("OptionPane.buttonAreaBackground", elevated);
+        defaults.put("OptionPane.messageAreaBorder", new EmptyBorder(12, 12, 8, 12));
+
         defaults.put("Component.arc", theme.arc());
         defaults.put("Component.focusWidth", theme.focusWidth());
         defaults.put("Component.innerFocusWidth", 0);

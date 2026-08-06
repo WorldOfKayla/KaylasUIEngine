@@ -1,31 +1,35 @@
 package org.takesome.kaylasEngine.utils.animation;
 
-import javax.swing.*;
-import java.awt.*;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
+
+import javax.swing.JWindow;
+import java.awt.Component;
+import java.awt.Point;
 import java.util.ArrayList;
 import java.util.List;
 
+/** Legacy keyframe sequence retained as an adapter over the unified AnimationEngine. */
 class KeyframeAnimation {
     private final List<Keyframe> keyframes = new ArrayList<>();
-    private Timer animationTimer;
+    private AnimationEngine.Handle animation;
     private final int interval;
-    private int currentFrame = 0;
+    private int currentFrame;
     private final Component component;
     private final Runnable onComplete;
 
-    public KeyframeAnimation(Component component, int interval, Runnable onComplete) {
+    KeyframeAnimation(Component component, int interval, Runnable onComplete) {
         this.component = component;
-        this.interval = interval;
+        this.interval = Math.max(1, interval);
         this.onComplete = onComplete;
     }
 
-    public void addKeyframe(float opacity, Point location, int duration) {
-        int steps = duration / interval;
+    void addKeyframe(float opacity, Point location, int duration) {
+        int steps = Math.max(1, duration / interval);
         Keyframe lastFrame = keyframes.isEmpty() ? null : keyframes.get(keyframes.size() - 1);
         float startOpacity = lastFrame == null ? ((JWindow) component).getOpacity() : lastFrame.getOpacity();
         Point startLocation = lastFrame == null ? component.getLocation() : lastFrame.getLocation();
 
-        for (int i = 1; i <= steps; i++) { // Start from 1 to avoid adding the initial state again
+        for (int i = 1; i <= steps; i++) {
             float interpolatedOpacity = startOpacity + (opacity - startOpacity) * i / steps;
             int interpolatedX = startLocation.x + (location.x - startLocation.x) * i / steps;
             int interpolatedY = startLocation.y + (location.y - startLocation.y) * i / steps;
@@ -33,25 +37,30 @@ class KeyframeAnimation {
         }
     }
 
-    public void start() {
-        if (keyframes.isEmpty()) return;
-
-        animationTimer = new Timer(interval, e -> {
+    void start() {
+        if (keyframes.isEmpty()) {
+            return;
+        }
+        stop();
+        currentFrame = 0;
+        animation = AnimationEngine.shared().interval(interval, 0, () -> {
             if (currentFrame >= keyframes.size()) {
-                animationTimer.stop();
+                animation = null;
                 if (onComplete != null) {
                     onComplete.run();
                 }
-                return;
+                return false;
             }
-
-            Keyframe keyframe = keyframes.get(currentFrame);
-            applyKeyframe(keyframe);
-
-            currentFrame++;
+            applyKeyframe(keyframes.get(currentFrame++));
+            return true;
         });
+    }
 
-        animationTimer.start();
+    void stop() {
+        if (animation != null) {
+            animation.cancel();
+            animation = null;
+        }
     }
 
     private void applyKeyframe(Keyframe keyframe) {
@@ -63,20 +72,20 @@ class KeyframeAnimation {
         }
     }
 
-    public static class Keyframe {
+    static final class Keyframe {
         private final Float opacity;
         private final Point location;
 
-        public Keyframe(Float opacity, Point location) {
+        Keyframe(Float opacity, Point location) {
             this.opacity = opacity;
             this.location = location;
         }
 
-        public Float getOpacity() {
+        Float getOpacity() {
             return opacity;
         }
 
-        public Point getLocation() {
+        Point getLocation() {
             return location;
         }
     }

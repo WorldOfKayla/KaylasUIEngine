@@ -12,6 +12,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 /**
@@ -47,7 +49,7 @@ public final class JavaRuntimeLocator {
 
     /**
      * Resolves the newest flat runtime installation matching the required Java major and platform.
-     * Expected directory format: jdk-<full-version>-<platform>, for example
+     * Expected directory format: jdk-full-version-platform, for example
      * jdk-25.0.2-windows-x86_64.
      */
     public static Path locateFlatRuntime(Path runtimeDirectory, String requiredMajor, String platformId) {
@@ -84,29 +86,75 @@ public final class JavaRuntimeLocator {
     }
 
     private static boolean matchesFlatRuntime(Path directory, String major, String platform) {
-        Path fileName = directory.getFileName();
-        if (fileName == null) {
-            return false;
-        }
-        String name = fileName.toString().toLowerCase(Locale.ROOT);
-        String prefix = "jdk-" + major;
-        return (name.startsWith(prefix + ".") || name.startsWith(prefix + "-"))
-                && name.endsWith('-' + platform);
+        String version = runtimeVersionToken(directory, platform);
+        return version != null && major.equals(majorFromVersion(version));
     }
 
     private static List<Integer> runtimeVersion(Path directory, String platform) {
-        String name = directory.getFileName().toString().toLowerCase(Locale.ROOT);
-        String suffix = '-' + platform;
-        String version = name.substring("jdk-".length(), name.length() - suffix.length());
+        String version = runtimeVersionToken(directory, platform);
+        if (version == null) {
+            return List.of();
+        }
+
         List<Integer> parts = new ArrayList<>();
-        for (String part : version.split("\\.")) {
-            try {
-                parts.add(Integer.parseInt(part));
-            } catch (NumberFormatException ignored) {
-                parts.add(0);
+        if (version.matches("(?i)^1\\.8\\.0[_-][0-9]+.*$")) {
+            parts.add(8);
+            parts.add(0);
+            Matcher update = Pattern.compile("(?i)^1\\.8\\.0[_-]([0-9]+)").matcher(version);
+            if (update.find()) {
+                parts.add(parseVersionPart(update.group(1)));
             }
+            return List.copyOf(parts);
+        }
+        if (version.matches("(?i)^8u[0-9]+.*$")) {
+            parts.add(8);
+            parts.add(0);
+            Matcher update = Pattern.compile("(?i)^8u([0-9]+)").matcher(version);
+            if (update.find()) {
+                parts.add(parseVersionPart(update.group(1)));
+            }
+            return List.copyOf(parts);
+        }
+
+        Matcher numbers = Pattern.compile("[0-9]+").matcher(version);
+        while (numbers.find()) {
+            parts.add(parseVersionPart(numbers.group()));
         }
         return List.copyOf(parts);
+    }
+
+    private static String runtimeVersionToken(Path directory, String platform) {
+        Path fileName = directory.getFileName();
+        if (fileName == null) {
+            return null;
+        }
+        String name = fileName.toString().toLowerCase(Locale.ROOT);
+        String suffix = '-' + platform;
+        if (!name.startsWith("jdk-") || !name.endsWith(suffix)) {
+            return null;
+        }
+        String version = name.substring("jdk-".length(), name.length() - suffix.length());
+        return version.isBlank() ? null : version;
+    }
+
+    private static String majorFromVersion(String version) {
+        String normalized = version.trim().toLowerCase(Locale.ROOT);
+        if (normalized.matches("^1\\.8(?:\\.0)?(?:[_+.-].*)?$")) {
+            return "8";
+        }
+        if (normalized.matches("^8u[0-9]+(?:[_+.-].*)?$")) {
+            return "8";
+        }
+        Matcher leading = Pattern.compile("^([0-9]{1,3})(?:$|[._+u-])").matcher(normalized);
+        return leading.find() ? leading.group(1) : "";
+    }
+
+    private static int parseVersionPart(String value) {
+        try {
+            return Integer.parseInt(value);
+        } catch (NumberFormatException ignored) {
+            return Integer.MAX_VALUE;
+        }
     }
 
     private static int compareVersions(List<Integer> left, List<Integer> right) {
@@ -126,15 +174,13 @@ public final class JavaRuntimeLocator {
         if (requiredMajor == null) {
             throw new IllegalArgumentException("Runtime Java major must not be null.");
         }
-        String digits = requiredMajor.trim().replaceFirst("(?i)^java\\s*", "");
-        int separator = digits.indexOf('.');
-        if (separator > 0) {
-            digits = digits.substring(0, separator);
-        }
-        if (!digits.matches("[0-9]{1,3}")) {
+        String version = requiredMajor.trim()
+                .replaceFirst("(?i)^(?:java|jdk|jre)\\s*[-_]?\\s*", "");
+        String major = majorFromVersion(version);
+        if (major.isEmpty()) {
             throw new IllegalArgumentException("Invalid runtime Java major: " + requiredMajor);
         }
-        return digits;
+        return major;
     }
 
     private static String normalizePlatform(String platformId) {

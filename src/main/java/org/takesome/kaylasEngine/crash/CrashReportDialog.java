@@ -1,6 +1,7 @@
 package org.takesome.kaylasEngine.crash;
 
 import org.takesome.kaylasEngine.Engine;
+import org.takesome.kaylasEngine.gui.dialog.MessageDialogs;
 
 import javax.swing.BorderFactory;
 import javax.swing.Icon;
@@ -321,8 +322,13 @@ public final class CrashReportDialog {
 
     private static void copyCrashReport(Engine engine, String errorText) {
         Toolkit.getDefaultToolkit().getSystemClipboard().setContents(new StringSelection(errorText), null);
-        JOptionPane.showMessageDialog(ownerComponent(engine), "Crash report copied to clipboard.",
-                applicationTitle(engine), JOptionPane.INFORMATION_MESSAGE);
+        MessageDialogs.show(
+                ownerComponent(engine),
+                "Crash report copied to clipboard.",
+                applicationTitle(engine),
+                JOptionPane.INFORMATION_MESSAGE,
+                dialogFont(engine)
+        );
     }
 
     private static void saveCrashReportAs(Engine engine, String errorText, Path suggestedReport) {
@@ -343,8 +349,13 @@ public final class CrashReportDialog {
         try {
             Files.writeString(fileToSave.toPath(), errorText, StandardCharsets.UTF_8);
         } catch (IOException error) {
-            JOptionPane.showMessageDialog(ownerComponent(engine), "Failed to save crash report:\n" + error.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+            MessageDialogs.show(
+                    ownerComponent(engine),
+                    "Failed to save crash report:\n" + error.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE,
+                    dialogFont(engine)
+            );
         }
     }
 
@@ -357,9 +368,20 @@ public final class CrashReportDialog {
                 Desktop.getDesktop().open(savedReport.getParent().toFile());
             }
         } catch (IOException error) {
-            JOptionPane.showMessageDialog(ownerComponent(engine), "Failed to open crash report folder:\n" + error.getMessage(),
-                    "Error", JOptionPane.ERROR_MESSAGE);
+            MessageDialogs.show(
+                    ownerComponent(engine),
+                    "Failed to open crash report folder:\n" + error.getMessage(),
+                    "Error",
+                    JOptionPane.ERROR_MESSAGE,
+                    dialogFont(engine)
+            );
         }
+    }
+
+    private static Font dialogFont(Engine engine) {
+        return engine == null || engine.getFONTUTILS() == null
+                ? null
+                : engine.getFONTUTILS().getFont("primary", 12.0F);
     }
 
     private static Icon bugIcon(Engine engine) {

@@ -1,6 +1,6 @@
 package org.takesome.kaylasEngine.gui.components.button;
 
-import org.takesome.kaylasEngine.gui.animation.AnimationPulse;
+import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
 
@@ -37,7 +37,7 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
     private final ComponentAttributes buttonAttributes;
 
     private float hoverProgress;
-    private AnimationPulse.Subscription hoverAnimation;
+    private AnimationEngine.Handle hoverAnimation;
     private IconFloat iconFloat = IconFloat.LEFT;
 
     public Button(ComponentFactory componentFactory, String text) {
@@ -222,7 +222,7 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
         long durationNanos = Math.max(1_000_000L, (long) (HOVER_DURATION_MS * distance * 1_000_000L));
         long startedAt = System.nanoTime();
 
-        hoverAnimation = AnimationPulse.shared().schedule(ANIMATION_INTERVAL_MS, (nowNanos, deltaNanos) -> {
+        hoverAnimation = AnimationEngine.shared().schedule(ANIMATION_INTERVAL_MS, (nowNanos, deltaNanos) -> {
             if (!isDisplayable()) {
                 hoverAnimation = null;
                 return false;

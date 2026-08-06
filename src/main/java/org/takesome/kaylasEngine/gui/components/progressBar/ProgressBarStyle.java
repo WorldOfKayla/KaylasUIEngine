@@ -89,6 +89,7 @@ public final class ProgressBarStyle {
         Objects.requireNonNull(progressBar, "progressBar");
         progressBar.configure(configuration());
         progressBar.setStyleName(styleName);
+        progressBar.setTextOffsetX(integer(attribute(ComponentAttributes::getTextOffsetX), 0));
     }
 
     /**

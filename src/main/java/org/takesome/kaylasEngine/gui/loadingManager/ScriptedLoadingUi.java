@@ -255,6 +255,8 @@ public final class ScriptedLoadingUi {
         final int initialDelayMs;
         final int cycleDelayMs;
         final int timelineDurationMs;
+        final int activeTimelineDurationMs;
+        final int completeTimelineDurationMs;
         final int timelineFrameDelayMs;
         final int maxValue;
         final boolean loop;
@@ -264,6 +266,8 @@ public final class ScriptedLoadingUi {
         final boolean resetOnStop;
         final boolean hideOnStop;
         final boolean animateEntrance;
+        final boolean animateActive;
+        final boolean animateComplete;
         final boolean animateExit;
         final String messagesSection;
         final String messagesResource;
@@ -281,6 +285,8 @@ public final class ScriptedLoadingUi {
                          int initialDelayMs,
                          int cycleDelayMs,
                          int timelineDurationMs,
+                         int activeTimelineDurationMs,
+                         int completeTimelineDurationMs,
                          int timelineFrameDelayMs,
                          int maxValue,
                          boolean loop,
@@ -290,6 +296,8 @@ public final class ScriptedLoadingUi {
                          boolean resetOnStop,
                          boolean hideOnStop,
                          boolean animateEntrance,
+                         boolean animateActive,
+                         boolean animateComplete,
                          boolean animateExit,
                          String messagesSection,
                          String messagesResource,
@@ -306,6 +314,8 @@ public final class ScriptedLoadingUi {
             this.initialDelayMs = Math.max(0, initialDelayMs);
             this.cycleDelayMs = Math.max(0, cycleDelayMs);
             this.timelineDurationMs = Math.max(1, timelineDurationMs);
+            this.activeTimelineDurationMs = Math.max(1, activeTimelineDurationMs);
+            this.completeTimelineDurationMs = Math.max(1, completeTimelineDurationMs);
             this.timelineFrameDelayMs = Math.max(1, timelineFrameDelayMs);
             this.maxValue = maxValue;
             this.loop = loop;
@@ -315,6 +325,8 @@ public final class ScriptedLoadingUi {
             this.resetOnStop = resetOnStop;
             this.hideOnStop = hideOnStop;
             this.animateEntrance = animateEntrance;
+            this.animateActive = animateActive;
+            this.animateComplete = animateComplete;
             this.animateExit = animateExit;
             this.messagesSection = messagesSection == null || messagesSection.isBlank()
                     ? DEFAULT_PROGRESS_MESSAGES_SECTION
@@ -333,11 +345,17 @@ public final class ScriptedLoadingUi {
         public int updateMs() { return updateMs; }
         public int step() { return step; }
         public int timelineDurationMs() { return timelineDurationMs; }
+        public int activeTimelineDurationMs() { return activeTimelineDurationMs; }
+        public int completeTimelineDurationMs() { return completeTimelineDurationMs; }
         public int timelineFrameDelayMs() { return timelineFrameDelayMs; }
         public boolean loop() { return loop; }
         public boolean randomMessages() { return randomMessages; }
         public boolean showText() { return showText; }
         public boolean showPercent() { return showPercent; }
+        public boolean animateEntrance() { return animateEntrance; }
+        public boolean animateActive() { return animateActive; }
+        public boolean animateComplete() { return animateComplete; }
+        public boolean animateExit() { return animateExit; }
         public String messagesSection() { return messagesSection; }
         public String messagesResource() { return messagesResource; }
         public String animationConfigResource() { return animationConfigResource; }
@@ -407,6 +425,7 @@ public final class ScriptedLoadingUi {
         final AnimationCurve curve;
         final Position from;
         final Position to;
+        final MotionRoute route;
 
         Motion(boolean enabled,
                        int delayMs,
@@ -415,6 +434,17 @@ public final class ScriptedLoadingUi {
                        AnimationCurve curve,
                        Position from,
                        Position to) {
+            this(enabled, delayMs, durationMs, frameDelayMs, curve, from, to, null);
+        }
+
+        Motion(boolean enabled,
+                       int delayMs,
+                       int durationMs,
+                       int frameDelayMs,
+                       AnimationCurve curve,
+                       Position from,
+                       Position to,
+                       MotionRoute route) {
             this.enabled = enabled;
             this.delayMs = Math.max(0, delayMs);
             this.durationMs = Math.max(0, durationMs);
@@ -422,6 +452,7 @@ public final class ScriptedLoadingUi {
             this.curve = Objects.requireNonNull(curve, "curve");
             this.from = Objects.requireNonNull(from, "from");
             this.to = Objects.requireNonNull(to, "to");
+            this.route = route;
         }
 
         public boolean enabled() { return enabled; }
@@ -431,7 +462,125 @@ public final class ScriptedLoadingUi {
         public AnimationCurve curve() { return curve; }
         public Position from() { return from; }
         public Position to() { return to; }
+        public MotionRoute route() { return route; }
+        public boolean usesRoute() { return route != null; }
         public int totalDurationMs() { return enabled ? delayMs + durationMs : 0; }
+
+        public Point resolveStart(FloatingWindow window, Point currentPosition, boolean entryPhase) {
+            if (route == null) {
+                return from.resolve(window, currentPosition);
+            }
+            return entryPhase
+                    ? route.outsidePosition().resolve(window, currentPosition)
+                    : Position.current(0, 0).resolve(window, currentPosition);
+        }
+
+        public Point resolveEnd(FloatingWindow window, Point currentPosition, boolean entryPhase) {
+            if (route == null) {
+                return to.resolve(window, currentPosition);
+            }
+            return entryPhase
+                    ? route.anchorPosition().resolve(window, currentPosition)
+                    : route.outsidePosition().resolve(window, currentPosition);
+        }
+    }
+
+    /**
+     * Engine-owned high-level trajectory for a loading window.
+     *
+     * <p>For entry phases the route runs from the selected outside edge to the anchor. For exit
+     * phases it runs from the current location to the selected outside edge. Explicit from/to
+     * positions remain available as an advanced compatibility override.</p>
+     */
+    public static final class MotionRoute {
+        final MotionDirection direction;
+        final Position anchorPosition;
+        final int outsideGap;
+        final int offsetX;
+        final int offsetY;
+
+        MotionRoute(MotionDirection direction,
+                    Position anchorPosition,
+                    int outsideGap,
+                    int offsetX,
+                    int offsetY) {
+            this.direction = Objects.requireNonNull(direction, "direction");
+            this.anchorPosition = Objects.requireNonNull(anchorPosition, "anchorPosition");
+            this.outsideGap = Math.max(0, outsideGap);
+            this.offsetX = offsetX;
+            this.offsetY = offsetY;
+        }
+
+        public MotionDirection direction() { return direction; }
+        public Position anchorPosition() { return anchorPosition; }
+        public int outsideGap() { return outsideGap; }
+        public int offsetX() { return offsetX; }
+        public int offsetY() { return offsetY; }
+
+        public Position outsidePosition() {
+            return direction.outsidePosition(outsideGap, offsetX, offsetY);
+        }
+    }
+
+    /** Supported frame edges and corners for declarative entry/exit trajectories. */
+    public enum MotionDirection {
+        TOP,
+        BOTTOM,
+        LEFT,
+        RIGHT,
+        TOP_LEFT,
+        TOP_RIGHT,
+        BOTTOM_LEFT,
+        BOTTOM_RIGHT;
+
+        public static MotionDirection from(String value, MotionDirection fallback) {
+            if (value == null || value.isBlank()) {
+                return fallback == null ? TOP : fallback;
+            }
+            String normalized = value.trim()
+                    .toUpperCase(Locale.ROOT)
+                    .replace('-', '_')
+                    .replace(' ', '_');
+            return switch (normalized) {
+                case "UP", "NORTH" -> TOP;
+                case "DOWN", "SOUTH" -> BOTTOM;
+                case "WEST" -> LEFT;
+                case "EAST" -> RIGHT;
+                case "TOPLEFT", "UPPER_LEFT", "UPPERLEFT", "NORTH_WEST", "NORTHWEST" -> TOP_LEFT;
+                case "TOPRIGHT", "UPPER_RIGHT", "UPPERRIGHT", "NORTH_EAST", "NORTHEAST" -> TOP_RIGHT;
+                case "BOTTOMLEFT", "LOWER_LEFT", "LOWERLEFT", "SOUTH_WEST", "SOUTHWEST" -> BOTTOM_LEFT;
+                case "BOTTOMRIGHT", "LOWER_RIGHT", "LOWERRIGHT", "SOUTH_EAST", "SOUTHEAST" -> BOTTOM_RIGHT;
+                default -> {
+                    try {
+                        yield MotionDirection.valueOf(normalized);
+                    } catch (IllegalArgumentException ignored) {
+                        yield fallback == null ? TOP : fallback;
+                    }
+                }
+            };
+        }
+
+        Position outsidePosition(int gap, int offsetX, int offsetY) {
+            int safeGap = Math.max(0, gap);
+            return switch (this) {
+                case TOP -> Position.frame(0.5, 0.0, 0.5, 1.0,
+                        offsetX, offsetY - safeGap);
+                case BOTTOM -> Position.frame(0.5, 1.0, 0.5, 0.0,
+                        offsetX, offsetY + safeGap);
+                case LEFT -> Position.frame(0.0, 0.5, 1.0, 0.5,
+                        offsetX - safeGap, offsetY);
+                case RIGHT -> Position.frame(1.0, 0.5, 0.0, 0.5,
+                        offsetX + safeGap, offsetY);
+                case TOP_LEFT -> Position.frame(0.0, 0.0, 1.0, 1.0,
+                        offsetX - safeGap, offsetY - safeGap);
+                case TOP_RIGHT -> Position.frame(1.0, 0.0, 0.0, 1.0,
+                        offsetX + safeGap, offsetY - safeGap);
+                case BOTTOM_LEFT -> Position.frame(0.0, 1.0, 1.0, 0.0,
+                        offsetX - safeGap, offsetY + safeGap);
+                case BOTTOM_RIGHT -> Position.frame(1.0, 1.0, 0.0, 0.0,
+                        offsetX + safeGap, offsetY + safeGap);
+            };
+        }
     }
 
     public static final class Opacity {
