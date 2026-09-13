@@ -1,5 +1,30 @@
 # Changelog
 
+## 2.4.0-KINETICA - 2026-09-13
+
+### Observable motion runtime
+
+- Reworked the shared Swing pulse to preserve frame deadlines instead of accumulating `now + interval` drift.
+- Added smoothed frame-work, late-frame, and maximum-lateness diagnostics behind `AnimationPulse.Diagnostics`.
+- Added public opt-in `AnimationEvent` / `AnimationListener` lifecycle telemetry without per-frame event allocation when no listener is attached.
+- Added named scheduling for tweens, frame tasks, delays, and intervals and synchronized engine animation call-sites onto that reporting surface.
+- Unified timeline interpolation with the cached `AnimationCurve` evaluator while preserving legacy `easeIn`, `easeOut`, and `easeInOut` behavior.
+- Added quintic, exponential, and circular easing families alongside the existing quad, cubic, quart, sine, back, smoothstep, and cubic-Bezier curves.
+- Split pulse timing accumulation into the package-private `PulseTimingDiagnostics` responsibility.
+- Added regression verification for lifecycle ordering, listener cleanup, diagnostics, new easing curves, and internal package boundaries.
+
+### Runtime synchronization
+
+- Synchronized drawer, overlay, scripted-window, legacy-window, button-hover, progress, tooltip, caret, sprite, GIF, and legacy keyframe animations with the shared runtime.
+- Added diagnostic names to continuous visual loops and delayed actions so lag/cancellation reports identify their source.
+- Preserved the existing public launcher-facing animation APIs while extending them with named overloads.
+
+### Build and compatibility
+
+- Updated the canonical engine version to `2.4.0-KINETICA`.
+- Kept Java 17 as the runtime/toolchain baseline.
+- Preserved Gradle 8.14.5 compatibility for current IDE tooling while retaining version-safe Gradle 9 behavior where supported.
+
 ## 2.3.0-KINETICA - 2026-07-11
 
 ### Modular animation runtime

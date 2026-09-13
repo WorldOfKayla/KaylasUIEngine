@@ -113,7 +113,7 @@ final class DefaultScriptedWindowAnimationController implements ScriptedWindowAn
         long[] maxLagNanos = {0L};
         int[] tickCount = {0};
 
-        activeAnimation = AnimationEngine.shared().schedule(phase.frameDelayMs(), (now, deltaNanos) -> {
+        activeAnimation = AnimationEngine.shared().schedule("scripted-window:" + (entry ? "entry" : "exit"), phase.frameDelayMs(), (now, deltaNanos) -> {
             if (!window.isDisplayable()) {
                 window.setAnimating(false);
                 activeAnimation = null;

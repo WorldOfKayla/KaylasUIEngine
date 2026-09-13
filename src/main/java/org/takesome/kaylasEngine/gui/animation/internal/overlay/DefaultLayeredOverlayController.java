@@ -161,6 +161,7 @@ final class DefaultLayeredOverlayController implements LayeredOverlayController 
         );
 
         fadeAnimation = AnimationEngine.shared().tween(
+                "overlay:" + name,
                 safeDurationMs,
                 safeFrameDelayMs,
                 curve,

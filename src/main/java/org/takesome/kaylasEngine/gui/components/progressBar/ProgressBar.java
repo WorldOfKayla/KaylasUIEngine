@@ -708,6 +708,7 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         animationTargetValue = target;
         animationStartedAt = System.nanoTime();
         valueAnimation = AnimationEngine.shared().tween(
+                "progress:value",
                 configuration.animationDurationMs(),
                 configuration.animationFrameDelayMs(),
                 AnimationEngine.shared().curve("easeOutCubic"),
@@ -738,6 +739,7 @@ public final class ProgressBar extends CompositeComponent implements SwingConsta
         }
         visualStartedAt = System.nanoTime();
         visualAnimation = AnimationEngine.shared().schedule(
+                "progress:visual",
                 configuration.animationFrameDelayMs(),
                 (now, delta) -> {
                     if (!isDisplayable()) {

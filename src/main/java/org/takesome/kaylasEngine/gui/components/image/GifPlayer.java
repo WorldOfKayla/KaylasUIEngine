@@ -213,7 +213,7 @@ public final class GifPlayer extends JPanel implements AutoCloseable {
         stopTimerOnly();
         int baseDelay = frames.get(currentFrameIndex).delayMs();
         int adjustedDelay = Math.max(MIN_FRAME_DELAY_MS, (int) Math.round(baseDelay / speedFactor));
-        playbackAnimation = AnimationEngine.shared().delay(adjustedDelay, () -> {
+        playbackAnimation = AnimationEngine.shared().delay("gif:frame-delay", adjustedDelay, () -> {
             playbackAnimation = null;
             advanceFrame();
         });

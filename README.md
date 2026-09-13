@@ -1,16 +1,16 @@
 # KaylasUI Engine
 
-**Version:** `2.3.0-KINETICA`
+**Version:** `2.4.0-KINETICA`
 
 **Runtime:** Java 17 / Swing
 
-**Codename:** `KINETICA 2.3 - Modular Animation Runtime`
+**Codename:** `KINETICA 2.4 - Observable Motion Runtime`
 
 KaylasUI Engine is a declarative Swing UI runtime with XML descriptors, inheritable styles, Lua scripting, and a catalog of basic and composite components.
 
-## KINETICA 2.3
+## KINETICA 2.4
 
-Version 2.3 introduces the **Modular Animation Runtime**:
+Version 2.4 completes the **Observable Motion Runtime** introduced by KINETICA 2.3:
 
 - responsibility-focused internal packages for easing, pulse scheduling, timelines, overlays, scripted windows, progress animation, and snapshot drawers;
 - stable public animation facades with hidden package-private implementations;
@@ -20,6 +20,13 @@ Version 2.3 introduces the **Modular Animation Runtime**:
 - progress and drawer controllers separated from their public builders and policy objects;
 - dedicated animation runtime and public JavaDoc verification tasks;
 - stronger component-accessor, factory, and loading-UI encapsulation from the same release cycle.
+
+- deadline-preserving shared frame cadence that avoids cumulative timing drift under EDT jitter;
+- opt-in `AnimationListener` lifecycle telemetry with scheduled, started, frame, completed, cancelled, and failed events;
+- named animation sources across drawers, overlays, progress, buttons, tooltips, text fields, sprites, GIF playback, windows, and keyframes;
+- detailed pulse diagnostics for smoothed frame work, late-frame counts, and worst deadline lateness;
+- one cached easing evaluator shared by tweens and timelines, with legacy aliases plus quintic, exponential, and circular curves;
+- isolated pulse timing diagnostics so scheduling, interpolation, and reporting remain separately testable.
 
 Public launcher integrations remain source-compatible while engine execution details are no longer exposed as part of the supported API.
 

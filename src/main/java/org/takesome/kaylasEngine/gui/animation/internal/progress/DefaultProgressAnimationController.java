@@ -261,6 +261,7 @@ final class DefaultProgressAnimationController implements ProgressAnimationContr
         stopProgressTimer();
         final int maxValue = resolveMaxValue();
         progressTimer = timers.track(AnimationEngine.shared().interval(
+                "progress:value-loop",
                 options.progressUpdateMs(),
                 options.initialDelayMs(),
                 () -> {
@@ -336,7 +337,7 @@ final class DefaultProgressAnimationController implements ProgressAnimationContr
             return;
         }
         final AnimationEngine.Handle[] delay = {null};
-        delay[0] = timers.track(AnimationEngine.shared().delay(options.cycleDelayMs(), () -> {
+        delay[0] = timers.track(AnimationEngine.shared().delay("progress:cycle-delay", options.cycleDelayMs(), () -> {
             if (delay[0] != null) {
                 timers.forget(delay[0]);
             }

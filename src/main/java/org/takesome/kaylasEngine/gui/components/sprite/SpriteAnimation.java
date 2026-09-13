@@ -240,7 +240,7 @@ public class SpriteAnimation extends JComponent {
                 repeat
         );
 
-        frameAnimation = AnimationEngine.shared().interval(delay, delay, () -> {
+        frameAnimation = AnimationEngine.shared().interval("sprite:frames", delay, delay, () -> {
             long now = System.nanoTime();
             long timerLag = Math.max(0L, now - lastTimerTickNanos - delay * 1_000_000L);
             lastTimerTickNanos = now;

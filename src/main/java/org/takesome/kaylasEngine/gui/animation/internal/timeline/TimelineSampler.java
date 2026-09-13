@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.animation.internal.timeline;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationCurve;
 import org.takesome.kaylasEngine.gui.animation.TimelineFrameState;
 import org.takesome.kaylasEngine.gui.animation.TimelineKeyFrame;
 
@@ -62,14 +63,17 @@ final class TimelineSampler {
     }
 
     private static double applyEasing(double ratio, String interpolation) {
-        return switch (interpolation == null ? "linear" : interpolation) {
-            case "easeIn" -> 1.0 - Math.cos(ratio * Math.PI / 2.0);
-            case "easeOut" -> Math.sin(ratio * Math.PI / 2.0);
-            case "easeInOut" -> 0.5 - Math.cos(ratio * Math.PI) / 2.0;
-            default -> ratio;
-        };
+        String curveName = interpolation == null || interpolation.isBlank()
+                ? "linear"
+                : interpolation;
+        return AnimationCurve.named(curveName).apply((float) clamp01(ratio));
     }
 
-    private static double lerp(double start, double end, double ratio) { return start + (end - start) * ratio; }
-    static double clamp01(double value) { return Math.max(0.0, Math.min(1.0, value)); }
+    private static double lerp(double start, double end, double ratio) {
+        return start + (end - start) * ratio;
+    }
+
+    static double clamp01(double value) {
+        return Math.max(0.0, Math.min(1.0, value));
+    }
 }

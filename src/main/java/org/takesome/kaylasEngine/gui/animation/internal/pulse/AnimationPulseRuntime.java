@@ -22,4 +22,7 @@ public interface AnimationPulseRuntime {
     int adaptiveFrameDelayMs();
     long tickCount();
     long maxFrameWorkNanos();
+    long smoothedFrameWorkNanos();
+    long lateFrameCount();
+    long maxFrameLatenessNanos();
 }

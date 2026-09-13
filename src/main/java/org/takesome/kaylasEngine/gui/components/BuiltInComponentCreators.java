@@ -1,6 +1,5 @@
 package org.takesome.kaylasEngine.gui.components;
 
-import org.foxesworld.cfgProvider.ConfigTypeConverter;
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.components.button.Button;
 import org.takesome.kaylasEngine.gui.components.button.ButtonStyle;
@@ -335,7 +334,9 @@ final class BuiltInComponentCreators {
             return fallback;
         }
         try {
-            return (Integer) ConfigTypeConverter.convertToDeclaredType(value, int.class);
+            return value instanceof Number number
+                    ? number.intValue()
+                    : Integer.parseInt(String.valueOf(value).trim());
         } catch (RuntimeException error) {
             Engine.LOGGER.warn("Invalid numeric component value '{}'; using {}.", value, fallback);
             return fallback;

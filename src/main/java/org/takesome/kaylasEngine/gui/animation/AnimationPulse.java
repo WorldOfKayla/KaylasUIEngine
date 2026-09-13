@@ -15,6 +15,17 @@ public final class AnimationPulse {
         boolean onFrame(long nowNanos, long deltaNanos);
     }
 
+    /** Lightweight timing diagnostics from the shared frame clock. */
+    public record Diagnostics(
+            int activeAnimations,
+            int adaptiveFrameDelayMs,
+            long tickCount,
+            long maxFrameWorkNanos,
+            long smoothedFrameWorkNanos,
+            long lateFrameCount,
+            long maxFrameLatenessNanos
+    ) { }
+
     public static final class Subscription implements AutoCloseable {
         private final AnimationPulseRuntime.Handle handle;
 
@@ -42,4 +53,20 @@ public final class AnimationPulse {
     public int adaptiveFrameDelayMs() { return runtime.adaptiveFrameDelayMs(); }
     public long tickCount() { return runtime.tickCount(); }
     public long maxFrameWorkNanos() { return runtime.maxFrameWorkNanos(); }
+    public long smoothedFrameWorkNanos() { return runtime.smoothedFrameWorkNanos(); }
+    public long lateFrameCount() { return runtime.lateFrameCount(); }
+    public long maxFrameLatenessNanos() { return runtime.maxFrameLatenessNanos(); }
+
+    /** Returns a coherent snapshot of shared animation timing diagnostics. */
+    public Diagnostics diagnostics() {
+        return new Diagnostics(
+                activeAnimationCount(),
+                adaptiveFrameDelayMs(),
+                tickCount(),
+                maxFrameWorkNanos(),
+                smoothedFrameWorkNanos(),
+                lateFrameCount(),
+                maxFrameLatenessNanos()
+        );
+    }
 }

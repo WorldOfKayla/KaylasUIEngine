@@ -75,7 +75,7 @@ public class PassField extends JPasswordField {
             return;
         }
         caretVisible = true;
-        caretAnimation = AnimationEngine.shared().interval(500, 500, () -> {
+        caretAnimation = AnimationEngine.shared().interval("passfield:caret", 500, 500, () -> {
             if (!isFocusOwner() || !isDisplayable()) {
                 caretAnimation = null;
                 return false;

@@ -43,7 +43,7 @@ class KeyframeAnimation {
         }
         stop();
         currentFrame = 0;
-        animation = AnimationEngine.shared().interval(interval, 0, () -> {
+        animation = AnimationEngine.shared().interval("keyframe:legacy", interval, 0, () -> {
             if (currentFrame >= keyframes.size()) {
                 animation = null;
                 if (onComplete != null) {

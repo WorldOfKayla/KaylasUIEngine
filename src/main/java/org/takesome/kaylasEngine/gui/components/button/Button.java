@@ -1,5 +1,6 @@
 package org.takesome.kaylasEngine.gui.components.button;
 
+import org.takesome.kaylasEngine.gui.animation.AnimationCurve;
 import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 import org.takesome.kaylasEngine.gui.components.ComponentAttributes;
 import org.takesome.kaylasEngine.gui.components.ComponentFactory;
@@ -28,6 +29,7 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
 
     private static final int ANIMATION_INTERVAL_MS = 16;
     private static final int HOVER_DURATION_MS = 140;
+    private static final AnimationCurve HOVER_CURVE = AnimationCurve.named("easeInOutQuad");
 
     private Color hoverColor;
     private boolean entered;
@@ -171,7 +173,7 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
     }
 
     private Color interpolateColor(Color start, Color end, float progress) {
-        float eased = easeInOutQuad(progress);
+        float eased = HOVER_CURVE.apply(progress);
         int red = Math.round(start.getRed() + (end.getRed() - start.getRed()) * eased);
         int green = Math.round(start.getGreen() + (end.getGreen() - start.getGreen()) * eased);
         int blue = Math.round(start.getBlue() + (end.getBlue() - start.getBlue()) * eased);
@@ -181,14 +183,6 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
 
     private static int clampColor(int value) {
         return Math.max(0, Math.min(255, value));
-    }
-
-    private float easeInOutQuad(float value) {
-        if (value < 0.5f) {
-            return 2f * value * value;
-        }
-        float inverse = -2f * value + 2f;
-        return 1f - inverse * inverse / 2f;
     }
 
     @Override
@@ -222,14 +216,14 @@ public class Button extends JButton implements MouseListener, MouseMotionListene
         long durationNanos = Math.max(1_000_000L, (long) (HOVER_DURATION_MS * distance * 1_000_000L));
         long startedAt = System.nanoTime();
 
-        hoverAnimation = AnimationEngine.shared().schedule(ANIMATION_INTERVAL_MS, (nowNanos, deltaNanos) -> {
+        hoverAnimation = AnimationEngine.shared().schedule("button:hover", ANIMATION_INTERVAL_MS, (nowNanos, deltaNanos) -> {
             if (!isDisplayable()) {
                 hoverAnimation = null;
                 return false;
             }
 
             float progress = Math.min(1f, (nowNanos - startedAt) / (float) durationNanos);
-            float eased = easeInOutQuad(progress);
+            float eased = HOVER_CURVE.apply(progress);
             hoverProgress = start + (target - start) * eased;
             repaint();
 

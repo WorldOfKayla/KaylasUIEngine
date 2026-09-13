@@ -47,24 +47,48 @@ final class DefaultAnimationCurveEvaluation implements AnimationCurveEvaluation 
 
         String normalizedName = normalize(name);
         double eased = switch (normalizedName) {
+            // Compatibility aliases used by legacy timeline JSON. These intentionally preserve
+            // the previous sine-based timeline response while sharing one evaluator everywhere.
+            case "easein" -> 1.0 - Math.cos((value * Math.PI) / 2.0);
+            case "easeout" -> Math.sin((value * Math.PI) / 2.0);
+            case "easeinout" -> 0.5 - Math.cos(value * Math.PI) / 2.0;
+
             case "easeinquad", "inquad" -> value * value;
             case "easeoutquad", "outquad" -> 1.0 - square(1.0 - value);
             case "easeinoutquad", "inoutquad" -> value < 0.5
                     ? 2.0 * value * value
                     : 1.0 - square(-2.0 * value + 2.0) / 2.0;
+
             case "easeincubic", "incubic" -> cube(value);
             case "easeoutcubic", "outcubic" -> 1.0 - cube(1.0 - value);
             case "easeinoutcubic", "inoutcubic" -> value < 0.5
                     ? 4.0 * cube(value)
                     : 1.0 - cube(-2.0 * value + 2.0) / 2.0;
+
             case "easeinquart", "inquart" -> fourth(value);
             case "easeoutquart", "outquart" -> 1.0 - fourth(1.0 - value);
             case "easeinoutquart", "inoutquart" -> value < 0.5
                     ? 8.0 * fourth(value)
                     : 1.0 - fourth(-2.0 * value + 2.0) / 2.0;
+
+            case "easeinquint", "inquint" -> fifth(value);
+            case "easeoutquint", "outquint" -> 1.0 - fifth(1.0 - value);
+            case "easeinoutquint", "inoutquint" -> value < 0.5
+                    ? 16.0 * fifth(value)
+                    : 1.0 - fifth(-2.0 * value + 2.0) / 2.0;
+
             case "easeinoutsine", "inoutsine" -> -(Math.cos(Math.PI * value) - 1.0) / 2.0;
             case "easeinsine", "insine" -> 1.0 - Math.cos((value * Math.PI) / 2.0);
             case "easeoutsine", "outsine" -> Math.sin((value * Math.PI) / 2.0);
+
+            case "easeinexpo", "inexpo" -> value == 0.0 ? 0.0 : Math.pow(2.0, 10.0 * value - 10.0);
+            case "easeoutexpo", "outexpo" -> value == 1.0 ? 1.0 : 1.0 - Math.pow(2.0, -10.0 * value);
+            case "easeinoutexpo", "inoutexpo" -> easeInOutExpo(value);
+
+            case "easeincirc", "incirc" -> 1.0 - Math.sqrt(1.0 - square(value));
+            case "easeoutcirc", "outcirc" -> Math.sqrt(1.0 - square(value - 1.0));
+            case "easeinoutcirc", "inoutcirc" -> easeInOutCirc(value);
+
             case "smoothstep" -> value * value * (3.0 - 2.0 * value);
             case "smootherstep" -> value * value * value * (value * (value * 6.0 - 15.0) + 10.0);
             case "easeinback", "inback" -> easeInBack(value);
@@ -146,6 +170,21 @@ final class DefaultAnimationCurveEvaluation implements AnimationCurveEvaluation 
                 || normalizedName.equals("inoutback");
     }
 
+    private static double easeInOutExpo(double value) {
+        if (value == 0.0 || value == 1.0) {
+            return value;
+        }
+        return value < 0.5
+                ? Math.pow(2.0, 20.0 * value - 10.0) / 2.0
+                : (2.0 - Math.pow(2.0, -20.0 * value + 10.0)) / 2.0;
+    }
+
+    private static double easeInOutCirc(double value) {
+        return value < 0.5
+                ? (1.0 - Math.sqrt(1.0 - square(2.0 * value))) / 2.0
+                : (Math.sqrt(1.0 - square(-2.0 * value + 2.0)) + 1.0) / 2.0;
+    }
+
     private static double easeInBack(double value) {
         double overshoot = 1.70158;
         return (overshoot + 1.0) * value * value * value - overshoot * value * value;
@@ -171,5 +210,6 @@ final class DefaultAnimationCurveEvaluation implements AnimationCurveEvaluation 
     private static double square(double value) { return value * value; }
     private static double cube(double value) { return value * value * value; }
     private static double fourth(double value) { double squared = value * value; return squared * squared; }
+    private static double fifth(double value) { return fourth(value) * value; }
     private static double clamp01(double value) { return Math.max(0.0, Math.min(1.0, value)); }
 }

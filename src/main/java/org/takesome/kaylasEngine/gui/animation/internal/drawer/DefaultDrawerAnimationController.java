@@ -191,6 +191,7 @@ final class DefaultDrawerAnimationController implements DrawerAnimationControlle
         int frameDelayMs = frameDelayMs(root);
         AnimationEngine.Handle[] handle = {null};
         handle[0] = AnimationEngine.shared().tween(
+                "drawer:snapshot",
                 durationMs,
                 frameDelayMs,
                 AnimationEngine.shared().curve("easeInOutCubic"),
@@ -527,23 +528,6 @@ final class DefaultDrawerAnimationController implements DrawerAnimationControlle
         }
         dirty.grow(repaintPaddingPx, repaintPaddingPx);
         parent.repaint(dirty.x, dirty.y, dirty.width, dirty.height);
-    }
-
-    private float easeInOutCubic(float value) {
-        float clamped = clamp01(value);
-        return clamped < 0.5f
-                ? 4f * clamped * clamped * clamped
-                : 1f - (float) Math.pow(-2f * clamped + 2f, 3f) / 2f;
-    }
-
-    private float clamp01(float value) {
-        if (value < 0f) {
-            return 0f;
-        }
-        if (value > 1f) {
-            return 1f;
-        }
-        return value;
     }
 
     private void runOnEdt(Runnable task) {

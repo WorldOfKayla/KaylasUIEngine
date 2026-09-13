@@ -18,12 +18,12 @@ final class SwingAnimationPulseRuntime implements AnimationPulseRuntime {
     private static final SwingAnimationPulseRuntime SHARED = new SwingAnimationPulseRuntime();
 
     private final ArrayList<Subscription> subscriptions = new ArrayList<>();
+    private final PulseTimingDiagnostics diagnostics = new PulseTimingDiagnostics();
     private final Timer timer;
     private volatile int adaptiveFrameDelayMs;
     private int overloadedTicks;
     private int stableTicks;
     private volatile long tickCount;
-    private volatile long maxFrameWorkNanos;
     private volatile int activeAnimationCount;
     private boolean ticking;
 
@@ -50,7 +50,10 @@ final class SwingAnimationPulseRuntime implements AnimationPulseRuntime {
     @Override public int activeAnimationCount() { return activeAnimationCount; }
     @Override public int adaptiveFrameDelayMs() { return adaptiveFrameDelayMs; }
     @Override public long tickCount() { return tickCount; }
-    @Override public long maxFrameWorkNanos() { return maxFrameWorkNanos; }
+    @Override public long maxFrameWorkNanos() { return diagnostics.maxFrameWorkNanos(); }
+    @Override public long smoothedFrameWorkNanos() { return diagnostics.smoothedFrameWorkNanos(); }
+    @Override public long lateFrameCount() { return diagnostics.lateFrameCount(); }
+    @Override public long maxFrameLatenessNanos() { return diagnostics.maxFrameLatenessNanos(); }
 
     private void activate(Subscription subscription) {
         if (subscription.cancelled) return;
@@ -85,7 +88,11 @@ final class SwingAnimationPulseRuntime implements AnimationPulseRuntime {
                         || frameStartedAt < subscription.nextFrameAtNanos) {
                     continue;
                 }
+
                 long intervalNanos = effectiveFrameDelayMs(subscription) * 1_000_000L;
+                long scheduledAt = subscription.nextFrameAtNanos;
+                diagnostics.recordLateness(frameStartedAt, scheduledAt, intervalNanos);
+
                 long deltaNanos = subscription.lastFrameAtNanos == 0L
                         ? intervalNanos
                         : Math.max(0L, frameStartedAt - subscription.lastFrameAtNanos);
@@ -96,9 +103,14 @@ final class SwingAnimationPulseRuntime implements AnimationPulseRuntime {
                     keepRunning = false;
                     Engine.getLOGGER().error("Animation frame callback failed and was detached.", error);
                 }
+
                 if (keepRunning && !subscription.cancelled) {
                     subscription.lastFrameAtNanos = frameStartedAt;
-                    subscription.nextFrameAtNanos = frameStartedAt + intervalNanos;
+                    subscription.nextFrameAtNanos = nextDeadline(
+                            frameStartedAt,
+                            scheduledAt,
+                            intervalNanos
+                    );
                 } else {
                     subscription.active = false;
                     subscription.cancelled = true;
@@ -107,12 +119,25 @@ final class SwingAnimationPulseRuntime implements AnimationPulseRuntime {
         } finally {
             ticking = false;
         }
+
         compactSubscriptions();
         long frameWorkNanos = System.nanoTime() - frameStartedAt;
         tickCount++;
-        maxFrameWorkNanos = Math.max(maxFrameWorkNanos, frameWorkNanos);
+        diagnostics.recordFrameWork(frameWorkNanos);
         updateAdaptiveCadence(frameWorkNanos);
         updateTimerCadence(false);
+    }
+
+    private static long nextDeadline(long nowNanos, long previousDeadlineNanos, long intervalNanos) {
+        if (previousDeadlineNanos <= 0L) {
+            return nowNanos + intervalNanos;
+        }
+        long next = previousDeadlineNanos + intervalNanos;
+        if (next > nowNanos) {
+            return next;
+        }
+        long intervalsBehind = ((nowNanos - next) / intervalNanos) + 1L;
+        return next + intervalsBehind * intervalNanos;
     }
 
     private int effectiveFrameDelayMs(Subscription subscription) {

@@ -33,6 +33,7 @@ public final class AnimationRuntimeVerification {
         Engine.LOGGER = LogManager.getLogger(AnimationRuntimeVerification.class);
         verifyCurves();
         verifyUnifiedEngine();
+        verifyAnimationTelemetry();
         verifyTimelineValues();
         verifyTimelinePublishesInitialFrameSynchronously();
         verifyProgressEntranceIsNeverEmpty();
@@ -66,6 +67,18 @@ public final class AnimationRuntimeVerification {
         require(close(bezier.apply(1.0f), 1.0f), "cubic-Bezier end changed");
         float midpoint = bezier.apply(0.5f);
         require(midpoint > 0.0f && midpoint < 1.0f, "cubic-Bezier midpoint is invalid");
+
+        AnimationCurve legacyEaseOut = AnimationCurve.named("easeOut");
+        require(legacyEaseOut.apply(0.5f) > 0.5f,
+                "legacy timeline easeOut alias lost its curved response");
+
+        AnimationCurve expo = AnimationCurve.named("easeOutExpo");
+        require(expo.apply(0.5f) > 0.9f,
+                "exponential easing lost its detailed fast-arrival response");
+
+        AnimationCurve circ = AnimationCurve.named("easeInOutCirc");
+        require(circ.apply(0.25f) < 0.25f && circ.apply(0.75f) > 0.75f,
+                "circular easing shape changed");
     }
 
     private static void verifyUnifiedEngine() {
@@ -88,6 +101,51 @@ public final class AnimationRuntimeVerification {
                         && metrics.adaptiveFrameDelayMs() >= 0
                         && metrics.tickCount() >= 0,
                 "AnimationEngine metrics are invalid");
+    }
+
+    private static void verifyAnimationTelemetry() throws Exception {
+        AnimationEngine engine = AnimationEngine.shared();
+        List<AnimationEvent> events = new ArrayList<>();
+        float[] value = {-1.0f};
+
+        try (AutoCloseable registration = engine.listen(events::add)) {
+            require(engine.listenerCount() == 1,
+                    "animation listener registration was not retained");
+            AnimationEngine.Handle handle = engine.tween(
+                    "verification-tween",
+                    0,
+                    16,
+                    AnimationCurve.named("easeOutExpo"),
+                    current -> value[0] = current,
+                    null
+            );
+            require(!handle.isActive(),
+                    "zero-duration telemetry tween remained active");
+        }
+
+        require(engine.listenerCount() == 0,
+                "animation listener registration leaked after close");
+        require(close(value[0], 1.0f),
+                "telemetry tween did not publish its final value");
+        require(events.size() == 4,
+                "immediate tween lifecycle event count changed: " + events.size());
+        require(events.get(0).phase() == AnimationEvent.Phase.SCHEDULED
+                        && events.get(1).phase() == AnimationEvent.Phase.STARTED
+                        && events.get(2).phase() == AnimationEvent.Phase.FRAME
+                        && events.get(3).phase() == AnimationEvent.Phase.COMPLETED,
+                "immediate tween lifecycle ordering changed");
+        require("verification-tween".equals(events.get(2).name())
+                        && "easeOutExpo".equals(events.get(2).curve())
+                        && events.get(2).hasProgress()
+                        && Math.abs(events.get(2).progress() - 1.0) < 0.0001,
+                "animation telemetry lost tween identity, curve or progress");
+
+        AnimationPulse.Diagnostics diagnostics = engine.diagnostics();
+        require(diagnostics.activeAnimations() >= 0
+                        && diagnostics.smoothedFrameWorkNanos() >= 0
+                        && diagnostics.lateFrameCount() >= 0
+                        && diagnostics.maxFrameLatenessNanos() >= 0,
+                "animation timing diagnostics are invalid");
     }
 
     private static void verifyTimelineValues() {
@@ -443,6 +501,7 @@ public final class AnimationRuntimeVerification {
         for (String className : List.of(
                 "org.takesome.kaylasEngine.gui.animation.internal.easing.DefaultAnimationCurveEvaluation",
                 "org.takesome.kaylasEngine.gui.animation.internal.pulse.SwingAnimationPulseRuntime",
+                "org.takesome.kaylasEngine.gui.animation.internal.pulse.PulseTimingDiagnostics",
                 "org.takesome.kaylasEngine.gui.animation.internal.scheduling.DefaultAnimationResourceGroup",
                 "org.takesome.kaylasEngine.gui.animation.internal.timeline.DefaultTimelineExecution",
                 "org.takesome.kaylasEngine.gui.animation.internal.overlay.DefaultLayeredOverlayController",
@@ -458,6 +517,10 @@ public final class AnimationRuntimeVerification {
                 "AnimationCurve must remain public");
         require(Modifier.isPublic(AnimationPulse.class.getModifiers()),
                 "AnimationPulse must remain public");
+        require(Modifier.isPublic(AnimationEvent.class.getModifiers()),
+                "AnimationEvent must remain public");
+        require(Modifier.isPublic(AnimationListener.class.getModifiers()),
+                "AnimationListener must remain public");
         require(Modifier.isPublic(SnapshotDrawerAnimator.class.getModifiers()),
                 "SnapshotDrawerAnimator must remain public");
     }

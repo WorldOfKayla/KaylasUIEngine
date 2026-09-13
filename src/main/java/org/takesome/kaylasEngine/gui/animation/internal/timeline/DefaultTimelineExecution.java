@@ -67,7 +67,7 @@ final class DefaultTimelineExecution implements TimelineExecution {
         updater.accept(TimelineSampler.sample(frames, 0.0, segmentIndex));
 
         AnimationEngine.Handle[] subscription = {null};
-        subscription[0] = timers.track(AnimationEngine.shared().schedule(frameDelayMs, (now, delta) -> {
+        subscription[0] = timers.track(AnimationEngine.shared().schedule("timeline", frameDelayMs, (now, delta) -> {
             double progress = TimelineSampler.clamp01((now - startedAt) / (double) durationNanos);
             updater.accept(TimelineSampler.sample(frames, progress, segmentIndex));
             if (progress >= 1.0) {

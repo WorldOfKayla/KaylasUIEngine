@@ -115,7 +115,7 @@ public class HearthstoneProgressBar extends JProgressBar {
             return;
         }
         visualStartedAt = System.nanoTime();
-        visualAnimation = AnimationEngine.shared().schedule(FRAME_DELAY_MS, (now, delta) -> {
+        visualAnimation = AnimationEngine.shared().schedule("progress:hearthstone-visual", FRAME_DELAY_MS, (now, delta) -> {
             if (!isDisplayable()) {
                 visualAnimation = null;
                 return false;
@@ -146,7 +146,7 @@ public class HearthstoneProgressBar extends JProgressBar {
         frame.add(panel);
         frame.setVisible(true);
 
-        AnimationEngine.shared().interval(38, 250, () -> {
+        AnimationEngine.shared().interval("progress:hearthstone-demo", 38, 250, () -> {
             double progress = progressBar.getProgress();
             if (progress >= 1.0) {
                 return false;

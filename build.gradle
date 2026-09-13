@@ -2,7 +2,7 @@ plugins {
     id 'java'
     id 'application'
     id 'maven-publish'
-    id 'com.gradleup.shadow' version '9.5.1'
+    id 'com.gradleup.shadow' version '9.2.2'
 }
 
 Properties localProperties = new Properties()
@@ -26,7 +26,7 @@ def readCanonicalSetting = { String key, String envKey, String fallback ->
     return (gradleValue ?: envValue ?: fallback).toString()
 }
 
-def projectVersion = readCanonicalSetting('project.version', 'PROJECT_VERSION', '2.3.0-KINETICA')
+def projectVersion = readCanonicalSetting('project.version', 'PROJECT_VERSION', '2.4.0-KINETICA')
 def projectGroup = readCanonicalSetting('project.group', 'PROJECT_GROUP', 'org.takesome')
 def projectArchivesBaseName = readCanonicalSetting('project.archivesBaseName', 'PROJECT_ARCHIVES_BASE_NAME', 'kaylas-ui-engine')
 def diagnosticsProjectDir = layout.projectDirectory.asFile.absolutePath
@@ -77,8 +77,12 @@ tasks.withType(Javadoc).configureEach {
     options.encoding = 'UTF-8'
 }
 
-tasks.withType(Test).configureEach {
-    failOnNoDiscoveredTests = false
+tasks.withType(Test).configureEach { testTask ->
+    // Gradle 9+ exposes this switch; Gradle 8.x does not. Keep the build IDE-compatible
+    // with Gradle 8 without giving up the Gradle 9 behaviour when we eventually upgrade.
+    if (testTask.hasProperty('failOnNoDiscoveredTests')) {
+        testTask.failOnNoDiscoveredTests = false
+    }
 }
 
 run {

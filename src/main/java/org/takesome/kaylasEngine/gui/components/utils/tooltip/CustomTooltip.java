@@ -57,7 +57,7 @@ public class CustomTooltip extends JWindow {
                 @Override
                 public void mouseEntered(MouseEvent e) {
                     cancel(hoverDelayAnimation);
-                    hoverDelayAnimation = AnimationEngine.shared().delay(500, () -> {
+                    hoverDelayAnimation = AnimationEngine.shared().delay("tooltip:hover-delay", 500, () -> {
                         hoverDelayAnimation = null;
                         if (component.isShowing()) {
                             Point location = component.getLocationOnScreen();
@@ -83,7 +83,7 @@ public class CustomTooltip extends JWindow {
 
     private void startAutoHideTimer(int delay) {
         cancelAutoHideTimer();
-        autoHideAnimation = AnimationEngine.shared().delay(Math.max(0, delay), () -> {
+        autoHideAnimation = AnimationEngine.shared().delay("tooltip:auto-hide", Math.max(0, delay), () -> {
             autoHideAnimation = null;
             fadeOutTooltip();
         });
@@ -98,6 +98,7 @@ public class CustomTooltip extends JWindow {
         cancel(fadeOutAnimation);
         float startOpacity = currentOpacity;
         fadeOutAnimation = AnimationEngine.shared().tween(
+                "tooltip:fade-out",
                 300,
                 16,
                 AnimationEngine.shared().curve("easeOutCubic"),

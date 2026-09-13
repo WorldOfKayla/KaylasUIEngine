@@ -104,7 +104,7 @@ public class TextField extends JTextField {
 			return;
 		}
 		caretVisible = true;
-		caretAnimation = AnimationEngine.shared().interval(carretDelay, carretDelay, () -> {
+		caretAnimation = AnimationEngine.shared().interval("textfield:caret", carretDelay, carretDelay, () -> {
 			if (!isFocusOwner() || !isDisplayable()) {
 				caretAnimation = null;
 				return false;

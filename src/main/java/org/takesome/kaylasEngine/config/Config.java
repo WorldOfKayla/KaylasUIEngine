@@ -4,7 +4,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import org.apache.logging.log4j.Logger;
 import org.foxesworld.cfgProvider.CfgProvider;
-import org.foxesworld.cfgProvider.ConfigTypeConverter;
 import org.takesome.kaylasEngine.Engine;
 
 import java.io.File;
@@ -207,7 +206,25 @@ public abstract class Config {
         if (value == null) {
             return null;
         }
-        return ConfigTypeConverter.convertToDeclaredType(value, fieldType);
+        return switch (fieldType.getName()) {
+            case "boolean", "java.lang.Boolean" -> value instanceof Boolean
+                    ? value
+                    : Boolean.parseBoolean(value.toString());
+            case "int", "java.lang.Integer" -> value instanceof Number number
+                    ? number.intValue()
+                    : Integer.parseInt(value.toString().trim());
+            case "double", "java.lang.Double" -> value instanceof Number number
+                    ? number.doubleValue()
+                    : Double.parseDouble(value.toString().trim());
+            case "float", "java.lang.Float" -> value instanceof Number number
+                    ? number.floatValue()
+                    : Float.parseFloat(value.toString().trim());
+            case "long", "java.lang.Long" -> value instanceof Number number
+                    ? number.longValue()
+                    : Long.parseLong(value.toString().trim());
+            case "java.lang.String" -> value.toString();
+            default -> throw new IllegalArgumentException("Unsupported field type: " + fieldType.getName());
+        };
     }
 
     public String getFullPath() {

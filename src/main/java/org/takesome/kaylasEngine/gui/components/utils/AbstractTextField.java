@@ -43,7 +43,7 @@ public abstract class AbstractTextField extends JComponent {
             return;
         }
         caretVisible = true;
-        caretAnimation = AnimationEngine.shared().interval(500, 500, () -> {
+        caretAnimation = AnimationEngine.shared().interval("abstract-textfield:caret", 500, 500, () -> {
             if (!hasFocus || !isDisplayable()) {
                 caretAnimation = null;
                 return false;

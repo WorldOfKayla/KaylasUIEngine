@@ -2,6 +2,7 @@ package org.takesome.kaylasEngine.utils.animation;
 
 import org.takesome.kaylasEngine.Engine;
 import org.takesome.kaylasEngine.gui.FloatingWindow;
+import org.takesome.kaylasEngine.gui.animation.AnimationCurve;
 import org.takesome.kaylasEngine.gui.animation.AnimationEngine;
 
 import javax.swing.SwingUtilities;
@@ -19,6 +20,7 @@ public class AnimationManager {
     private static final long UI_QUEUE_WARN_NANOS = 250_000_000L;
     private static final long TIMER_LAG_WARN_NANOS = 80_000_000L;
     private static final long TIMER_LAG_LOG_INTERVAL_NANOS = 1_000_000_000L;
+    private static final AnimationCurve MOTION_CURVE = AnimationCurve.named("easeInOut");
 
     private final FloatingWindow floatingWindow;
     private AnimationStats animationStats;
@@ -95,7 +97,7 @@ public class AnimationManager {
         long[] maxLagNanos = {0L};
         int[] tickCount = {0};
 
-        activeAnimation = AnimationEngine.shared().schedule(frameDelayMs, (now, deltaNanos) -> {
+        activeAnimation = AnimationEngine.shared().schedule("window:legacy-" + (isEntry ? "entry" : "exit"), frameDelayMs, (now, deltaNanos) -> {
             if (!floatingWindow.isDisplayable()) {
                 floatingWindow.setAnimating(false);
                 activeAnimation = null;
@@ -121,7 +123,7 @@ public class AnimationManager {
             }
 
             float progress = Math.min(1f, (now - startedAt) / (float) durationNanos);
-            float eased = easeInOut(progress);
+            float eased = MOTION_CURVE.apply(progress);
             double x = cubic(startX, startX, endX, endX, eased);
             double y = cubic(startY, middleY, middleY, targetY, eased);
             float opacity = startOpacity + (targetOpacity - startOpacity) * eased;
@@ -170,10 +172,6 @@ public class AnimationManager {
 
     private static long nanosToMillis(long nanos) {
         return nanos / 1_000_000L;
-    }
-
-    private static float easeInOut(float value) {
-        return (float) (-0.5 * (Math.cos(Math.PI * value) - 1));
     }
 
     private static float clamp01(float value) {
